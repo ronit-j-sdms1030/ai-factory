@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Requirement Intake - Stark Digital</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/theme-client.css">
+<script src="/config.js"></script>
+<style>
+  #shell { display: flex; min-height: 100vh; }
+
+  #sidebar {
+    width: 260px; flex-shrink: 0;
+    background: var(--bg-sidebar);
+    border-right: 1px solid var(--line);
+    padding: 1.4rem 1.1rem;
+    display: flex; flex-direction: column; gap: 1.6rem;
+  }
+  .who { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.9rem 0.2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .who strong { font-size: 0.94rem; }
+  .who span.email { font-size: 0.78rem; color: var(--text-faint); }
+  .sidebar-foot { margin-top: auto; }
+  .nav-label { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); }
+  .gov-note { margin: 0.6rem 0 0; font-size: 0.78rem; color: var(--text-faint); line-height: 1.55; }
+
+  #main { flex: 1; min-width: 0; overflow-y: auto; }
+  .content { max-width: 760px; margin: 0 auto; padding: 2.4rem 2rem 4rem; display: flex; flex-direction: column; gap: 2.2rem; }
+  .content.hidden { display: none; }
+
+  .content h1 { margin: 0 0 0.4rem; font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
+  :root.theme-client .content h1 { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 2.05rem; }
+  .content p.sub { margin: 0; color: var(--text-soft); }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.3rem 1.4rem 1.4rem; }
+  .card h2 { margin: 0 0 1rem; font-size: 1.02rem; font-weight: 600; }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+  @media (max-width: 560px) { .row-2 { grid-template-columns: 1fr; } }
+
+  .list { display: flex; flex-direction: column; gap: 0.8rem; }
+  .empty-note { font-size: 0.86rem; color: var(--text-faint); padding: 0.4rem 0; }
+
+  .item { border: 1px solid var(--line); border-radius: 8px; padding: 0.9rem 1rem; background: var(--bg); }
+  .item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.7rem; }
+  .item-title { font-weight: 600; font-size: 0.94rem; }
+  .item-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-faint); margin-top: 0.3rem; }
+  .item-content { font-size: 0.86rem; color: var(--text-soft); margin-top: 0.55rem; white-space: pre-wrap; }
+  .item-chain { font-size: 0.76rem; color: var(--text-faint); margin-top: 0.6rem; }
+  .item-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+  .item-actions .btn { padding: 0.45rem 0.75rem; font-size: 0.8rem; }
+
+  #logout-btn { width: 100%; }
+  #loading-note, #auth-gate { text-align: center; padding: 4rem 1rem; color: var(--text-soft); }
+</style>
+</head>
+<body>
+  <div id="loading-note">Loading session&hellip;</div>
+
+  <div id="shell" style="display:none;">
+    <aside id="sidebar">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="brandGrad" x1="2" y1="27" x2="30" y2="5" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" style="stop-color: var(--accent-strong)"/>
+              <stop offset="100%" style="stop-color: var(--accent)"/>
+            </linearGradient>
+          </defs>
+          <circle cx="16" cy="16" r="11" stroke="url(#brandGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="51 100" transform="rotate(-45 16 16)"/>
+        </svg>
+        <div class="brand-text">
+          <strong>Stark Digital</strong>
+          <span>Requirement Intake</span>
+        </div>
+      </div>
+
+      <div class="who">
+        <span class="tier-badge" id="who-tier">-</span>
+        <strong id="who-name">-</strong>
+        <span class="email" id="who-email">-</span>
+      </div>
+
+      <div>
+        <div class="nav-label">Governance</div>
+        <p class="gov-note" id="gov-note">Every submission is gated.</p>
+      </div>
+
+      <div class="sidebar-foot">
+        <button class="btn secondary" id="logout-btn" type="button">Log out</button>
+      </div>
+    </aside>
+
+    <main id="main">
+      <div class="content">
+        <div>
+          <div class="kicker" id="page-kicker">Requirement intake</div>
+          <h1 id="page-heading">Welcome back.</h1>
+          <p class="sub" id="page-sub">Describe what you need — it'll route to the right gate automatically.</p>
+        </div>
+
+        <div class="card">
+          <h2>New requirement</h2>
+          <div class="error-banner" id="intake-error"></div>
+
+          <div id="intake-idle">
+            <p style="color:var(--text-soft); font-size:0.9rem; margin:0 0 1rem;">Describe what you need in your own words — the intake assistant will ask a few follow-ups, then structure it into a requirement ready for review.</p>
+            <button class="btn" id="start-intake-btn" type="button">Start guided intake</button>
+          </div>
+
+          <div id="intake-chat" style="display:none;">
+            <div id="chat-messages" style="max-height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:0.8rem; margin-bottom:0.9rem; padding-right:0.2rem;"></div>
+            <div style="display:flex; gap:0.55rem; align-items:flex-end;">
+              <textarea id="chat-input" rows="1" placeholder="Type your reply..." style="flex:1; resize:none; font-size:0.92rem; padding:0.6rem 0.75rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--bg); color:var(--text);"></textarea>
+              <button class="btn" id="chat-send-btn" type="button" style="flex-shrink:0;">Send</button>
+            </div>
+            <p style="margin:0.6rem 0 0; font-family:var(--font-mono); font-size:0.68rem; color:var(--text-faint);">Guided by Llama 3.1 8B &middot; asks a few clarifying questions, then routes to the right gate.</p>
+          </div>
+        </div>
+
+        <div class="card" id="approval-card" style="display:none;">
+          <h2>Awaiting your approval</h2>
+          <div class="list" id="approval-list"></div>
+        </div>
+
+        <div class="card">
+          <h2>My submissions</h2>
+          <div class="list" id="mine-list"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    var TIER_LABELS = { md: 'Managing Director', ceo: 'Chief Executive Officer', vp: 'Vice President', pm: 'Project Manager', tl: 'Team Lead' };
+    var me = null;
+
+    function fmtChain(artifact) {
+      return artifact.approvalChain.map(function (step, i) {
+        var marker = i < artifact.currentApprovalIndex ? '✓' : (i === artifact.currentApprovalIndex ? '▸' : '·');
+        return marker + ' ' + step.approverTiers.join('/').toUpperCase() + ' (' + step.mode + ')';
+      }).join('  ');
+    }
+
+    function renderItem(artifact, showActions) {
+      var originatorLabel = artifact.originator.tierId ? TIER_LABELS[artifact.originator.tierId] : 'Client';
+      var el = document.createElement('div');
+      el.className = 'item';
+      el.innerHTML =
+        '<div class="item-top">' +
+          '<div>' +
+            '<div class="item-title"></div>' +
+            '<div class="item-meta"></div>' +
+          '</div>' +
+          '<span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + artifact.currentStage.replace('_', ' ') + '</span>' +
+        '</div>' +
+        '<div class="item-content"></div>' +
+        '<div class="item-chain"></div>' +
+        (showActions ? '<div class="item-actions"><button class="btn" data-action="approve">Approve</button><button class="btn secondary" data-action="requestRevision">Request revision</button><button class="btn danger" data-action="reject">Reject</button></div>' : '');
+
+      el.querySelector('.item-title').textContent = artifact.title;
+      el.querySelector('.item-meta').textContent = originatorLabel + ' · ' + new Date(artifact.createdAt).toLocaleString();
+      el.querySelector('.item-content').textContent = artifact.content;
+      el.querySelector('.item-chain').textContent = fmtChain(artifact);
+
+      if (showActions) {
+        el.querySelectorAll('[data-action]').forEach(function (btn) {
+          btn.addEventListener('click', function () { actOnArtifact(artifact._id, btn.getAttribute('data-action')); });
+        });
+      }
+      return el;
+    }
+
+    function actOnArtifact(id, action) {
+      var comment = '';
+      if (action !== 'approve') {
+        comment = window.prompt(action === 'reject' ? 'Reason for rejecting (optional):' : 'What needs revision? (optional):') || '';
+      }
+      fetch(window.API_BASE + '/api/artifacts/' + id + '/' + action, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: comment }),
+      })
+        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Action failed');
+          loadArtifacts();
+        })
+        .catch(function (err) { alert(err.message); });
+    }
+
+    function loadArtifacts() {
+      fetch(window.API_BASE + '/api/artifacts', { credentials: 'include' }).then(function (res) { return res.json(); }).then(function (data) {
+        var artifacts = data.artifacts || [];
+        var mine = artifacts.filter(function (a) { return a.originator.userId === me.id; });
+        var awaiting = me.isClient ? [] : artifacts.filter(function (a) {
+          return a.originator.userId !== me.id &&
+            a.currentStage === 'pending_approval' &&
+            a.approvalChain[a.currentApprovalIndex] &&
+            a.approvalChain[a.currentApprovalIndex].approverTiers.indexOf(me.tierId) !== -1;
+        });
+
+        var mineList = document.getElementById('mine-list');
+        mineList.innerHTML = '';
+        if (mine.length === 0) mineList.innerHTML = '<p class="empty-note">Nothing submitted yet.</p>';
+        mine.forEach(function (a) { mineList.appendChild(renderItem(a, false)); });
+
+        var approvalCard = document.getElementById('approval-card');
+        var approvalList = document.getElementById('approval-list');
+        approvalList.innerHTML = '';
+        if (awaiting.length > 0) {
+          approvalCard.style.display = '';
+          awaiting.forEach(function (a) { approvalList.appendChild(renderItem(a, true)); });
+        } else {
+          approvalCard.style.display = 'none';
+        }
+      });
+    }
+
+    function initPage() {
+      document.getElementById('who-name').textContent = me.name;
+      document.getElementById('who-email').textContent = me.email;
+      document.getElementById('who-tier').textContent = me.isClient ? 'CLIENT' : me.tierId.toUpperCase();
+
+      var kicker = document.getElementById('page-kicker');
+      var heading = document.getElementById('page-heading');
+      var sub = document.getElementById('page-sub');
+      var govNote = document.getElementById('gov-note');
+
+      if (me.isClient) {
+        document.documentElement.classList.add('theme-client');
+        kicker.textContent = 'Client requirement';
+        heading.textContent = 'Turn your ideas into reality.';
+        sub.textContent = "Tell us what you're picturing — it goes to MD/CEO first, then VP.";
+        govNote.textContent = 'Client submissions clear an MD or CEO gate, then a VP gate, before work begins.';
+      } else {
+        kicker.textContent = TIER_LABELS[me.tierId] + ' · ' + me.tierId.toUpperCase();
+        heading.textContent = 'Welcome back, ' + me.name.split(' ')[0] + '.';
+        sub.textContent = 'Describe what you need — it routes to the right gate automatically.';
+        govNote.textContent = 'Every submission is gated. Approvals route per the hierarchy config, not just "one tier up."';
+      }
+
+      document.getElementById('loading-note').style.display = 'none';
+      document.getElementById('shell').style.display = '';
+      loadArtifacts();
+    }
+
+    fetch(window.API_BASE + '/api/auth/me', { credentials: 'include' }).then(function (res) {
+      if (!res.ok) { window.location.href = '/login.html'; throw new Error('redirecting'); }
+      return res.json();
+    }).then(function (data) {
+      me = data.user;
+      initPage();
+    }).catch(function () { /* redirect already in flight */ });
+
+    document.getElementById('logout-btn').addEventListener('click', function () {
+      fetch(window.API_BASE + '/api/auth/logout', { method: 'POST', credentials: 'include' }).then(function () {
+        window.location.href = me && me.isClient ? '/client-login.html' : '/login.html';
+      });
+    });
+
+    var currentChatArtifactId = null;
+    var chatDone = false;
+
+    function showIntakeError(msg) {
+      var el = document.getElementById('intake-error');
+      el.textContent = msg;
+      el.classList.add('visible');
+    }
+
+    function addChatBubble(role, text) {
+      var box = document.getElementById('chat-messages');
+      var wrap = document.createElement('div');
+      wrap.style.alignSelf = role === 'user' ? 'flex-end' : 'flex-start';
+      wrap.style.maxWidth = '85%';
+      var bubble = document.createElement('div');
+      bubble.style.padding = '0.6rem 0.85rem';
+      bubble.style.borderRadius = '9px';
+      bubble.style.fontSize = '0.9rem';
+      bubble.style.lineHeight = '1.5';
+      bubble.style.background = role === 'user' ? 'var(--accent-soft)' : 'var(--surface-2)';
+      bubble.style.border = '1px solid var(--line)';
+      bubble.style.whiteSpace = 'pre-wrap';
+      bubble.textContent = text;
+      wrap.appendChild(bubble);
+      box.appendChild(wrap);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    document.getElementById('start-intake-btn').addEventListener('click', function () {
+      document.getElementById('intake-error').classList.remove('visible');
+      fetch(window.API_BASE + '/api/artifacts/chat/start', { method: 'POST', credentials: 'include' })
+        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not start intake');
+          currentChatArtifactId = result.body.artifactId;
+          chatDone = false;
+          document.getElementById('intake-idle').style.display = 'none';
+          document.getElementById('intake-chat').style.display = '';
+          document.getElementById('chat-messages').innerHTML = '';
+          addChatBubble('assistant', result.body.reply);
+          document.getElementById('chat-input').focus();
+        })
+        .catch(function (err) { showIntakeError(err.message); });
+    });
+
+    function sendChatMessage() {
+      var input = document.getElementById('chat-input');
+      var sendBtn = document.getElementById('chat-send-btn');
+      var text = input.value.trim();
+      if (!text || !currentChatArtifactId || chatDone) return;
+
+      addChatBubble('user', text);
+      input.value = '';
+      input.disabled = true;
+      sendBtn.disabled = true;
+
+      fetch(window.API_BASE + '/api/artifacts/chat/' + currentChatArtifactId + '/message', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      })
+        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Something went wrong');
+          if (result.body.done) {
+            chatDone = true;
+            addChatBubble('assistant', 'Requirement finalized — routed to ' + fmtChain(result.body.artifact) + '. Track it below under "My submissions."');
+            input.placeholder = 'Session complete';
+            loadArtifacts();
+            setTimeout(function () {
+              document.getElementById('intake-chat').style.display = 'none';
+              document.getElementById('intake-idle').style.display = '';
+              currentChatArtifactId = null;
+            }, 3000);
+          } else {
+            addChatBubble('assistant', result.body.reply);
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+          }
+        })
+        .catch(function (err) {
+          showIntakeError(err.message);
+          input.disabled = false;
+          sendBtn.disabled = false;
+        });
+    }
+
+    document.getElementById('chat-send-btn').addEventListener('click', sendChatMessage);
+    document.getElementById('chat-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+    });
+  </script>
+</body>
+</html>

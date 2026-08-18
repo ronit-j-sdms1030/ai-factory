@@ -1,0 +1,70 @@
+/* Warm, "claude.ai"-inspired theme — applied only to the client-facing
+   experience (client-login.html, and app.html when the signed-in user is a
+   client). Internal roles keep the dark/industrial theme.css palette. */
+
+@font-face {
+  font-family: 'Fraunces Client';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/fraunces_600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fraunces Client';
+  font-style: italic;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/fraunces_600i.woff2') format('woff2');
+}
+
+:root.theme-client {
+  --bg: #faf9f5;
+  --bg-sidebar: #f2efe5;
+  --surface: #ffffff;
+  --surface-2: #f1efe3;
+  --text: #262117;
+  --text-soft: #6b6355;
+  --text-faint: #948c78;
+  --line: rgba(38, 33, 23, 0.1);
+  --line-strong: rgba(38, 33, 23, 0.18);
+  --accent: #bf6a4d;
+  --accent-strong: #a8543a;
+  --accent-soft: rgba(191, 106, 77, 0.13);
+  --accent-ink: #fffaf6;
+  --good: #4c7a57;
+  --bad: #a8433a;
+  --shadow: 0 1px 2px rgba(38, 33, 23, 0.05), 0 20px 40px -20px rgba(38, 33, 23, 0.18);
+
+  --font-display: 'Fraunces Client', Georgia, serif;
+}
+
+:root.theme-client body {
+  background: var(--bg);
+}
+
+:root.theme-client .card {
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+:root.theme-client .btn {
+  border-radius: 999px;
+  padding: 0.78rem 1.5rem;
+  font-weight: 600;
+  box-shadow: 0 10px 24px -12px rgba(191, 106, 77, 0.55);
+}
+:root.theme-client .btn:hover {
+  box-shadow: 0 14px 28px -12px rgba(191, 106, 77, 0.65);
+}
+:root.theme-client .btn.secondary {
+  box-shadow: none;
+}
+
+:root.theme-client .field input,
+:root.theme-client .field textarea {
+  border-radius: 12px;
+}
+
+:root.theme-client .tier-badge {
+  border-radius: 999px;
+}

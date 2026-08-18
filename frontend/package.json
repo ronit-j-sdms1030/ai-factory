@@ -1,0 +1,9 @@
+{
+  "name": "ai-software-factory-frontend",
+  "version": "0.1.0",
+  "description": "Static login pages and dashboard for the requirement intake framework — no build step.",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js"
+  }
+}
