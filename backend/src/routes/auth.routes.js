@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const User = require('../models/user.model');
+const { requireAuth } = require('../middleware/auth.middleware');
 
 const router = express.Router();
 
@@ -11,6 +12,7 @@ function publicUser(user) {
     email: user.email,
     tierId: user.tierId,
     isClient: user.isClient,
+    department: user.department || null,
   };
 }
 
@@ -59,6 +61,19 @@ router.post('/logout', (req, res) => {
 router.get('/me', (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Not authenticated' });
   res.json({ user: req.session.user });
+});
+
+// Lists every team lead, for the "send for discussion" recipient picker.
+// TL-only — no other role needs this list.
+router.get('/team-leads', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  if (actor.isClient || actor.tierId !== 'tl') {
+    return res.status(403).json({ error: 'Only team leads can view this list' });
+  }
+  const tls = await User.find({ tierId: 'tl' }, 'name email department').sort({ department: 1, name: 1 });
+  res.json({
+    teamLeads: tls.map((u) => ({ id: u._id.toString(), name: u.name, email: u.email, department: u.department })),
+  });
 });
 
 module.exports = router;

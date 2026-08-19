@@ -5,6 +5,7 @@ function makeArtifact(originatorTierId) {
   return {
     title: 'Untitled',
     currentStage: 'draft',
+    originator: { userId: 'u-' + (originatorTierId || 'client'), tierId: originatorTierId },
     approvalChain: resolveApprovalChain(originatorTierId),
     currentApprovalIndex: 0,
     history: [],
@@ -12,18 +13,24 @@ function makeArtifact(originatorTierId) {
 }
 
 describe('submit -> pending_approval -> approved', () => {
-  test('a single-tier chain (PM -> VP) approves in one step', () => {
-    const artifact = makeArtifact('pm');
-    const originator = { userId: 'u-pm', tierId: 'pm' };
-    const approver = { userId: 'u-vp', tierId: 'vp' };
+  test('PM and TL submissions both need only one of MD, CEO, or VP', () => {
+    // PM is no longer an approver of anything — both PM's and TL's own
+    // ideas go to the same single gate, any of MD/CEO/VP.
+    const pmArtifact = makeArtifact('pm');
+    transition(pmArtifact, 'submit', { userId: 'u-pm', tierId: 'pm' });
+    transition(pmArtifact, 'approve', { userId: 'u-vp', tierId: 'vp' }, { comment: 'looks good' });
+    expect(pmArtifact.currentStage).toBe('approved');
 
-    transition(artifact, 'submit', originator);
-    expect(artifact.currentStage).toBe('pending_approval');
+    const tlArtifact = makeArtifact('tl');
+    transition(tlArtifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
+    transition(tlArtifact, 'approve', { userId: 'u-md', tierId: 'md' });
+    expect(tlArtifact.currentStage).toBe('approved');
+  });
 
-    transition(artifact, 'approve', approver, { comment: 'looks good' });
-    expect(artifact.currentStage).toBe('approved');
-    expect(artifact.history).toHaveLength(2);
-    expect(artifact.history[1].action).toBe('approve');
+  test('PM can no longer approve anything — not even a TL submission', () => {
+    const artifact = makeArtifact('tl');
+    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
+    expect(() => transition(artifact, 'approve', { userId: 'u-pm', tierId: 'pm' })).toThrow(/Unauthorized approver/);
   });
 
   test('VP submission needs only one of MD or CEO (either approves)', () => {
@@ -39,16 +46,49 @@ describe('submit -> pending_approval -> approved', () => {
     expect(artifact.approvalChain[0].approvedBy[0].tierId).toBe('ceo');
   });
 
-  test('MD and CEO peer-approve each other', () => {
+  test('MD and CEO self-approve gate 0, then VP still gates the FSD', () => {
     const mdSubmission = makeArtifact('md');
     transition(mdSubmission, 'submit', { userId: 'u-md', tierId: 'md' });
-    transition(mdSubmission, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
-    expect(mdSubmission.currentStage).toBe('approved');
+    // CEO cannot approve MD's own idea — only MD can.
+    expect(() => transition(mdSubmission, 'approve', { userId: 'u-ceo', tierId: 'ceo' })).toThrow(/Unauthorized approver/);
+    transition(mdSubmission, 'approve', { userId: 'u-md', tierId: 'md' });
+    // Self-approval clears gate 0 but does NOT finish the chain — VP's gate
+    // still lies ahead, and is what releases the work to the team leads.
+    expect(mdSubmission.currentStage).toBe('pending_approval');
+    expect(mdSubmission.currentApprovalIndex).toBe(1);
+    expect(mdSubmission.approvalChain[1].approverTiers).toEqual(['vp']);
 
     const ceoSubmission = makeArtifact('ceo');
     transition(ceoSubmission, 'submit', { userId: 'u-ceo', tierId: 'ceo' });
-    transition(ceoSubmission, 'approve', { userId: 'u-md', tierId: 'md' });
-    expect(ceoSubmission.currentStage).toBe('approved');
+    expect(() => transition(ceoSubmission, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Unauthorized approver/);
+    transition(ceoSubmission, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
+    expect(ceoSubmission.currentStage).toBe('pending_approval');
+    expect(ceoSubmission.currentApprovalIndex).toBe(1);
+  });
+
+  test("a self-originated MD requirement routes FSD -> VP -> approved, skipping the client loop", () => {
+    const artifact = makeArtifact('md');
+    transition(artifact, 'submit', { userId: 'u-md', tierId: 'md' });
+    transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' });
+
+    // The route generates the detailed report here and moves it into the
+    // review loop, where MD gets their editing pass.
+    artifact.currentStage = 'fsd_review';
+
+    // There is no client to send to, so this hands straight to VP rather
+    // than bouncing through fsd_pending_client / fsd_final_approval.
+    transition(artifact, 'sendFsdToClient', { userId: 'u-md', tierId: 'md' });
+    expect(artifact.currentStage).toBe('pending_approval');
+    expect(artifact.currentApprovalIndex).toBe(1);
+
+    // Only VP can clear this gate — MD cannot wave their own work through.
+    expect(() => transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Unauthorized approver/);
+
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' }, { comment: 'FSD signed off' });
+    // 'approved' + a detailed report present is exactly the condition
+    // maybeGenerateTeamSplit() waits for before splitting to the TLs.
+    expect(artifact.currentStage).toBe('approved');
+    expect(artifact.currentApprovalIndex).toBe(2);
   });
 
   test('client submissions clear an MD/CEO gate, then a separate VP gate', () => {
@@ -76,10 +116,10 @@ describe('reject and revision paths', () => {
   test('reject moves straight to rejected and stops there', () => {
     const artifact = makeArtifact('tl');
     transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
-    transition(artifact, 'reject', { userId: 'u-pm', tierId: 'pm' }, { comment: 'not scoped correctly' });
+    transition(artifact, 'reject', { userId: 'u-vp', tierId: 'vp' }, { comment: 'not scoped correctly' });
 
     expect(artifact.currentStage).toBe('rejected');
-    expect(() => transition(artifact, 'approve', { userId: 'u-pm', tierId: 'pm' })).toThrow(/Cannot perform "approve"/);
+    expect(() => transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' })).toThrow(/Cannot perform "approve"/);
   });
 
   test('requestRevision sends it back, and resubmitting restarts the approval chain', () => {

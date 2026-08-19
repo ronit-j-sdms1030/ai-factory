@@ -41,17 +41,115 @@
   .list { display: flex; flex-direction: column; gap: 0.8rem; }
   .empty-note { font-size: 0.86rem; color: var(--text-faint); padding: 0.4rem 0; }
 
-  .item { border: 1px solid var(--line); border-radius: 8px; padding: 0.9rem 1rem; background: var(--bg); }
+  .item { border: 1px solid var(--line); border-radius: 8px; padding: 0.9rem 1rem; background: var(--bg); transition: border-color 140ms ease, box-shadow 140ms ease; }
+  .item:hover { border-color: var(--line-strong); box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
   .item-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.7rem; }
   .item-title { font-weight: 600; font-size: 0.94rem; }
   .item-meta { font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-faint); margin-top: 0.3rem; }
-  .item-content { font-size: 0.86rem; color: var(--text-soft); margin-top: 0.55rem; white-space: pre-wrap; }
+  .item-content { font-size: 0.86rem; color: var(--text-soft); margin-top: 0.55rem; line-height: 1.5; }
+  .item-content.is-empty { font-style: italic; color: var(--text-faint); }
   .item-chain { font-size: 0.76rem; color: var(--text-faint); margin-top: 0.6rem; }
+  .item-why { font-size: 0.82rem; color: #b3462c; margin-top: 0.55rem; padding: 0.5rem 0.65rem; background: var(--surface-2); border-radius: 6px; }
+  .item-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  .item-badge {
+    font-size: 0.72rem; letter-spacing: 0.02em; padding: 0.18rem 0.5rem; border-radius: 999px;
+    border: 1px solid var(--accent); color: var(--accent); background: transparent;
+  }
+  .item-badge.muted { border-color: var(--line); color: var(--text-faint); }
   .item-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
   .item-actions .btn { padding: 0.45rem 0.75rem; font-size: 0.8rem; }
 
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 0.8rem; margin-top: 1.1rem; }
+  .pagination button {
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 6px; padding: 0.4rem 0.75rem; font-size: 0.8rem; cursor: pointer;
+    transition: background 120ms ease;
+  }
+  .pagination button:hover:not(:disabled) { background: var(--surface); border-color: var(--line-strong); }
+  .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pagination span { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-faint); }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20, 16, 10, 0.5);
+    display: none; align-items: center; justify-content: center;
+    padding: 1.5rem; z-index: 60;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    max-width: 620px; width: 100%; max-height: 86vh; overflow-y: auto; box-shadow: var(--shadow);
+  }
+  .modal-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+    padding: 1.15rem 1.3rem; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: var(--surface); z-index: 1;
+  }
+  .modal-head h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; font-size: 1.3rem; line-height: 1; color: var(--text-faint);
+    cursor: pointer; padding: 0.1rem 0.3rem; border-radius: 4px; flex-shrink: 0;
+  }
+  .modal-close:hover { color: var(--text); background: var(--surface-2); }
+  .modal-body { padding: 1.2rem 1.3rem 1.5rem; display: flex; flex-direction: column; gap: 1.1rem; }
+  .modal-section-label { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); margin-bottom: 0.4rem; }
+  .modal-list { margin: 0; padding-left: 1.15rem; font-size: 0.88rem; color: var(--text); display: flex; flex-direction: column; gap: 0.3rem; }
+  .modal-empty { margin: 0; font-size: 0.84rem; color: var(--text-faint); font-style: italic; }
+  .modal-body .field textarea { min-height: 4.2rem; }
+
+  .side-nav { display: flex; flex-direction: column; gap: 0.15rem; }
+  .side-nav-btn {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    background: none; border: none; border-radius: 7px;
+    color: var(--text-soft); font-weight: 600; font-size: 0.87rem;
+    padding: 0.55rem 0.7rem; cursor: pointer; text-align: left;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .side-nav-btn:hover { background: var(--surface-2); color: var(--text); }
+  .side-nav-btn.active { background: var(--surface-2); color: var(--text); }
+  .tab-badge {
+    background: var(--accent); color: var(--accent-ink); font-family: var(--font-mono);
+    font-size: 0.66rem; font-weight: 600; border-radius: 999px; padding: 0.05rem 0.42rem; line-height: 1.5;
+  }
+  .tab-view { display: flex; flex-direction: column; gap: 2.2rem; }
+
+  .chat-box {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+    display: flex; flex-direction: column; height: min(76vh, 820px); min-height: 460px; overflow: hidden;
+  }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 1rem 1rem 0.6rem; display: flex; flex-direction: column; gap: 0.8rem; }
+  .chat-composer {
+    display: flex; gap: 0.55rem; align-items: flex-end; flex-shrink: 0;
+    padding: 0.8rem 1rem; border-top: 1px solid var(--line); background: var(--surface);
+  }
+  .chat-composer textarea {
+    flex: 1; resize: none; font-size: 0.92rem; padding: 0.6rem 0.75rem;
+    border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+  }
+  .chat-composer .btn { flex-shrink: 0; }
+  .chat-footnote {
+    margin: 0; flex-shrink: 0; padding: 0.5rem 1rem 0.7rem; border-top: 1px solid var(--line); background: var(--surface);
+    font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-faint);
+  }
+
+  .chat-summary-block {
+    border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
+    padding: 0.9rem 1rem 1rem; display: flex; flex-direction: column; gap: 0.9rem;
+    align-self: stretch; max-width: 100%;
+  }
+  .chat-summary-head { font-weight: 700; font-size: 0.92rem; }
+  .chat-summary-note { margin: 0; font-size: 0.82rem; color: var(--text-faint); display: none; }
+  .chat-summary-note.visible { display: block; color: var(--accent-strong); }
+
   #logout-btn { width: 100%; }
   #loading-note, #auth-gate { text-align: center; padding: 4rem 1rem; color: var(--text-soft); }
+
+  .toast {
+    position: fixed; top: 1.1rem; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.7rem 1.1rem; font-size: 0.86rem; box-shadow: var(--shadow); z-index: 90;
+    max-width: 90vw; display: none; color: var(--text);
+  }
+  .toast.error { border-color: #b3462c; color: #b3462c; }
 </style>
 </head>
 <body>
@@ -74,6 +172,13 @@
           <span>Requirement Intake</span>
         </div>
       </div>
+
+      <nav class="side-nav" id="side-nav">
+        <button class="side-nav-btn active" id="tab-requirement" type="button" data-tab="requirement">Requirement</button>
+        <button class="side-nav-btn" id="tab-approvals" type="button" data-tab="approvals">Approvals<span class="tab-badge" id="approvals-badge" style="display:none;"></span></button>
+        <button class="side-nav-btn" id="tab-submissions" type="button" data-tab="submissions">Submissions</button>
+        <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
+      </nav>
 
       <div class="who">
         <span class="tier-badge" id="who-tier">-</span>
@@ -99,36 +204,65 @@
           <p class="sub" id="page-sub">Describe what you need — it'll route to the right gate automatically.</p>
         </div>
 
-        <div class="card">
-          <h2>New requirement</h2>
-          <div class="error-banner" id="intake-error"></div>
+        <div class="tab-view" id="view-requirement">
+          <div class="card">
+            <h2>New requirement</h2>
+            <div class="error-banner" id="intake-error"></div>
 
-          <div id="intake-idle">
-            <p style="color:var(--text-soft); font-size:0.9rem; margin:0 0 1rem;">Describe what you need in your own words — the intake assistant will ask a few follow-ups, then structure it into a requirement ready for review.</p>
-            <button class="btn" id="start-intake-btn" type="button">Start guided intake</button>
-          </div>
-
-          <div id="intake-chat" style="display:none;">
-            <div id="chat-messages" style="max-height:360px; overflow-y:auto; display:flex; flex-direction:column; gap:0.8rem; margin-bottom:0.9rem; padding-right:0.2rem;"></div>
-            <div style="display:flex; gap:0.55rem; align-items:flex-end;">
-              <textarea id="chat-input" rows="1" placeholder="Type your reply..." style="flex:1; resize:none; font-size:0.92rem; padding:0.6rem 0.75rem; border-radius:8px; border:1px solid var(--line-strong); background:var(--bg); color:var(--text);"></textarea>
-              <button class="btn" id="chat-send-btn" type="button" style="flex-shrink:0;">Send</button>
+            <div id="intake-idle">
+              <p style="color:var(--text-soft); font-size:0.9rem; margin:0 0 1rem;">Describe what you need in your own words — the intake assistant will ask a few follow-ups, then structure it into a requirement ready for review.</p>
+              <button class="btn" id="start-intake-btn" type="button">Start guided intake</button>
             </div>
-            <p style="margin:0.6rem 0 0; font-family:var(--font-mono); font-size:0.68rem; color:var(--text-faint);">Guided by Llama 3.1 8B &middot; asks a few clarifying questions, then routes to the right gate.</p>
+
+            <div id="intake-chat" class="chat-box" style="display:none;">
+              <div id="chat-messages" class="chat-messages"></div>
+              <div class="chat-composer">
+                <textarea id="chat-input" rows="1" placeholder="Type your reply..."></textarea>
+                <button class="btn" id="chat-send-btn" type="button">Send</button>
+              </div>
+              <p class="chat-footnote">Llama 3.1 8B asks the questions &middot; GPT-4o mini structures the requirement &middot; Claude Sonnet 5 writes the detailed report.</p>
+            </div>
           </div>
         </div>
 
-        <div class="card" id="approval-card" style="display:none;">
-          <h2>Awaiting your approval</h2>
-          <div class="list" id="approval-list"></div>
+        <div class="tab-view" id="view-approvals" style="display:none;">
+          <div class="card">
+            <h2>Awaiting your approval</h2>
+            <div class="list" id="approval-list"></div>
+            <div class="pagination" id="approval-pagination"></div>
+          </div>
         </div>
 
-        <div class="card">
-          <h2>My submissions</h2>
-          <div class="list" id="mine-list"></div>
+        <div class="tab-view" id="view-submissions" style="display:none;">
+          <div class="card">
+            <h2>My submissions</h2>
+            <div class="list" id="mine-list"></div>
+            <div class="pagination" id="mine-pagination"></div>
+          </div>
+        </div>
+
+        <div class="tab-view" id="view-teamwork" style="display:none;">
+          <div class="card">
+            <h2>Team work packages</h2>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;" id="teamwork-subtitle">Read-only — department-specific work broken out from fully-approved requirements.</p>
+            <div class="list" id="teamwork-list"></div>
+            <div class="pagination" id="teamwork-pagination"></div>
+          </div>
         </div>
       </div>
     </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h3 id="modal-title">Requirement</h3>
+        <button class="modal-close" id="modal-close-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
   </div>
 
   <script>
@@ -142,8 +276,125 @@
       }).join('  ');
     }
 
-    function renderItem(artifact, showActions) {
+    function escapeHtml(s) {
+      var div = document.createElement('div');
+      div.textContent = s == null ? '' : String(s);
+      return div.innerHTML;
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/"/g, '&quot;');
+    }
+
+    // The model occasionally returns a plain string instead of an array for
+    // a list field — normalize so callers can safely .map()/.length it.
+    function asArray(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') return v.trim() ? [v] : [];
+      return [];
+    }
+
+    // artifact.content is either the structured finalize_requirement document,
+    // an empty object (chat started but never finished), or (for older rows)
+    // a plain string — never render it directly with textContent.
+    function summaryPreview(artifact) {
+      var c = artifact.content;
+      var text = '';
+      if (c && typeof c === 'object' && c.summary) {
+        text = c.summary;
+      } else if (typeof c === 'string' && c.trim()) {
+        text = c.trim();
+      }
+      if (!text) {
+        return { text: artifact.currentStage === 'clarifying' ? 'Intake session not finished yet.' : 'No details recorded.', empty: true };
+      }
+      return { text: text.length > 160 ? text.slice(0, 157) + '…' : text, empty: false };
+    }
+
+    var STAGE_LABELS = {
+      fsd_review: 'FSD review',
+      fsd_pending_client: 'FSD pending originator',
+      fsd_final_approval: 'FSD final approval',
+      pending_client_review: 'pending client review',
+    };
+    function stageLabel(stage) { return STAGE_LABELS[stage] || stage.replace(/_/g, ' '); }
+
+    // Finds the most recent history entry with a comment, for one of the
+    // given actions — used to surface "why" (rejection reason, requested
+    // revision, proposed-changes note) directly on the item, not just
+    // buried in raw history.
+    function latestComment(artifact, actions) {
+      var history = artifact.history || [];
+      for (var i = history.length - 1; i >= 0; i--) {
+        if (actions.indexOf(history[i].action) !== -1 && history[i].comment) return history[i];
+      }
+      return null;
+    }
+    var WHY_PREFIX = { reject: 'Rejected — ', requestRevision: 'Revision requested — ', proposeChanges: 'Changes proposed — ' };
+
+    // Which action buttons apply to this artifact, based on its stage and
+    // the viewer's role — the same rules the backend enforces, mirrored
+    // here so the right buttons show up in both "Approvals" (internal) and
+    // "Submissions" (client/originator) without duplicating render logic.
+    function actionButtonsFor(artifact) {
+      var stage = artifact.currentStage;
+      var isOriginator = artifact.originator.userId === me.id;
+      var buttons = [];
+
+      if (!me.isClient) {
+        if (stage === 'pending_approval') {
+          var step = artifact.approvalChain[artifact.currentApprovalIndex];
+          if (step && step.approverTiers.indexOf(me.tierId) !== -1) {
+            buttons.push({ action: 'approve', label: 'Approve' });
+            if (artifact.currentApprovalIndex === 0) {
+              buttons.push({ action: 'proposeChanges', label: 'Propose changes', secondary: true, modal: 'proposeChanges' });
+            }
+            buttons.push({ action: 'requestRevision', label: 'Request revision', secondary: true });
+            buttons.push({ action: 'reject', label: 'Reject', danger: true });
+          }
+        }
+        // fsd_review / fsd_final_approval are gated by the requirement's own
+        // gate-0 reviewer pool (md/ceo for client & VP; md/ceo/vp for PM &
+        // TL), not a hardcoded tier — mirrors the backend authorization.
+        var reviewerPool = artifact.approvalChain[0].approverTiers;
+        if (stage === 'fsd_review' && reviewerPool.indexOf(me.tierId) !== -1) {
+          buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
+          // Self-originated requirements loop back to the same person, so
+          // "Send for review" would read as sending it to themselves.
+          buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for approval' : 'Send for review' });
+        }
+        if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
+          buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
+        }
+      }
+
+      // Recovery path: detailed-report generation can fail (rare, but the
+      // schema is large) — if it never landed, whoever can normally act on
+      // this stage can retry it.
+      var canRegenerate = !artifact.detailedReport && ['approved', 'fsd_review'].includes(stage) &&
+        (isOriginator || (!me.isClient && artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1));
+      if (canRegenerate) {
+        buttons.push({ action: 'regenerateFsd', label: 'Regenerate FSD', secondary: true });
+      }
+
+      if (isOriginator) {
+        if (stage === 'pending_client_review') buttons.push({ action: 'acceptChanges', label: 'Accept changes' });
+        if (stage === 'fsd_pending_client') {
+          buttons.push({ action: 'approveFsd', label: 'Approve FSD' });
+          buttons.push({ action: 'requestFsdChanges', label: 'Request changes', secondary: true, modal: 'fsdChat' });
+        }
+        if (stage === 'revision_requested') buttons.push({ action: 'resubmit', label: 'Edit & resubmit', secondary: true, modal: 'resubmit' });
+      }
+
+      return buttons;
+    }
+
+    // One item renderer for every list (Approvals, Submissions, Team Work) —
+    // which action buttons appear is entirely driven by actionButtonsFor(),
+    // so there's one place that decides "what can this viewer do here."
+    function renderArtifactItem(artifact) {
       var originatorLabel = artifact.originator.tierId ? TIER_LABELS[artifact.originator.tierId] : 'Client';
+      var preview = summaryPreview(artifact);
       var el = document.createElement('div');
       el.className = 'item';
       el.innerHTML =
@@ -152,42 +403,763 @@
             '<div class="item-title"></div>' +
             '<div class="item-meta"></div>' +
           '</div>' +
-          '<span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + artifact.currentStage.replace('_', ' ') + '</span>' +
+          '<span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span></span>' +
         '</div>' +
         '<div class="item-content"></div>' +
+        '<div class="item-why" style="display:none;"></div>' +
+        '<div class="item-badges"></div>' +
         '<div class="item-chain"></div>' +
-        (showActions ? '<div class="item-actions"><button class="btn" data-action="approve">Approve</button><button class="btn secondary" data-action="requestRevision">Request revision</button><button class="btn danger" data-action="reject">Reject</button></div>' : '');
+        '<div class="item-actions"><button class="btn secondary" data-view type="button">View</button></div>';
 
       el.querySelector('.item-title').textContent = artifact.title;
       el.querySelector('.item-meta').textContent = originatorLabel + ' · ' + new Date(artifact.createdAt).toLocaleString();
-      el.querySelector('.item-content').textContent = artifact.content;
+      el.querySelector('.stage-pill').appendChild(document.createTextNode(stageLabel(artifact.currentStage)));
+      var contentEl = el.querySelector('.item-content');
+      contentEl.textContent = preview.text;
+      contentEl.classList.toggle('is-empty', preview.empty);
       el.querySelector('.item-chain').textContent = fmtChain(artifact);
 
-      if (showActions) {
-        el.querySelectorAll('[data-action]').forEach(function (btn) {
-          btn.addEventListener('click', function () { actOnArtifact(artifact._id, btn.getAttribute('data-action')); });
-        });
+      var badgesEl = el.querySelector('.item-badges');
+      function addBadge(text, muted) {
+        var b = document.createElement('span');
+        b.className = 'item-badge' + (muted ? ' muted' : '');
+        b.textContent = text;
+        badgesEl.appendChild(b);
       }
+      if (artifact.detailedReport) addBadge('FSD ready — open View');
+      if (artifact.teamReports && artifact.teamReports.length) {
+        addBadge(artifact.teamReports.length + ' team package' + (artifact.teamReports.length === 1 ? '' : 's'), true);
+      }
+
+      var why = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
+      if (why) {
+        var whyEl = el.querySelector('.item-why');
+        whyEl.style.display = '';
+        whyEl.textContent = (WHY_PREFIX[why.action] || '') + why.comment;
+      }
+
+      el.querySelector('[data-view]').addEventListener('click', function () { openViewModal(artifact); });
+
+      var actionsEl = el.querySelector('.item-actions');
+      actionButtonsFor(artifact).forEach(function (btnDef) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn' + (btnDef.secondary ? ' secondary' : '') + (btnDef.danger ? ' danger' : '');
+        btn.textContent = btnDef.label;
+        btn.addEventListener('click', function () {
+          if (btnDef.modal === 'proposeChanges') return openProposeChangesModal(artifact);
+          if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
+          if (btnDef.modal === 'resubmit') return openEditModal(artifact);
+          actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
+        });
+        actionsEl.appendChild(btn);
+      });
+
       return el;
     }
 
-    function actOnArtifact(id, action) {
-      var comment = '';
-      if (action !== 'approve') {
-        comment = window.prompt(action === 'reject' ? 'Reason for rejecting (optional):' : 'What needs revision? (optional):') || '';
+    // --- "My submissions", "Awaiting your approval", "Team Work": paginated,
+    // small page sizes so the page itself never needs to grow past what fits
+    // on screen — pagination is the thing keeping this from scrolling, not a
+    // scroll container.
+    var LIST_PAGE_SIZE = 3;
+    var minePage = 1;
+    var mineData = [];
+    var approvalPage = 1;
+    var approvalData = [];
+    var teamworkPage = 1;
+    var teamworkData = [];
+
+    function renderPaginatedList(opts) {
+      var container = document.getElementById(opts.listId);
+      var paginationEl = document.getElementById(opts.paginationId);
+      container.innerHTML = '';
+
+      if (opts.data.length === 0) {
+        container.innerHTML = '<p class="empty-note">' + opts.emptyText + '</p>';
+        paginationEl.innerHTML = '';
+        return;
       }
+
+      var totalPages = Math.max(1, Math.ceil(opts.data.length / LIST_PAGE_SIZE));
+      if (opts.getPage() > totalPages) opts.setPage(totalPages);
+      var page = opts.getPage();
+      var start = (page - 1) * LIST_PAGE_SIZE;
+      opts.data.slice(start, start + LIST_PAGE_SIZE).forEach(function (a) {
+        container.appendChild(opts.renderItem(a));
+      });
+
+      if (totalPages <= 1) {
+        paginationEl.innerHTML = '';
+        return;
+      }
+      var prevId = opts.paginationId + '-prev';
+      var nextId = opts.paginationId + '-next';
+      paginationEl.innerHTML =
+        '<button id="' + prevId + '" type="button">&larr; Prev</button>' +
+        '<span>Page ' + page + ' of ' + totalPages + '</span>' +
+        '<button id="' + nextId + '" type="button">Next &rarr;</button>';
+      var prevBtn = document.getElementById(prevId);
+      var nextBtn = document.getElementById(nextId);
+      prevBtn.disabled = page <= 1;
+      nextBtn.disabled = page >= totalPages;
+      prevBtn.addEventListener('click', function () { opts.setPage(page - 1); opts.rerender(); });
+      nextBtn.addEventListener('click', function () { opts.setPage(page + 1); opts.rerender(); });
+    }
+
+    function renderMineList() {
+      renderPaginatedList({
+        listId: 'mine-list',
+        paginationId: 'mine-pagination',
+        data: mineData,
+        emptyText: 'Nothing submitted yet.',
+        renderItem: renderArtifactItem,
+        getPage: function () { return minePage; },
+        setPage: function (p) { minePage = p; },
+        rerender: renderMineList,
+      });
+    }
+
+    function renderApprovalList() {
+      renderPaginatedList({
+        listId: 'approval-list',
+        paginationId: 'approval-pagination',
+        data: approvalData,
+        emptyText: 'Nothing waiting on you.',
+        renderItem: renderArtifactItem,
+        getPage: function () { return approvalPage; },
+        setPage: function (p) { approvalPage = p; },
+        rerender: renderApprovalList,
+      });
+    }
+
+    function renderTeamworkList() {
+      renderPaginatedList({
+        listId: 'teamwork-list',
+        paginationId: 'teamwork-pagination',
+        data: teamworkData,
+        emptyText: 'No team work packages yet.',
+        renderItem: renderArtifactItem,
+        getPage: function () { return teamworkPage; },
+        setPage: function (p) { teamworkPage = p; },
+        rerender: renderTeamworkList,
+      });
+    }
+
+    // --- View / edit modal ---
+    function closeModal() {
+      document.getElementById('modal-overlay').classList.remove('open');
+      document.getElementById('modal-body').innerHTML = '';
+    }
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+    document.getElementById('modal-overlay').addEventListener('click', function (e) {
+      if (e.target.id === 'modal-overlay') closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    function listSection(label, items) {
+      // The model occasionally returns a plain string instead of an array
+      // for a list field — tolerate it rather than crashing the renderer.
+      if (typeof items === 'string') items = items.trim() ? [items] : [];
+      var html = '<div><div class="modal-section-label">' + label + '</div>';
+      if (!items || items.length === 0) {
+        html += '<p class="modal-empty">None specified.</p>';
+      } else {
+        html += '<ul class="modal-list">' + items.map(function (i) { return '<li>' + escapeHtml(i) + '</li>'; }).join('') + '</ul>';
+      }
+      html += '</div>';
+      return html;
+    }
+
+    // Shared between the view modal and the chat's inline review summary.
+    function requirementContentHtml(c) {
+      if (typeof c === 'string') {
+        return c.trim() ? '<p style="margin:0;font-size:0.9rem;">' + escapeHtml(c) + '</p>' : '<p class="modal-empty">No details recorded.</p>';
+      }
+      if (!c || (!c.summary && !(c.functionalRequirements && c.functionalRequirements.length))) {
+        return '<p class="modal-empty">This intake session was not finished, so there is no structured requirement yet.</p>';
+      }
+      var html = '<div><div class="modal-section-label">Summary</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.summary) + '</p></div>';
+      html += listSection('In scope', c.inScope);
+      html += listSection('Out of scope', c.outOfScope);
+      html += listSection('Functional requirements', c.functionalRequirements);
+      html += listSection('Non-functional requirements', c.nonFunctionalRequirements);
+      if (asArray(c.recommendedModels).length) {
+        html += '<div><div class="modal-section-label">Recommended models</div><ul class="modal-list">' +
+          asArray(c.recommendedModels).map(function (m) { return '<li><strong>' + escapeHtml(m.model) + '</strong> — ' + escapeHtml(m.purpose) + ' <span style="color:var(--text-faint);">(' + escapeHtml(m.rationale) + ')</span></li>'; }).join('') +
+          '</ul></div>';
+      }
+      if (asArray(c.recommendedSecurityTools).length) {
+        html += '<div><div class="modal-section-label">Security tools</div><ul class="modal-list">' +
+          asArray(c.recommendedSecurityTools).map(function (t) { return '<li><strong>' + escapeHtml(t.tool) + '</strong> — ' + escapeHtml(t.category) + ' <span style="color:var(--text-faint);">(' + escapeHtml(t.rationale) + ')</span></li>'; }).join('') +
+          '</ul></div>';
+      }
+      if (c.preferredCodeGenModel) {
+        html += '<div><div class="modal-section-label">Preferred code-gen model</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.preferredCodeGenModel) + '</p></div>';
+      }
+      html += listSection('Open questions', c.openQuestions);
+      return html;
+    }
+
+    function openViewModal(artifact) {
+      document.getElementById('modal-title').textContent = artifact.title || 'Untitled requirement';
+      var c = artifact.content || {};
+      var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage)) + '</span></div>';
+      var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
+      if (viewWhy) {
+        body += '<p class="item-why" style="margin:0;">' + escapeHtml((WHY_PREFIX[viewWhy.action] || '') + viewWhy.comment) + '</p>';
+      }
+      body += requirementContentHtml(c);
+
+      if (artifact.detailedReport) {
+        var d = artifact.detailedReport;
+        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
+        body += '<div><div class="modal-section-label" style="color:var(--accent);">Detailed report</div>';
+        body += '<p style="margin:0 0 0.5rem;font-size:0.78rem;color:var(--text-faint);">Generated by Claude Sonnet 5 after the gate-0 approval.</p>';
+        body += '<button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download FSD</button></div>';
+        if (d.conversationSummary) body += '<div><div class="modal-section-label">Conversation summary</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.conversationSummary) + '</p></div>';
+        if (d.objective) body += '<div><div class="modal-section-label">Objective</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.objective) + '</p></div>';
+        if (d.architecture) body += '<div><div class="modal-section-label">Architecture</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.architecture) + '</p></div>';
+        if (asArray(d.techStack).length) {
+          body += '<div><div class="modal-section-label">Tech stack</div><ul class="modal-list">' +
+            asArray(d.techStack).map(function (t) { return '<li><strong>' + escapeHtml(t.layer) + '</strong> — ' + escapeHtml(t.choice) + ' <span style="color:var(--text-faint);">(' + escapeHtml(t.rationale) + ')</span></li>'; }).join('') +
+            '</ul></div>';
+        }
+        if (asArray(d.userFlow).length) {
+          body += '<div><div class="modal-section-label">User flow</div><ol class="modal-list" style="padding-left:1.15rem;">' +
+            asArray(d.userFlow).map(function (s) { return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
+            '</ol></div>';
+        }
+        if (asArray(d.dataModel).length) {
+          body += '<div><div class="modal-section-label">Data model</div><ul class="modal-list">' +
+            asArray(d.dataModel).map(function (e) { return '<li><strong>' + escapeHtml(e.entity) + '</strong> — ' + escapeHtml(asArray(e.fields).join(', ')) + '<br /><span style="color:var(--text-faint);">' + escapeHtml(e.description) + '</span></li>'; }).join('') +
+            '</ul></div>';
+        }
+        if (asArray(d.pageBehavior).length) {
+          body += '<div><div class="modal-section-label">Page behavior</div><ul class="modal-list">' +
+            asArray(d.pageBehavior).map(function (p) { return '<li><strong>' + escapeHtml(p.page) + '</strong> — ' + escapeHtml(p.description) + '</li>'; }).join('') +
+            '</ul></div>';
+        }
+        body += listSection('Security design', d.securityDesign);
+        body += listSection('Deployment & operations', d.deploymentAndOperations);
+        if (d.costEstimate) {
+          body += '<div><div class="modal-section-label">Cost estimate</div><ul class="modal-list">' +
+            '<li><strong>Development:</strong> ' + escapeHtml(d.costEstimate.developmentEstimate) + '</li>' +
+            '<li><strong>Infrastructure (monthly):</strong> ' + escapeHtml(d.costEstimate.infrastructureMonthlyEstimate) + '</li>' +
+            (d.costEstimate.notes ? '<li><span style="color:var(--text-faint);">' + escapeHtml(d.costEstimate.notes) + '</span></li>' : '') +
+            '</ul></div>';
+        }
+        if (asArray(d.timeline).length) {
+          body += '<div><div class="modal-section-label">Timeline</div><ul class="modal-list">' +
+            asArray(d.timeline).map(function (t) { return '<li><strong>' + escapeHtml(t.phase) + '</strong> (' + escapeHtml(t.duration) + ') — ' + escapeHtml(t.description) + '</li>'; }).join('') +
+            '</ul></div>';
+        }
+        body += listSection('Assumptions', d.assumptions);
+        body += listSection('Open questions (detailed report)', d.openQuestions);
+      }
+
+      // A TL can act on this report if their own department has a package
+      // here, or another TL already shared it with them.
+      var tlHasAccess = !me.isClient && me.tierId === 'tl' && (
+        (artifact.teamReports || []).some(function (t) { return t.team === me.department; }) ||
+        (artifact.discussionRecipients || []).indexOf(me.id) !== -1
+      );
+
+      if (artifact.teamReports && artifact.teamReports.length) {
+        // A TL only ever sees their own department's package here — everyone
+        // else (MD/CEO/VP/client/originator) sees the full breakdown.
+        var visibleTeamReports = (!me.isClient && me.tierId === 'tl' && me.department)
+          ? artifact.teamReports.filter(function (t) { return t.team === me.department; })
+          : artifact.teamReports;
+        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
+        body += '<div><div class="modal-section-label" style="color:var(--accent);">Team work packages</div>';
+        body += '<p style="margin:0 0 0.5rem;font-size:0.78rem;color:var(--text-faint);">Generated after final approval — ready for team leads.</p>';
+        if (tlHasAccess) {
+          body += '<button class="btn secondary" id="share-discussion-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Send for discussion</button>';
+        }
+        body += '</div>';
+        visibleTeamReports.forEach(function (t) {
+          body += '<div><div class="modal-section-label">' + escapeHtml(t.team) + '</div>';
+          body += '<p style="margin:0 0 0.4rem;font-size:0.88rem;">' + escapeHtml(t.objective) + '</p>';
+          body += listSection('Tasks', t.tasks);
+          if (t.relevantDataEntities && t.relevantDataEntities.length) {
+            body += listSection('Relevant data entities', t.relevantDataEntities);
+          }
+          body += '</div>';
+        });
+      }
+
+      if (artifact.discussionShares && artifact.discussionShares.length) {
+        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
+        body += '<div><div class="modal-section-label" style="color:var(--accent);">Discussion</div></div>';
+        artifact.discussionShares.forEach(function (s) {
+          body += '<div class="item-why" style="margin-top:0;">' +
+            '<strong>' + escapeHtml(s.fromName) + '</strong> → <strong>' + escapeHtml(s.toName) + '</strong>' +
+            (s.note ? ': ' + escapeHtml(s.note) : '') +
+            '<br /><span style="color:var(--text-faint);font-size:0.76rem;">' + new Date(s.timestamp).toLocaleString() + '</span>' +
+            '</div>';
+        });
+      }
+
+      body += '<div><div class="modal-section-label">Approval chain</div><p style="margin:0;font-size:0.86rem;color:var(--text-soft);font-family:var(--font-mono);">' + escapeHtml(fmtChain(artifact)) + '</p></div>';
+
+      document.getElementById('modal-body').innerHTML = body;
+      document.getElementById('modal-overlay').classList.add('open');
+
+      var downloadBtn = document.getElementById('download-fsd-btn');
+      if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
+
+      var shareBtn = document.getElementById('share-discussion-btn');
+      if (shareBtn) shareBtn.addEventListener('click', function () { openShareForDiscussionModal(artifact); });
+    }
+
+    function openShareForDiscussionModal(artifact) {
+      document.getElementById('modal-title').textContent = 'Send for discussion';
+      document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading team leads...</p>';
+
+      fetch(window.API_BASE + '/api/auth/team-leads', { credentials: 'include' })
+        .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not load team leads');
+          var others = result.body.teamLeads.filter(function (tl) { return tl.id !== me.id; });
+          if (!others.length) {
+            document.getElementById('modal-body').innerHTML = '<p class="modal-empty">No other team leads to share with.</p>';
+            return;
+          }
+          document.getElementById('modal-body').innerHTML =
+            '<div class="field"><label>Send to</label><select id="share-recipient">' +
+              others.map(function (tl) { return '<option value="' + escapeAttr(tl.id) + '">' + escapeHtml(tl.name) + (tl.department ? ' (' + escapeHtml(tl.department) + ')' : '') + '</option>'; }).join('') +
+            '</select></div>' +
+            '<div class="field"><label>Note (optional)</label><textarea id="share-note" rows="3" placeholder="What would you like to discuss?"></textarea></div>' +
+            '<div class="error-banner" id="share-error"></div>' +
+            '<button class="btn" id="share-submit-btn" type="button">Send</button>';
+
+          document.getElementById('share-submit-btn').addEventListener('click', function () {
+            var btn = document.getElementById('share-submit-btn');
+            var errEl = document.getElementById('share-error');
+            errEl.classList.remove('visible');
+            var toUserId = document.getElementById('share-recipient').value;
+            var note = document.getElementById('share-note').value.trim();
+            btn.disabled = true;
+            btn.textContent = 'Sending...';
+
+            fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/shareForDiscussion', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ toUserId: toUserId, note: note }),
+            })
+              .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+              .then(function (result2) {
+                if (!result2.ok) throw new Error(result2.body.error || 'Could not share');
+                closeModal();
+                loadArtifacts();
+              })
+              .catch(function (err) {
+                errEl.textContent = err.message;
+                errEl.classList.add('visible');
+                btn.disabled = false;
+                btn.textContent = 'Send';
+              });
+          });
+        })
+        .catch(function (err) {
+          document.getElementById('modal-body').innerHTML = '<p class="error-banner visible">' + escapeHtml(err.message) + '</p>';
+        });
+    }
+
+    // Builds a plain-text/Markdown export of the requirement + detailed
+    // report + team packages, so it can be shared outside the app.
+    function fsdToMarkdown(artifact) {
+      var d = artifact.detailedReport || {};
+      var lines = ['# ' + (artifact.title || 'Untitled requirement'), ''];
+
+      lines.push('## Summary', '', (artifact.content && artifact.content.summary) || '', '');
+
+      var section = function (label, items) {
+        var arr = asArray(items);
+        if (!arr.length) return;
+        lines.push('## ' + label, '');
+        arr.forEach(function (i) { lines.push('- ' + i); });
+        lines.push('');
+      };
+
+      if (d.conversationSummary) lines.push('## Conversation Summary', '', d.conversationSummary, '');
+      if (d.objective) lines.push('## Objective', '', d.objective, '');
+      if (d.architecture) lines.push('## Architecture', '', d.architecture, '');
+      if (asArray(d.techStack).length) {
+        lines.push('## Tech Stack', '');
+        asArray(d.techStack).forEach(function (t) { lines.push('- **' + t.layer + '**: ' + t.choice + ' — ' + t.rationale); });
+        lines.push('');
+      }
+      if (asArray(d.userFlow).length) {
+        lines.push('## User Flow', '');
+        asArray(d.userFlow).forEach(function (s, i) { lines.push((i + 1) + '. ' + s); });
+        lines.push('');
+      }
+      if (asArray(d.dataModel).length) {
+        lines.push('## Data Model', '');
+        asArray(d.dataModel).forEach(function (e) { lines.push('- **' + e.entity + '** (' + asArray(e.fields).join(', ') + '): ' + e.description); });
+        lines.push('');
+      }
+      if (asArray(d.pageBehavior).length) {
+        lines.push('## Page Behavior', '');
+        asArray(d.pageBehavior).forEach(function (p) { lines.push('- **' + p.page + '**: ' + p.description); });
+        lines.push('');
+      }
+      section('Security Design', d.securityDesign);
+      section('Deployment & Operations', d.deploymentAndOperations);
+      if (d.costEstimate) {
+        lines.push('## Cost Estimate', '');
+        lines.push('- **Development**: ' + d.costEstimate.developmentEstimate);
+        lines.push('- **Infrastructure (monthly)**: ' + d.costEstimate.infrastructureMonthlyEstimate);
+        if (d.costEstimate.notes) lines.push('- **Notes**: ' + d.costEstimate.notes);
+        lines.push('');
+      }
+      if (asArray(d.timeline).length) {
+        lines.push('## Timeline', '');
+        asArray(d.timeline).forEach(function (t) { lines.push('- **' + t.phase + '** (' + t.duration + '): ' + t.description); });
+        lines.push('');
+      }
+      section('Assumptions', d.assumptions);
+      section('Open Questions', d.openQuestions);
+
+      if (artifact.teamReports && artifact.teamReports.length) {
+        lines.push('## Team Work Packages', '');
+        artifact.teamReports.forEach(function (t) {
+          lines.push('### ' + t.team, '', t.objective, '');
+          asArray(t.tasks).forEach(function (task) { lines.push('- ' + task); });
+          lines.push('');
+        });
+      }
+
+      return lines.join('\n');
+    }
+
+    function downloadFsd(artifact) {
+      var md = fsdToMarkdown(artifact);
+      var blob = new Blob([md], { type: 'text/markdown' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = (artifact.title || 'requirement').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-fsd.md';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    // opts.mode: 'resubmit' (default) POSTs to /resubmit — used when a
+    // revision was requested and the stage needs to advance. 'local' just
+    // hands the edited title/content to opts.onSave and closes — used for
+    // editing the chat's pre-send review summary, where nothing should hit
+    // the network until the client explicitly clicks Send.
+    function openEditModal(artifact, opts) {
+      opts = opts || { mode: 'resubmit' };
+      document.getElementById('modal-title').textContent = opts.mode === 'local' ? 'Edit requirement' : 'Edit & resubmit';
+      var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
+      var linesToText = function (arr) { return (arr || []).join('\n'); };
+
+      var body =
+        '<div class="field"><label>Title</label><input type="text" id="edit-title" value="' + escapeAttr(artifact.title) + '" /></div>' +
+        '<div class="field"><label>Summary</label><textarea id="edit-summary" rows="3">' + escapeHtml(c.summary || '') + '</textarea></div>' +
+        '<div class="field"><label>In scope (one per line)</label><textarea id="edit-inscope" rows="3">' + escapeHtml(linesToText(c.inScope)) + '</textarea></div>' +
+        '<div class="field"><label>Out of scope (one per line)</label><textarea id="edit-outscope" rows="3">' + escapeHtml(linesToText(c.outOfScope)) + '</textarea></div>' +
+        '<div class="field"><label>Functional requirements (one per line)</label><textarea id="edit-func" rows="3">' + escapeHtml(linesToText(c.functionalRequirements)) + '</textarea></div>' +
+        '<div class="field"><label>Non-functional requirements (one per line)</label><textarea id="edit-nonfunc" rows="3">' + escapeHtml(linesToText(c.nonFunctionalRequirements)) + '</textarea></div>' +
+        '<div class="field"><label>Open questions (one per line)</label><textarea id="edit-openq" rows="2">' + escapeHtml(linesToText(c.openQuestions)) + '</textarea></div>' +
+        '<p style="font-size:0.78rem;color:var(--text-faint);margin:0;">Recommended models and security tools carry over unchanged from the original intake.</p>' +
+        '<div class="error-banner" id="edit-error"></div>' +
+        '<button class="btn" id="edit-save-btn" type="button" style="align-self:flex-start;">' + (opts.mode === 'local' ? 'Save changes' : 'Save &amp; resubmit') + '</button>';
+
+      document.getElementById('modal-body').innerHTML = body;
+      document.getElementById('modal-overlay').classList.add('open');
+
+      document.getElementById('edit-save-btn').addEventListener('click', function () {
+        var btn = document.getElementById('edit-save-btn');
+        var errEl = document.getElementById('edit-error');
+        errEl.classList.remove('visible');
+
+        var linesOf = function (id) {
+          return document.getElementById(id).value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+        };
+        var updatedContent = Object.assign({}, c, {
+          summary: document.getElementById('edit-summary').value.trim(),
+          inScope: linesOf('edit-inscope'),
+          outOfScope: linesOf('edit-outscope'),
+          functionalRequirements: linesOf('edit-func'),
+          nonFunctionalRequirements: linesOf('edit-nonfunc'),
+          openQuestions: linesOf('edit-openq'),
+        });
+        var newTitle = document.getElementById('edit-title').value.trim();
+
+        if (opts.mode === 'local') {
+          closeModal();
+          opts.onSave(newTitle, updatedContent);
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/resubmit', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTitle, content: updatedContent }),
+        })
+          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not resubmit');
+            closeModal();
+            loadArtifacts();
+          })
+          .catch(function (err) {
+            errEl.textContent = err.message;
+            errEl.classList.add('visible');
+            btn.disabled = false;
+            btn.textContent = 'Save & resubmit';
+          });
+      });
+    }
+
+    // Propose changes: the gate-0 approver edits the summary themselves and
+    // sends their own version to the client, rather than asking the client
+    // to redo it. Same field set as openEditModal, different endpoint and a
+    // note-to-client field.
+    function openProposeChangesModal(artifact) {
+      document.getElementById('modal-title').textContent = 'Propose changes';
+      var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
+      var linesToText = function (arr) { return (arr || []).join('\n'); };
+
+      var body =
+        '<p style="font-size:0.82rem;color:var(--text-faint);margin:0;">Edit the summary yourself — the client only needs to confirm it, not rewrite it.</p>' +
+        '<div class="field"><label>Title</label><input type="text" id="pc-title" value="' + escapeAttr(artifact.title) + '" /></div>' +
+        '<div class="field"><label>Summary</label><textarea id="pc-summary" rows="3">' + escapeHtml(c.summary || '') + '</textarea></div>' +
+        '<div class="field"><label>In scope (one per line)</label><textarea id="pc-inscope" rows="3">' + escapeHtml(linesToText(c.inScope)) + '</textarea></div>' +
+        '<div class="field"><label>Out of scope (one per line)</label><textarea id="pc-outscope" rows="3">' + escapeHtml(linesToText(c.outOfScope)) + '</textarea></div>' +
+        '<div class="field"><label>Functional requirements (one per line)</label><textarea id="pc-func" rows="3">' + escapeHtml(linesToText(c.functionalRequirements)) + '</textarea></div>' +
+        '<div class="field"><label>Non-functional requirements (one per line)</label><textarea id="pc-nonfunc" rows="3">' + escapeHtml(linesToText(c.nonFunctionalRequirements)) + '</textarea></div>' +
+        '<div class="field"><label>Note to client (optional)</label><textarea id="pc-comment" rows="2"></textarea></div>' +
+        '<div class="error-banner" id="pc-error"></div>' +
+        '<button class="btn" id="pc-save-btn" type="button" style="align-self:flex-start;">Send to client</button>';
+
+      document.getElementById('modal-body').innerHTML = body;
+      document.getElementById('modal-overlay').classList.add('open');
+
+      document.getElementById('pc-save-btn').addEventListener('click', function () {
+        var btn = document.getElementById('pc-save-btn');
+        var errEl = document.getElementById('pc-error');
+        errEl.classList.remove('visible');
+
+        var linesOf = function (id) {
+          return document.getElementById(id).value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+        };
+        var updatedContent = Object.assign({}, c, {
+          summary: document.getElementById('pc-summary').value.trim(),
+          inScope: linesOf('pc-inscope'),
+          outOfScope: linesOf('pc-outscope'),
+          functionalRequirements: linesOf('pc-func'),
+          nonFunctionalRequirements: linesOf('pc-nonfunc'),
+        });
+        var newTitle = document.getElementById('pc-title').value.trim();
+        var comment = document.getElementById('pc-comment').value.trim();
+
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/proposeChanges', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTitle, content: updatedContent, comment: comment }),
+        })
+          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not propose changes');
+            closeModal();
+            loadArtifacts();
+          })
+          .catch(function (err) {
+            errEl.textContent = err.message;
+            errEl.classList.add('visible');
+            btn.disabled = false;
+            btn.textContent = 'Send to client';
+          });
+      });
+    }
+
+    // Edit FSD via chat: MD/CEO (during fsd_review) or the client (during
+    // fsd_pending_client) describe a change in plain language and Claude
+    // applies it to the detailed report — replaces the old static form.
+    function openFsdChatModal(artifact) {
+      document.getElementById('modal-title').textContent = 'Edit detailed report';
+      document.getElementById('modal-body').innerHTML =
+        '<div class="chat-box" style="height:58vh; min-height:360px;">' +
+          '<div id="fsd-chat-messages" class="chat-messages"></div>' +
+          '<div class="chat-composer">' +
+            '<textarea id="fsd-chat-input" rows="1" placeholder="Describe the change you want..."></textarea>' +
+            '<button class="btn" id="fsd-chat-send-btn" type="button">Send</button>' +
+          '</div>' +
+        '</div>';
+      document.getElementById('modal-overlay').classList.add('open');
+
+      var box = document.getElementById('fsd-chat-messages');
+
+      function addBubble(role, text) {
+        var wrap = document.createElement('div');
+        wrap.style.alignSelf = role === 'user' ? 'flex-end' : 'flex-start';
+        wrap.style.maxWidth = '85%';
+        var bubble = document.createElement('div');
+        bubble.style.padding = '0.6rem 0.85rem';
+        bubble.style.borderRadius = '9px';
+        bubble.style.fontSize = '0.9rem';
+        bubble.style.lineHeight = '1.5';
+        bubble.style.background = role === 'user' ? 'var(--accent-soft)' : 'var(--surface-2)';
+        bubble.style.border = '1px solid var(--line)';
+        bubble.style.whiteSpace = 'pre-wrap';
+        bubble.textContent = text;
+        wrap.appendChild(bubble);
+        box.appendChild(wrap);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      var priorHistory = artifact.fsdChatHistory || [];
+      if (priorHistory.length) {
+        priorHistory.forEach(function (h) { addBubble(h.role, h.content); });
+      } else {
+        addBubble('assistant', "Tell me what you'd like changed in the detailed report — I'll update it and confirm what I changed.");
+      }
+
+      function send() {
+        var input = document.getElementById('fsd-chat-input');
+        var sendBtn = document.getElementById('fsd-chat-send-btn');
+        var text = input.value.trim();
+        if (!text) return;
+
+        addBubble('user', text);
+        input.value = '';
+        input.disabled = true;
+        sendBtn.disabled = true;
+
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/fsdChat', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text }),
+        })
+          .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not apply that change');
+            artifact.detailedReport = result.body.artifact.detailedReport;
+            artifact.fsdChatHistory = result.body.artifact.fsdChatHistory;
+            addBubble('assistant', result.body.reply);
+            loadArtifacts();
+          })
+          .catch(function (err) {
+            addBubble('assistant', 'Error: ' + err.message);
+          })
+          .then(function () {
+            input.disabled = false;
+            sendBtn.disabled = false;
+            input.focus();
+          });
+      }
+
+      document.getElementById('fsd-chat-send-btn').addEventListener('click', send);
+      document.getElementById('fsd-chat-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+    }
+
+    // Non-blocking replacement for alert() — used for action errors, most
+    // commonly "someone else already acted on this since your last refresh."
+    var toastTimer = null;
+    function showToast(msg, isError) {
+      var el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast' + (isError ? ' error' : '');
+      el.style.display = 'block';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { el.style.display = 'none'; }, 4500);
+    }
+
+    // Actions that take a free-text comment — collected via a proper modal
+    // window (not a native prompt()), consistent with the rest of the app.
+    // Everything else (acceptChanges, approveFsd, giveFinalFsdApproval,
+    // sendFsdToClient) is a plain confirmation with no reason to type.
+    var COMMENT_ACTIONS = {
+      reject: { title: 'Reject requirement', label: 'Reason for rejecting (optional)' },
+      requestRevision: { title: 'Request revision', label: 'What needs revision? (optional)' },
+    };
+
+    function openCommentModal(title, label, onSubmit) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-body').innerHTML =
+        '<div class="field"><label>' + escapeHtml(label) + '</label><textarea id="comment-input" rows="4" placeholder="Type your notes here..."></textarea></div>' +
+        '<div style="display:flex; gap:0.55rem;">' +
+          '<button class="btn" id="comment-submit-btn" type="button">Submit</button>' +
+          '<button class="btn secondary" id="comment-cancel-btn" type="button">Cancel</button>' +
+        '</div>';
+      document.getElementById('modal-overlay').classList.add('open');
+
+      document.getElementById('comment-cancel-btn').addEventListener('click', closeModal);
+      document.getElementById('comment-submit-btn').addEventListener('click', function () {
+        var text = document.getElementById('comment-input').value.trim();
+        closeModal();
+        onSubmit(text);
+      });
+      document.getElementById('comment-input').focus();
+    }
+
+    // These actions can trigger a Claude Sonnet 5 call (detailed report or
+    // team split generation) that's observed taking anywhere from ~30s to
+    // over 2 minutes — with no feedback, that reads as a frozen page.
+    var SLOW_ACTIONS = { approve: true, giveFinalFsdApproval: true, regenerateFsd: true };
+
+    function submitArtifactAction(id, action, comment, btn, actionsEl) {
+      var siblingButtons = actionsEl ? Array.prototype.slice.call(actionsEl.querySelectorAll('button')) : [];
+      siblingButtons.forEach(function (b) { b.disabled = true; });
+      var originalText = btn ? btn.textContent : null;
+      if (btn) btn.textContent = SLOW_ACTIONS[action] ? 'Working…' : 'Working...';
+      if (SLOW_ACTIONS[action]) {
+        showToast("This triggers an AI step (detailed report or team split) — can take a minute or two. The button isn't frozen, just working.", false);
+      }
+
       fetch(window.API_BASE + '/api/artifacts/' + id + '/' + action, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment: comment }),
+        body: JSON.stringify({ comment: comment || '' }),
       })
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.body.error || 'Action failed');
+          if (result.body.detailedReportError) showToast('Approved, but the detailed report failed to generate: ' + result.body.detailedReportError, true);
+          if (result.body.teamSplitError) showToast('Approved, but the team split failed to generate: ' + result.body.teamSplitError, true);
           loadArtifacts();
         })
-        .catch(function (err) { alert(err.message); });
+        .catch(function (err) {
+          showToast(err.message, true);
+          siblingButtons.forEach(function (b) { b.disabled = false; });
+          if (btn && originalText) btn.textContent = originalText;
+          // Whatever failed, refresh — the most common cause is someone
+          // else already acted on this item and our list was stale.
+          loadArtifacts();
+        });
+    }
+
+    function actOnArtifact(id, action, actionsEl, btn) {
+      var commentSpec = COMMENT_ACTIONS[action];
+      if (commentSpec) {
+        openCommentModal(commentSpec.title, commentSpec.label, function (comment) {
+          submitArtifactAction(id, action, comment, btn, actionsEl);
+        });
+        return;
+      }
+      submitArtifactAction(id, action, '', btn, actionsEl);
     }
 
     function loadArtifacts() {
@@ -195,33 +1167,64 @@
         var artifacts = data.artifacts || [];
         var mine = artifacts.filter(function (a) { return a.originator.userId === me.id; });
         var awaiting = me.isClient ? [] : artifacts.filter(function (a) {
-          return a.originator.userId !== me.id &&
-            a.currentStage === 'pending_approval' &&
-            a.approvalChain[a.currentApprovalIndex] &&
-            a.approvalChain[a.currentApprovalIndex].approverTiers.indexOf(me.tierId) !== -1;
+          if (a.originator.userId === me.id) return false;
+          if (a.currentStage === 'pending_approval') {
+            return a.approvalChain[a.currentApprovalIndex] && a.approvalChain[a.currentApprovalIndex].approverTiers.indexOf(me.tierId) !== -1;
+          }
+          // fsd_review / fsd_final_approval aren't chain-indexed — the
+          // gate-0 reviewer pool acts on these regardless of which index
+          // the chain is currently at.
+          if ((a.currentStage === 'fsd_review' || a.currentStage === 'fsd_final_approval') && a.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1) {
+            return true;
+          }
+          return false;
         });
+        var teamwork = (!me.isClient && me.tierId === 'tl' && me.department)
+          ? artifacts.filter(function (a) { return (a.teamReports || []).some(function (t) { return t.team === me.department; }); })
+          : [];
 
-        var mineList = document.getElementById('mine-list');
-        mineList.innerHTML = '';
-        if (mine.length === 0) mineList.innerHTML = '<p class="empty-note">Nothing submitted yet.</p>';
-        mine.forEach(function (a) { mineList.appendChild(renderItem(a, false)); });
+        mineData = mine.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+        renderMineList();
 
-        var approvalCard = document.getElementById('approval-card');
-        var approvalList = document.getElementById('approval-list');
-        approvalList.innerHTML = '';
-        if (awaiting.length > 0) {
-          approvalCard.style.display = '';
-          awaiting.forEach(function (a) { approvalList.appendChild(renderItem(a, true)); });
+        approvalData = awaiting.slice().sort(function (a, b) { return new Date(a.updatedAt) - new Date(b.updatedAt); });
+        renderApprovalList();
+
+        teamworkData = teamwork.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+        renderTeamworkList();
+
+        var badge = document.getElementById('approvals-badge');
+        if (approvalData.length > 0) {
+          badge.textContent = String(approvalData.length);
+          badge.style.display = '';
         } else {
-          approvalCard.style.display = 'none';
+          badge.style.display = 'none';
+        }
+
+        var twBadge = document.getElementById('teamwork-badge');
+        if (teamworkData.length > 0) {
+          twBadge.textContent = String(teamworkData.length);
+          twBadge.style.display = '';
+        } else {
+          twBadge.style.display = 'none';
         }
       });
     }
 
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork'];
+    function switchTab(tabName) {
+      TAB_NAMES.forEach(function (name) {
+        document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
+        document.getElementById('view-' + name).style.display = name === tabName ? '' : 'none';
+      });
+    }
+    TAB_NAMES.forEach(function (name) {
+      document.getElementById('tab-' + name).addEventListener('click', function () { switchTab(name); });
+    });
+
     function initPage() {
       document.getElementById('who-name').textContent = me.name;
       document.getElementById('who-email').textContent = me.email;
-      document.getElementById('who-tier').textContent = me.isClient ? 'CLIENT' : me.tierId.toUpperCase();
+      document.getElementById('who-tier').textContent = me.isClient ? 'CLIENT' : me.tierId.toUpperCase() + (me.department ? ' · ' + me.department : '');
 
       var kicker = document.getElementById('page-kicker');
       var heading = document.getElementById('page-heading');
@@ -232,13 +1235,20 @@
         document.documentElement.classList.add('theme-client');
         kicker.textContent = 'Client requirement';
         heading.textContent = 'Turn your ideas into reality.';
-        sub.textContent = "Tell us what you're picturing — it goes to MD/CEO first, then VP.";
+        sub.textContent = "Whatever you're picturing, we'll help you build it.";
         govNote.textContent = 'Client submissions clear an MD or CEO gate, then a VP gate, before work begins.';
+        document.getElementById('tab-approvals').style.display = 'none';
       } else {
-        kicker.textContent = TIER_LABELS[me.tierId] + ' · ' + me.tierId.toUpperCase();
+        kicker.textContent = TIER_LABELS[me.tierId] + ' · ' + me.tierId.toUpperCase() + (me.department ? ' (' + me.department + ')' : '');
         heading.textContent = 'Welcome back, ' + me.name.split(' ')[0] + '.';
         sub.textContent = 'Describe what you need — it routes to the right gate automatically.';
         govNote.textContent = 'Every submission is gated. Approvals route per the hierarchy config, not just "one tier up."';
+        if (me.tierId === 'tl') {
+          document.getElementById('tab-teamwork').style.display = '';
+          document.getElementById('teamwork-subtitle').textContent = me.department
+            ? 'Read-only — ' + me.department + " team's work, broken out from fully-approved requirements."
+            : 'Read-only — department-specific work broken out from fully-approved requirements.';
+        }
       }
 
       document.getElementById('loading-note').style.display = 'none';
@@ -253,6 +1263,13 @@
       me = data.user;
       initPage();
     }).catch(function () { /* redirect already in flight */ });
+
+    // Reduces (doesn't eliminate) the staleness window that causes "someone
+    // else already acted on this" errors — periodic refresh plus refresh on
+    // returning to the tab, since that's the moment a stale view is most
+    // likely to actually get acted on.
+    setInterval(function () { if (me) loadArtifacts(); }, 15000);
+    window.addEventListener('focus', function () { if (me) loadArtifacts(); });
 
     document.getElementById('logout-btn').addEventListener('click', function () {
       fetch(window.API_BASE + '/api/auth/logout', { method: 'POST', credentials: 'include' }).then(function () {
@@ -299,11 +1316,129 @@
           document.getElementById('intake-idle').style.display = 'none';
           document.getElementById('intake-chat').style.display = '';
           document.getElementById('chat-messages').innerHTML = '';
+          // A previous session (or one closed without finishing) can leave
+          // the composer disabled with a stale placeholder — always start a
+          // fresh session with a clean, usable composer.
+          var freshInput = document.getElementById('chat-input');
+          var freshSendBtn = document.getElementById('chat-send-btn');
+          freshInput.disabled = false;
+          freshSendBtn.disabled = false;
+          freshInput.placeholder = 'Type your reply...';
+          freshInput.value = '';
           addChatBubble('assistant', result.body.reply);
-          document.getElementById('chat-input').focus();
+          freshInput.focus();
         })
         .catch(function (err) { showIntakeError(err.message); });
     });
+
+    function resetIntakeWidget() {
+      document.getElementById('intake-chat').style.display = 'none';
+      document.getElementById('intake-idle').style.display = '';
+      currentChatArtifactId = null;
+      chatDone = false;
+      var input = document.getElementById('chat-input');
+      var sendBtn = document.getElementById('chat-send-btn');
+      input.disabled = false;
+      sendBtn.disabled = false;
+      input.placeholder = 'Type your reply...';
+      input.value = '';
+    }
+
+    // The review summary now opens as a proper popup (reusing the shared
+    // modal), not an inline card in the chat scroll — onFinalize updates the
+    // small reopen prompt left behind in the chat once it's sent.
+    function openReviewModal(artifact, onFinalize) {
+      document.getElementById('modal-title').textContent = 'Review requirement';
+
+      function render() {
+        document.getElementById('modal-body').innerHTML =
+          requirementContentHtml(artifact.content || {}) +
+          '<div style="display:flex; gap:0.55rem;">' +
+            '<button class="btn" id="review-send-btn" type="button">Send requirement</button>' +
+            '<button class="btn secondary" id="review-edit-btn" type="button">Edit</button>' +
+          '</div>' +
+          '<p class="chat-summary-note" id="review-note"></p>';
+
+        document.getElementById('review-edit-btn').addEventListener('click', function () {
+          openEditModal(artifact, {
+            mode: 'local',
+            onSave: function (title, content) {
+              artifact.title = title;
+              artifact.content = content;
+              openReviewModal(artifact, onFinalize);
+            },
+          });
+        });
+
+        document.getElementById('review-send-btn').addEventListener('click', function () {
+          var btn = document.getElementById('review-send-btn');
+          var editBtn = document.getElementById('review-edit-btn');
+          var note = document.getElementById('review-note');
+          btn.disabled = true;
+          editBtn.disabled = true;
+          btn.textContent = 'Sending...';
+
+          // Submitting runs the whole pipeline inline — self-approval, then
+          // the Sonnet 5 detailed report, which alone takes over a minute.
+          // Without a running counter the button looks hung, so show one and
+          // say what it's waiting on.
+          var startedAt = new Date().getTime();
+          note.classList.add('visible');
+          var tick = setInterval(function () {
+            var secs = Math.round((new Date().getTime() - startedAt) / 1000);
+            btn.textContent = 'Sending... ' + secs + 's';
+            note.textContent = 'Generating the detailed report with Claude Sonnet 5 — this usually takes 75-90 seconds. Leave this open.';
+          }, 1000);
+          var stopTick = function () { clearInterval(tick); };
+
+          fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/submit', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: artifact.title, content: artifact.content }),
+          })
+            .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+            .then(function (result) {
+              stopTick();
+              if (!result.ok) throw new Error(result.body.error || 'Could not send requirement');
+              var sentMsg = 'Sent — routed to ' + fmtChain(result.body.artifact) + '. Track it under "Submissions."';
+              note.textContent = sentMsg;
+              note.classList.add('visible');
+              btn.style.display = 'none';
+              editBtn.style.display = 'none';
+              loadArtifacts();
+              onFinalize(sentMsg);
+              setTimeout(function () { closeModal(); resetIntakeWidget(); }, 1400);
+            })
+            .catch(function (err) {
+              stopTick();
+              btn.disabled = false;
+              editBtn.disabled = false;
+              btn.textContent = 'Send requirement';
+              note.textContent = err.message;
+              note.classList.add('visible');
+            });
+        });
+      }
+
+      render();
+      document.getElementById('modal-overlay').classList.add('open');
+    }
+
+    function renderChatSummaryBlock(artifact) {
+      var box = document.getElementById('chat-messages');
+      var wrap = document.createElement('div');
+      wrap.className = 'chat-summary-block';
+
+      function reopen() { openReviewModal(artifact, function (sentMsg) { wrap.innerHTML = '<p style="margin:0;font-size:0.86rem;color:var(--accent-strong);">' + escapeHtml(sentMsg) + '</p>'; }); }
+
+      wrap.innerHTML = '<button class="btn" id="open-review-btn" type="button">Review &amp; send requirement</button>';
+      wrap.querySelector('#open-review-btn').addEventListener('click', reopen);
+      box.appendChild(wrap);
+      box.scrollTop = box.scrollHeight;
+
+      reopen(); // pops up immediately — reviewing is the natural next step
+    }
 
     function sendChatMessage() {
       var input = document.getElementById('chat-input');
@@ -325,16 +1460,11 @@
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.body.error || 'Something went wrong');
-          if (result.body.done) {
+          if (result.body.reviewReady) {
             chatDone = true;
-            addChatBubble('assistant', 'Requirement finalized — routed to ' + fmtChain(result.body.artifact) + '. Track it below under "My submissions."');
+            addChatBubble('assistant', "Here's a summary of what I've captured. Review it below and send it when you're ready.");
+            renderChatSummaryBlock(result.body.artifact);
             input.placeholder = 'Session complete';
-            loadArtifacts();
-            setTimeout(function () {
-              document.getElementById('intake-chat').style.display = 'none';
-              document.getElementById('intake-idle').style.display = '';
-              currentChatArtifactId = null;
-            }, 3000);
           } else {
             addChatBubble('assistant', result.body.reply);
             input.disabled = false;

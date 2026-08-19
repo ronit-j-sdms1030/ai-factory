@@ -9,6 +9,9 @@ const userSchema = new Schema(
     passwordHash: { type: String, required: true },
     tierId: { type: String, default: null }, // 'md' | 'ceo' | 'vp' | 'pm' | 'tl'; null for clients
     isClient: { type: Boolean, default: false },
+    // Only meaningful for tierId: 'tl' — which department's work queue this
+    // TL sees, e.g. 'AI', 'Development'. One of TEAM_DEPARTMENTS.
+    department: { type: String, default: null },
   },
   { timestamps: true }
 );

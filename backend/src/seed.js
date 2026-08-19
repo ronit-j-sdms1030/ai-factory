@@ -4,17 +4,24 @@ const User = require('./models/user.model');
 const DEMO_PASSWORD = 'password123';
 
 const DEMO_USERS = [
-  { name: 'Meera Shah', email: 'md@stark.demo', tierId: 'md' },
-  { name: 'Arjun Verma', email: 'ceo@stark.demo', tierId: 'ceo' },
-  { name: 'Priya Nair', email: 'vp@stark.demo', tierId: 'vp' },
+  { name: 'Amit Mohol', email: 'amit@stark.demo', tierId: 'md' },
+  { name: 'Kartik Shete', email: 'kartik@stark.demo', tierId: 'ceo' },
+  { name: 'Ashwini Bankar', email: 'ashwini@stark.demo', tierId: 'vp' },
   { name: 'Karan Mehta', email: 'pm@stark.demo', tierId: 'pm' },
-  { name: 'Divya Rao', email: 'tl@stark.demo', tierId: 'tl' },
+  { name: 'Siddhesh', email: 'siddhesh@stark.demo', tierId: 'tl', department: 'AI' },
+  { name: 'Mandar', email: 'mandar@stark.demo', tierId: 'tl', department: 'AI' },
+  { name: 'Shubham', email: 'shubham@stark.demo', tierId: 'tl', department: 'Development' },
+  { name: 'Adarsh', email: 'adarsh@stark.demo', tierId: 'tl', department: 'Development' },
+  { name: 'Pallav', email: 'pallav@stark.demo', tierId: 'tl', department: 'Sales & Marketing' },
 ];
 
 const DEMO_CLIENT = { name: 'Acme Client Co.', email: 'client@example.demo' };
 
 async function seedDemoUsers() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+
+  // Replaced by named logins (tl@stark.demo -> 5 named TLs; md/ceo/vp@stark.demo -> real names).
+  await User.deleteMany({ email: { $in: ['tl@stark.demo', 'md@stark.demo', 'ceo@stark.demo', 'vp@stark.demo'] } });
 
   for (const u of DEMO_USERS) {
     await User.findOneAndUpdate(
@@ -41,7 +48,7 @@ if (require.main === module) {
     .then(seedDemoUsers)
     .then(() => {
       console.log(`Seeded demo users (password for all: "${DEMO_PASSWORD}"):`);
-      DEMO_USERS.forEach((u) => console.log(`  ${u.tierId.toUpperCase().padEnd(4)} ${u.email}`));
+      DEMO_USERS.forEach((u) => console.log(`  ${u.tierId.toUpperCase().padEnd(4)} ${u.email}${u.department ? ' (' + u.department + ')' : ''} — ${u.name}`));
       console.log(`  CLIENT ${DEMO_CLIENT.email}`);
       process.exit(0);
     })

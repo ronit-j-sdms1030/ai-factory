@@ -17,12 +17,29 @@ const TIERS = {
 // approverTiers is enough) or 'all' (every listed tier must approve before
 // the step is satisfied). "client" covers external submissions, which have
 // no tierId of their own.
+//
+// md/ceo: gate 0 is literal self-approval, not peer approval — "if MD or CEO
+// sets a requirement, it goes to only them." The other of MD/CEO can still
+// see it (handled as a visibility rule in artifact.routes.js), but isn't a
+// gate. Gate 1 is VP, who signs off on the generated FSD before it is split
+// into team packages — the same second gate a client submission has, and the
+// reason the split lands on TLs only after VP has actually seen the report.
+// pm/tl: PM is not an approver of anything — both PM's and TL's own ideas go
+// to the same single gate, any of MD/CEO/VP.
+// vp: unchanged — MD/CEO peer-gate VP's own idea.
+// client: unchanged — two real gates, MD/CEO then VP.
 const APPROVAL_RULES = {
-  md: [{ approverTiers: ['ceo'], mode: 'any' }],
-  ceo: [{ approverTiers: ['md'], mode: 'any' }],
+  md: [
+    { approverTiers: ['md'], mode: 'any' },
+    { approverTiers: ['vp'], mode: 'any' },
+  ],
+  ceo: [
+    { approverTiers: ['ceo'], mode: 'any' },
+    { approverTiers: ['vp'], mode: 'any' },
+  ],
   vp: [{ approverTiers: ['md', 'ceo'], mode: 'any' }],
-  pm: [{ approverTiers: ['vp'], mode: 'any' }],
-  tl: [{ approverTiers: ['pm'], mode: 'any' }],
+  pm: [{ approverTiers: ['md', 'ceo', 'vp'], mode: 'any' }],
+  tl: [{ approverTiers: ['md', 'ceo', 'vp'], mode: 'any' }],
   client: [
     { approverTiers: ['md', 'ceo'], mode: 'any' },
     { approverTiers: ['vp'], mode: 'any' },
