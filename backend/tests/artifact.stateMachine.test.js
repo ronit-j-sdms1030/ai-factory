@@ -91,6 +91,48 @@ describe('submit -> pending_approval -> approved', () => {
     expect(artifact.currentApprovalIndex).toBe(2);
   });
 
+  test('a TL idea finishes straight through by default, with no second gate', () => {
+    const artifact = makeArtifact('tl');
+    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
+    artifact.currentStage = 'fsd_review';
+
+    transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' });
+    expect(artifact.currentStage).toBe('fsd_pending_client');
+  });
+
+  test('a TL idea can optionally be routed to a chosen final approver (VP, CEO, or MD)', () => {
+    const artifact = makeArtifact('tl');
+    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
+    expect(artifact.currentApprovalIndex).toBe(1);
+    artifact.currentStage = 'fsd_review';
+
+    // The reviewer sending it chooses CEO for the extra sign-off, even
+    // though VP was the one who cleared gate 0.
+    transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' }, { finalApproverTier: 'ceo' });
+    expect(artifact.currentStage).toBe('pending_approval');
+    expect(artifact.approvalChain).toHaveLength(2);
+    expect(artifact.approvalChain[1].approverTiers).toEqual(['ceo']);
+    expect(artifact.currentApprovalIndex).toBe(1);
+
+    // Only CEO can clear this new gate — not VP, not MD.
+    expect(() => transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Unauthorized approver/);
+    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' }, { comment: 'Signed off' });
+    expect(artifact.currentStage).toBe('approved');
+  });
+
+  test('an invalid finalApproverTier is rejected', () => {
+    const artifact = makeArtifact('tl');
+    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
+    artifact.currentStage = 'fsd_review';
+
+    expect(() =>
+      transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' }, { finalApproverTier: 'pm' })
+    ).toThrow(/Invalid finalApproverTier/);
+  });
+
   test('client submissions clear an MD/CEO gate, then a separate VP gate', () => {
     const artifact = makeArtifact(null);
     const originator = { userId: 'u-client', tierId: null };

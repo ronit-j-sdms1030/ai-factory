@@ -31,6 +31,20 @@ function isSelfOriginMdCeo(artifact) {
   return artifact.originator.tierId === 'md' || artifact.originator.tierId === 'ceo';
 }
 
+// Mirrors the visibility rules in GET / — originator, gate-0 reviewer pool,
+// MD/CEO mutual visibility, a TL's own department, or a previous discussion
+// invite. Shared by the discussion thread's post/invite actions so access
+// can never drift out of sync with what GET / actually shows someone.
+function hasDiscussionAccess(artifact, actor) {
+  return (
+    artifact.originator.userId === actor.id ||
+    artifact.approvalChain[0].approverTiers.includes(actor.tierId) ||
+    (['md', 'ceo'].includes(actor.tierId) && ['md', 'ceo'].includes(artifact.originator.tierId)) ||
+    (artifact.teamReports || []).some((t) => t.team === actor.department) ||
+    (artifact.discussionRecipients || []).includes(actor.id)
+  );
+}
+
 // Best-effort team split, shared by both places the chain can finish
 // (a normal 'approve', and giveFinalFsdApproval when the chain is already
 // exhausted) — a failure here never undoes the approval that already saved.
@@ -183,10 +197,11 @@ router.get('/', requireAuth, async (req, res) => {
           // MD and CEO can always see each other's self-approved ideas, even
           // though neither gates the other's anymore.
           ...(actor.tierId === 'md' || actor.tierId === 'ceo' ? [{ 'originator.tierId': { $in: ['md', 'ceo'] } }] : []),
-          // TL only sees packages assigned to their own department, plus
-          // anything another TL explicitly shared with them for discussion.
+          // TL only sees packages assigned to their own department.
           ...(actor.tierId === 'tl' && actor.department ? [{ 'teamReports.team': actor.department }] : []),
-          ...(actor.tierId === 'tl' ? [{ discussionRecipients: actor.id }] : []),
+          // Anyone invited into a discussion thread can see that artifact,
+          // regardless of role or department.
+          { discussionRecipients: actor.id },
         ],
       };
 
@@ -330,14 +345,14 @@ router.post('/:id/fsdChat', requireAuth, async (req, res) => {
   res.json({ reply: changeSummary, artifact });
 });
 
-// TL-to-TL sharing: a team lead who already has visibility on this report
-// (their own department has a package, or someone already shared it with
-// them) can share it with another team lead for discussion, even if that
-// TL's own department has no package here.
+// Any internal role who already has visibility on this report can share it
+// with any other internal colleague for discussion, even if that colleague
+// wouldn't otherwise have access (e.g. a different department's TL, or a
+// PM who was never in the reviewer pool).
 router.post('/:id/shareForDiscussion', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  if (actor.isClient || actor.tierId !== 'tl') {
-    return res.status(403).json({ error: 'Only team leads can share a report for discussion' });
+  if (actor.isClient) {
+    return res.status(403).json({ error: 'Only internal roles can share a report for discussion' });
   }
 
   const { toUserId, note } = req.body || {};
@@ -348,23 +363,21 @@ router.post('/:id/shareForDiscussion', requireAuth, async (req, res) => {
   const artifact = await Artifact.findById(req.params.id);
   if (!artifact) return res.status(404).json({ error: 'Artifact not found' });
 
-  const hasAccess =
-    (artifact.teamReports || []).some((t) => t.team === actor.department) ||
-    (artifact.discussionRecipients || []).includes(actor.id);
-  if (!hasAccess) {
+  if (!hasDiscussionAccess(artifact, actor)) {
     return res.status(403).json({ error: 'You do not have access to this report' });
   }
 
   const toUser = await User.findById(toUserId);
-  if (!toUser || toUser.tierId !== 'tl') {
-    return res.status(400).json({ error: 'Recipient must be a team lead' });
+  if (!toUser || toUser.isClient) {
+    return res.status(400).json({ error: 'Recipient must be an internal colleague' });
   }
   if (toUser._id.toString() === actor.id) {
     return res.status(400).json({ error: 'Cannot share a report with yourself' });
   }
 
+  const alreadyIn = (artifact.discussionRecipients || []).includes(toUserId);
   artifact.discussionRecipients = artifact.discussionRecipients || [];
-  if (!artifact.discussionRecipients.includes(toUserId)) {
+  if (!alreadyIn) {
     artifact.discussionRecipients.push(toUserId);
   }
   artifact.discussionShares = artifact.discussionShares || [];
@@ -593,8 +606,19 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
   // Send FSD to originator: the reviewer pool is done reviewing/editing,
   // hands it to whoever originated the requirement for their approval.
   if (action === 'sendFsdToClient') {
+    const { comment: sendComment, finalApproverTier } = req.body || {};
     try {
-      transition(artifact, 'sendFsdToClient', { userId: actor.id, tierId: actor.tierId }, { comment: (req.body || {}).comment || 'Sent to originator for approval' });
+      transition(
+        artifact,
+        'sendFsdToClient',
+        { userId: actor.id, tierId: actor.tierId },
+        {
+          comment: finalApproverTier
+            ? `Routed to ${finalApproverTier.toUpperCase()} for final approval`
+            : sendComment || 'Sent to originator for approval',
+          finalApproverTier,
+        }
+      );
     } catch (err) {
       return res.status(400).json({ error: err.message });
     }

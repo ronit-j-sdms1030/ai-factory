@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/theme-client.css">
 <script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <style>
   #shell { display: flex; min-height: 100vh; }
 
@@ -140,6 +141,12 @@
   .chat-summary-note { margin: 0; font-size: 0.82rem; color: var(--text-faint); display: none; }
   .chat-summary-note.visible { display: block; color: var(--accent-strong); }
 
+  .progress-bar-wrap { display: none; flex-direction: column; gap: 0.35rem; }
+  .progress-bar-wrap.visible { display: flex; }
+  .progress-bar-track { width: 100%; height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+  .progress-bar-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
+  .progress-bar-label { font-size: 0.78rem; color: var(--text-faint); display: flex; justify-content: space-between; }
+
   #logout-btn { width: 100%; }
   #loading-note, #auth-gate { text-align: center; padding: 4rem 1rem; color: var(--text-soft); }
 
@@ -178,6 +185,7 @@
         <button class="side-nav-btn" id="tab-approvals" type="button" data-tab="approvals">Approvals<span class="tab-badge" id="approvals-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-submissions" type="button" data-tab="submissions">Submissions</button>
         <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
+        <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Shared with me<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
       </nav>
 
       <div class="who">
@@ -249,6 +257,15 @@
             <div class="pagination" id="teamwork-pagination"></div>
           </div>
         </div>
+
+        <div class="tab-view" id="view-shared" style="display:none;">
+          <div class="card">
+            <h2>Shared with me</h2>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Reports a colleague invited you into for discussion, outside your normal reviewer or department queue.</p>
+            <div class="list" id="shared-list"></div>
+            <div class="pagination" id="shared-pagination"></div>
+          </div>
+        </div>
       </div>
     </main>
   </div>
@@ -268,6 +285,29 @@
   <script>
     var TIER_LABELS = { md: 'Managing Director', ceo: 'Chief Executive Officer', vp: 'Vice President', pm: 'Project Manager', tl: 'Team Lead' };
     var me = null;
+
+    if (window.mermaid) {
+      mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' });
+    }
+
+    // Renders a Mermaid diagram's raw source into the given container element
+    // as an SVG. Falls back to a plain code block if Mermaid isn't loaded
+    // (e.g. CDN unreachable) or the diagram fails to parse.
+    var mermaidRenderSeq = 0;
+    function renderMermaidInto(containerId, source) {
+      var el = document.getElementById(containerId);
+      if (!el || !source) return;
+      if (!window.mermaid) {
+        el.innerHTML = '<pre style="white-space:pre-wrap;font-size:0.78rem;">' + escapeHtml(source) + '</pre>';
+        return;
+      }
+      var id = 'mermaid-svg-' + (mermaidRenderSeq++);
+      mermaid.render(id, source).then(function (result) {
+        el.innerHTML = result.svg;
+      }).catch(function () {
+        el.innerHTML = '<pre style="white-space:pre-wrap;font-size:0.78rem;">' + escapeHtml(source) + '</pre>';
+      });
+    }
 
     function fmtChain(artifact) {
       return artifact.approvalChain.map(function (step, i) {
@@ -359,9 +399,30 @@
         var reviewerPool = artifact.approvalChain[0].approverTiers;
         if (stage === 'fsd_review' && reviewerPool.indexOf(me.tierId) !== -1) {
           buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
-          // Self-originated requirements loop back to the same person, so
-          // "Send for review" would read as sending it to themselves.
-          buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for approval' : 'Send for review' });
+          if (artifact.originator.tierId === 'tl' && !isOriginator) {
+            // A TL's idea has no fixed second gate — whoever is reviewing it
+            // can finish it straight through (today's default) or route it
+            // to one specific person (VP, CEO, or MD) for real extra
+            // oversight, their choice.
+            buttons.push({ action: 'sendFsdToClient', label: 'Send / finish', modal: 'routeTlFsd' });
+          } else {
+            // Self-originated requirements loop back to the same person, so
+            // "Send for review" would read as sending it to themselves.
+            buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for production' : 'Send for review' });
+          }
+          // MD/CEO peer visibility is non-gating (neither approves the
+          // other's idea), but the originator should still be able to loop
+          // their peer in on the FSD before it goes to VP — reuses the
+          // existing share-for-discussion flow, pre-targeted at the peer.
+          if (isOriginator && (me.tierId === 'md' || me.tierId === 'ceo')) {
+            buttons.push({
+              action: 'shareToPeer',
+              label: 'Send to ' + (me.tierId === 'md' ? 'CEO' : 'MD'),
+              secondary: true,
+              modal: 'shareToPeer',
+              peerTierId: me.tierId === 'md' ? 'ceo' : 'md',
+            });
+          }
         }
         if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
           buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
@@ -409,7 +470,11 @@
         '<div class="item-why" style="display:none;"></div>' +
         '<div class="item-badges"></div>' +
         '<div class="item-chain"></div>' +
-        '<div class="item-actions"><button class="btn secondary" data-view type="button">View</button></div>';
+        '<div class="item-actions"><button class="btn secondary" data-view type="button">View</button></div>' +
+        '<div class="progress-bar-wrap" data-item-progress>' +
+          '<div class="progress-bar-label"><span data-item-progress-text></span><span data-item-progress-pct>0%</span></div>' +
+          '<div class="progress-bar-track"><div class="progress-bar-fill" data-item-progress-fill></div></div>' +
+        '</div>';
 
       el.querySelector('.item-title').textContent = artifact.title;
       el.querySelector('.item-meta').textContent = originatorLabel + ' · ' + new Date(artifact.createdAt).toLocaleString();
@@ -450,6 +515,8 @@
           if (btnDef.modal === 'proposeChanges') return openProposeChangesModal(artifact);
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
+          if (btnDef.modal === 'shareToPeer') return openShareForDiscussionModal(artifact, btnDef.peerTierId);
+          if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
           actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
         });
         actionsEl.appendChild(btn);
@@ -469,6 +536,8 @@
     var approvalData = [];
     var teamworkPage = 1;
     var teamworkData = [];
+    var sharedPage = 1;
+    var sharedData = [];
 
     function renderPaginatedList(opts) {
       var container = document.getElementById(opts.listId);
@@ -543,6 +612,19 @@
         getPage: function () { return teamworkPage; },
         setPage: function (p) { teamworkPage = p; },
         rerender: renderTeamworkList,
+      });
+    }
+
+    function renderSharedList() {
+      renderPaginatedList({
+        listId: 'shared-list',
+        paginationId: 'shared-pagination',
+        data: sharedData,
+        emptyText: 'Nobody has shared a report with you yet.',
+        renderItem: renderArtifactItem,
+        getPage: function () { return sharedPage; },
+        setPage: function (p) { sharedPage = p; },
+        rerender: renderSharedList,
       });
     }
 
@@ -622,6 +704,10 @@
         if (d.conversationSummary) body += '<div><div class="modal-section-label">Conversation summary</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.conversationSummary) + '</p></div>';
         if (d.objective) body += '<div><div class="modal-section-label">Objective</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.objective) + '</p></div>';
         if (d.architecture) body += '<div><div class="modal-section-label">Architecture</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.architecture) + '</p></div>';
+        if (d.architectureDiagram) {
+          body += '<div><div class="modal-section-label">Architecture diagram</div>' +
+            '<div id="arch-diagram-container" style="overflow-x:auto;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:0.75rem;"><p style="margin:0;font-size:0.8rem;color:var(--text-faint);">Rendering diagram…</p></div></div>';
+        }
         if (asArray(d.techStack).length) {
           body += '<div><div class="modal-section-label">Tech stack</div><ul class="modal-list">' +
             asArray(d.techStack).map(function (t) { return '<li><strong>' + escapeHtml(t.layer) + '</strong> — ' + escapeHtml(t.choice) + ' <span style="color:var(--text-faint);">(' + escapeHtml(t.rationale) + ')</span></li>'; }).join('') +
@@ -637,6 +723,10 @@
             asArray(d.dataModel).map(function (e) { return '<li><strong>' + escapeHtml(e.entity) + '</strong> — ' + escapeHtml(asArray(e.fields).join(', ')) + '<br /><span style="color:var(--text-faint);">' + escapeHtml(e.description) + '</span></li>'; }).join('') +
             '</ul></div>';
         }
+        if (d.dbSchemaDiagram) {
+          body += '<div><div class="modal-section-label">Database schema diagram</div>' +
+            '<div id="db-schema-diagram-container" style="overflow-x:auto;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:0.75rem;"><p style="margin:0;font-size:0.8rem;color:var(--text-faint);">Rendering diagram…</p></div></div>';
+        }
         if (asArray(d.pageBehavior).length) {
           body += '<div><div class="modal-section-label">Page behavior</div><ul class="modal-list">' +
             asArray(d.pageBehavior).map(function (p) { return '<li><strong>' + escapeHtml(p.page) + '</strong> — ' + escapeHtml(p.description) + '</li>'; }).join('') +
@@ -644,12 +734,27 @@
         }
         body += listSection('Security design', d.securityDesign);
         body += listSection('Deployment & operations', d.deploymentAndOperations);
-        if (d.costEstimate) {
-          body += '<div><div class="modal-section-label">Cost estimate</div><ul class="modal-list">' +
-            '<li><strong>Development:</strong> ' + escapeHtml(d.costEstimate.developmentEstimate) + '</li>' +
-            '<li><strong>Infrastructure (monthly):</strong> ' + escapeHtml(d.costEstimate.infrastructureMonthlyEstimate) + '</li>' +
-            (d.costEstimate.notes ? '<li><span style="color:var(--text-faint);">' + escapeHtml(d.costEstimate.notes) + '</span></li>' : '') +
-            '</ul></div>';
+        if (d.costEstimate && asArray(d.costEstimate.componentCosts).length) {
+          var ce = d.costEstimate;
+          body += '<div><div class="modal-section-label">Cost estimate (₹ INR)</div>' +
+            '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.84rem;">' +
+            '<thead><tr style="text-align:left;border-bottom:1px solid var(--line);">' +
+            '<th style="padding:0.35rem 0.5rem 0.35rem 0;">Component</th><th style="padding:0.35rem 0.5rem;">One-time</th><th style="padding:0.35rem 0.5rem;">Monthly</th><th style="padding:0.35rem 0 0.35rem 0.5rem;">Notes</th>' +
+            '</tr></thead><tbody>' +
+            asArray(ce.componentCosts).map(function (row) {
+              return '<tr style="border-bottom:1px solid var(--line);">' +
+                '<td style="padding:0.35rem 0.5rem 0.35rem 0;"><strong>' + escapeHtml(row.component) + '</strong></td>' +
+                '<td style="padding:0.35rem 0.5rem;">' + escapeHtml(row.oneTimeCostInr) + '</td>' +
+                '<td style="padding:0.35rem 0.5rem;">' + escapeHtml(row.monthlyCostInr) + '</td>' +
+                '<td style="padding:0.35rem 0 0.35rem 0.5rem;color:var(--text-faint);">' + escapeHtml(row.notes) + '</td>' +
+                '</tr>';
+            }).join('') +
+            '<tr><td style="padding:0.45rem 0.5rem 0.35rem 0;"><strong>Total</strong></td>' +
+            '<td style="padding:0.45rem 0.5rem 0.35rem;"><strong>' + escapeHtml(ce.totalOneTimeCostInr) + '</strong></td>' +
+            '<td style="padding:0.45rem 0.5rem 0.35rem;"><strong>' + escapeHtml(ce.totalMonthlyCostInr) + '</strong></td><td></td></tr>' +
+            '</tbody></table></div>' +
+            (ce.notes ? '<p style="margin:0.4rem 0 0;font-size:0.8rem;color:var(--text-faint);">' + escapeHtml(ce.notes) + '</p>' : '') +
+            '</div>';
         }
         if (asArray(d.timeline).length) {
           body += '<div><div class="modal-section-label">Timeline</div><ul class="modal-list">' +
@@ -660,9 +765,14 @@
         body += listSection('Open questions (detailed report)', d.openQuestions);
       }
 
-      // A TL can act on this report if their own department has a package
-      // here, or another TL already shared it with them.
-      var tlHasAccess = !me.isClient && me.tierId === 'tl' && (
+      // Mirrors the backend's hasDiscussionAccess — any internal role who's
+      // the originator, in the gate-0 reviewer pool, an MD/CEO peer, a TL
+      // whose department has a package here, or a previous invitee.
+      var reviewerPoolForDiscussion = artifact.approvalChain[0].approverTiers;
+      var canDiscuss = !me.isClient && (
+        artifact.originator.userId === me.id ||
+        reviewerPoolForDiscussion.indexOf(me.tierId) !== -1 ||
+        (['md', 'ceo'].indexOf(me.tierId) !== -1 && ['md', 'ceo'].indexOf(artifact.originator.tierId) !== -1) ||
         (artifact.teamReports || []).some(function (t) { return t.team === me.department; }) ||
         (artifact.discussionRecipients || []).indexOf(me.id) !== -1
       );
@@ -676,7 +786,7 @@
         body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
         body += '<div><div class="modal-section-label" style="color:var(--accent);">Team work packages</div>';
         body += '<p style="margin:0 0 0.5rem;font-size:0.78rem;color:var(--text-faint);">Generated after final approval — ready for team leads.</p>';
-        if (tlHasAccess) {
+        if (canDiscuss) {
           body += '<button class="btn secondary" id="share-discussion-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Send for discussion</button>';
         }
         body += '</div>';
@@ -708,6 +818,11 @@
       document.getElementById('modal-body').innerHTML = body;
       document.getElementById('modal-overlay').classList.add('open');
 
+      if (artifact.detailedReport) {
+        if (artifact.detailedReport.architectureDiagram) renderMermaidInto('arch-diagram-container', artifact.detailedReport.architectureDiagram);
+        if (artifact.detailedReport.dbSchemaDiagram) renderMermaidInto('db-schema-diagram-container', artifact.detailedReport.dbSchemaDiagram);
+      }
+
       var downloadBtn = document.getElementById('download-fsd-btn');
       if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
 
@@ -715,22 +830,73 @@
       if (shareBtn) shareBtn.addEventListener('click', function () { openShareForDiscussionModal(artifact); });
     }
 
-    function openShareForDiscussionModal(artifact) {
-      document.getElementById('modal-title').textContent = 'Send for discussion';
-      document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading team leads...</p>';
+    // A TL's idea has no fixed second gate — the reviewer sending the FSD
+    // can finish it straight through (today's default) or route it to one
+    // specific person (VP, CEO, or MD) for a real extra layer of sign-off.
+    function openRouteTlFsdModal(artifact) {
+      document.getElementById('modal-title').textContent = 'Send FSD';
+      document.getElementById('modal-body').innerHTML =
+        '<p style="margin:0 0 0.9rem;font-size:0.86rem;color:var(--text-soft);">This idea has no fixed second approver. Finish it now, or send it to one more person for final sign-off.</p>' +
+        '<div style="display:flex;flex-direction:column;gap:0.5rem;">' +
+          '<button class="btn" id="route-finish-btn" type="button">Finish now — no further approval</button>' +
+          '<button class="btn secondary" id="route-vp-btn" type="button">Send to VP for final approval</button>' +
+          '<button class="btn secondary" id="route-ceo-btn" type="button">Send to CEO for final approval</button>' +
+          '<button class="btn secondary" id="route-md-btn" type="button">Send to MD for final approval</button>' +
+        '</div>' +
+        '<div class="error-banner" id="route-error"></div>';
 
-      fetch(window.API_BASE + '/api/auth/team-leads', { credentials: 'include' })
+      function submit(finalApproverTier, btn) {
+        var allButtons = document.querySelectorAll('#route-finish-btn, #route-vp-btn, #route-ceo-btn, #route-md-btn');
+        allButtons.forEach(function (b) { b.disabled = true; });
+        var errEl = document.getElementById('route-error');
+        errEl.classList.remove('visible');
+        var originalText = btn.textContent;
+        btn.textContent = 'Sending...';
+
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/sendFsdToClient', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalApproverTier ? { finalApproverTier: finalApproverTier } : {}),
+        })
+          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not send');
+            closeModal();
+            loadArtifacts();
+          })
+          .catch(function (err) {
+            errEl.textContent = err.message;
+            errEl.classList.add('visible');
+            allButtons.forEach(function (b) { b.disabled = false; });
+            btn.textContent = originalText;
+          });
+      }
+
+      document.getElementById('route-finish-btn').addEventListener('click', function () { submit(null, this); });
+      document.getElementById('route-vp-btn').addEventListener('click', function () { submit('vp', this); });
+      document.getElementById('route-ceo-btn').addEventListener('click', function () { submit('ceo', this); });
+      document.getElementById('route-md-btn').addEventListener('click', function () { submit('md', this); });
+
+      document.getElementById('modal-overlay').classList.add('open');
+    }
+
+    function openShareForDiscussionModal(artifact, preferredTierId) {
+      document.getElementById('modal-title').textContent = preferredTierId ? 'Send FSD to ' + preferredTierId.toUpperCase() : 'Send for discussion';
+      document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading colleagues...</p>';
+
+      fetch(window.API_BASE + '/api/auth/colleagues', { credentials: 'include' })
         .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
         .then(function (result) {
-          if (!result.ok) throw new Error(result.body.error || 'Could not load team leads');
-          var others = result.body.teamLeads.filter(function (tl) { return tl.id !== me.id; });
+          if (!result.ok) throw new Error(result.body.error || 'Could not load colleagues');
+          var others = result.body.colleagues.filter(function (c) { return c.id !== me.id; });
           if (!others.length) {
-            document.getElementById('modal-body').innerHTML = '<p class="modal-empty">No other team leads to share with.</p>';
+            document.getElementById('modal-body').innerHTML = '<p class="modal-empty">No other colleagues to share with.</p>';
             return;
           }
           document.getElementById('modal-body').innerHTML =
             '<div class="field"><label>Send to</label><select id="share-recipient">' +
-              others.map(function (tl) { return '<option value="' + escapeAttr(tl.id) + '">' + escapeHtml(tl.name) + (tl.department ? ' (' + escapeHtml(tl.department) + ')' : '') + '</option>'; }).join('') +
+              others.map(function (c) { return '<option value="' + escapeAttr(c.id) + '"' + (preferredTierId && c.tierId === preferredTierId ? ' selected' : '') + '>' + escapeHtml(c.name) + ' (' + escapeHtml(c.tierId.toUpperCase()) + (c.department ? ', ' + escapeHtml(c.department) : '') + ')</option>'; }).join('') +
             '</select></div>' +
             '<div class="field"><label>Note (optional)</label><textarea id="share-note" rows="3" placeholder="What would you like to discuss?"></textarea></div>' +
             '<div class="error-banner" id="share-error"></div>' +
@@ -789,6 +955,7 @@
       if (d.conversationSummary) lines.push('## Conversation Summary', '', d.conversationSummary, '');
       if (d.objective) lines.push('## Objective', '', d.objective, '');
       if (d.architecture) lines.push('## Architecture', '', d.architecture, '');
+      if (d.architectureDiagram) lines.push('### Architecture Diagram', '', '```mermaid', d.architectureDiagram, '```', '');
       if (asArray(d.techStack).length) {
         lines.push('## Tech Stack', '');
         asArray(d.techStack).forEach(function (t) { lines.push('- **' + t.layer + '**: ' + t.choice + ' — ' + t.rationale); });
@@ -804,6 +971,7 @@
         asArray(d.dataModel).forEach(function (e) { lines.push('- **' + e.entity + '** (' + asArray(e.fields).join(', ') + '): ' + e.description); });
         lines.push('');
       }
+      if (d.dbSchemaDiagram) lines.push('### Database Schema Diagram', '', '```mermaid', d.dbSchemaDiagram, '```', '');
       if (asArray(d.pageBehavior).length) {
         lines.push('## Page Behavior', '');
         asArray(d.pageBehavior).forEach(function (p) { lines.push('- **' + p.page + '**: ' + p.description); });
@@ -811,12 +979,16 @@
       }
       section('Security Design', d.securityDesign);
       section('Deployment & Operations', d.deploymentAndOperations);
-      if (d.costEstimate) {
-        lines.push('## Cost Estimate', '');
-        lines.push('- **Development**: ' + d.costEstimate.developmentEstimate);
-        lines.push('- **Infrastructure (monthly)**: ' + d.costEstimate.infrastructureMonthlyEstimate);
-        if (d.costEstimate.notes) lines.push('- **Notes**: ' + d.costEstimate.notes);
+      if (d.costEstimate && asArray(d.costEstimate.componentCosts).length) {
+        var ceMd = d.costEstimate;
+        lines.push('## Cost Estimate (₹ INR)', '');
+        lines.push('| Component | One-time | Monthly | Notes |', '|---|---|---|---|');
+        asArray(ceMd.componentCosts).forEach(function (row) {
+          lines.push('| ' + row.component + ' | ' + row.oneTimeCostInr + ' | ' + row.monthlyCostInr + ' | ' + row.notes + ' |');
+        });
+        lines.push('| **Total** | **' + ceMd.totalOneTimeCostInr + '** | **' + ceMd.totalMonthlyCostInr + '** | |');
         lines.push('');
+        if (ceMd.notes) lines.push('*' + ceMd.notes + '*', '');
       }
       if (asArray(d.timeline).length) {
         lines.push('## Timeline', '');
@@ -1116,16 +1288,50 @@
 
     // These actions can trigger a Claude Sonnet 5 call (detailed report or
     // team split generation) that's observed taking anywhere from ~30s to
-    // over 2 minutes — with no feedback, that reads as a frozen page.
-    var SLOW_ACTIONS = { approve: true, giveFinalFsdApproval: true, regenerateFsd: true };
+    // over 2 minutes — with no feedback, that reads as a frozen page. Each
+    // gets a rough estimated duration to drive a progress bar (capped short
+    // of 100% since we don't actually know when it'll finish).
+    var SLOW_ACTIONS = {
+      approve: { ms: 60000, label: 'AI is working — generating the detailed report or team split…' },
+      giveFinalFsdApproval: { ms: 45000, label: 'AI is working — generating the team split…' },
+      regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report with Claude Sonnet 5…' },
+    };
+
+    // Blocks the periodic/focus auto-refresh (see setInterval below) while
+    // any slow action is in flight, so a mid-flight refresh can't wipe out
+    // the progress bar before the real response arrives.
+    var activeSlowActionCount = 0;
 
     function submitArtifactAction(id, action, comment, btn, actionsEl) {
       var siblingButtons = actionsEl ? Array.prototype.slice.call(actionsEl.querySelectorAll('button')) : [];
       siblingButtons.forEach(function (b) { b.disabled = true; });
       var originalText = btn ? btn.textContent : null;
-      if (btn) btn.textContent = SLOW_ACTIONS[action] ? 'Working…' : 'Working...';
-      if (SLOW_ACTIONS[action]) {
-        showToast("This triggers an AI step (detailed report or team split) — can take a minute or two. The button isn't frozen, just working.", false);
+      var slowSpec = SLOW_ACTIONS[action];
+      if (btn) btn.textContent = slowSpec ? 'Working…' : 'Working...';
+
+      var progressWrap = actionsEl && actionsEl.parentElement ? actionsEl.parentElement.querySelector('[data-item-progress]') : null;
+      var stopTick = function () {};
+      if (slowSpec) {
+        activeSlowActionCount++;
+        if (progressWrap) {
+          var progressFill = progressWrap.querySelector('[data-item-progress-fill]');
+          var progressPct = progressWrap.querySelector('[data-item-progress-pct]');
+          var progressText = progressWrap.querySelector('[data-item-progress-text]');
+          progressText.textContent = slowSpec.label;
+          progressWrap.classList.add('visible');
+          var startedAt = new Date().getTime();
+          var tick = setInterval(function () {
+            var elapsed = new Date().getTime() - startedAt;
+            var pct = Math.min(96, Math.round((elapsed / slowSpec.ms) * 100));
+            progressFill.style.width = pct + '%';
+            progressPct.textContent = pct + '%';
+          }, 300);
+          stopTick = function () {
+            clearInterval(tick);
+            progressFill.style.width = '100%';
+            progressPct.textContent = '100%';
+          };
+        }
       }
 
       fetch(window.API_BASE + '/api/artifacts/' + id + '/' + action, {
@@ -1136,18 +1342,24 @@
       })
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
+          stopTick();
           if (!result.ok) throw new Error(result.body.error || 'Action failed');
           if (result.body.detailedReportError) showToast('Approved, but the detailed report failed to generate: ' + result.body.detailedReportError, true);
           if (result.body.teamSplitError) showToast('Approved, but the team split failed to generate: ' + result.body.teamSplitError, true);
           loadArtifacts();
         })
         .catch(function (err) {
+          stopTick();
+          if (progressWrap) progressWrap.classList.remove('visible');
           showToast(err.message, true);
           siblingButtons.forEach(function (b) { b.disabled = false; });
           if (btn && originalText) btn.textContent = originalText;
           // Whatever failed, refresh — the most common cause is someone
           // else already acted on this item and our list was stale.
           loadArtifacts();
+        })
+        .then(function () {
+          if (slowSpec) activeSlowActionCount--;
         });
     }
 
@@ -1182,6 +1394,16 @@
         var teamwork = (!me.isClient && me.tierId === 'tl' && me.department)
           ? artifacts.filter(function (a) { return (a.teamReports || []).some(function (t) { return t.team === me.department; }); })
           : [];
+        // Anyone invited into a discussion (any role, not just TL) but not
+        // already surfaced above — otherwise a shared report an approver
+        // could also act on would show up twice.
+        var shared = !me.isClient ? artifacts.filter(function (a) {
+          if (a.originator.userId === me.id) return false;
+          if ((a.discussionRecipients || []).indexOf(me.id) === -1) return false;
+          if (awaiting.indexOf(a) !== -1) return false;
+          if (teamwork.indexOf(a) !== -1) return false;
+          return true;
+        }) : [];
 
         mineData = mine.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
         renderMineList();
@@ -1191,6 +1413,9 @@
 
         teamworkData = teamwork.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
         renderTeamworkList();
+
+        sharedData = shared.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+        renderSharedList();
 
         var badge = document.getElementById('approvals-badge');
         if (approvalData.length > 0) {
@@ -1207,10 +1432,22 @@
         } else {
           twBadge.style.display = 'none';
         }
+
+        var sharedTab = document.getElementById('tab-shared');
+        var sharedBadge = document.getElementById('shared-badge');
+        if (!me.isClient) {
+          sharedTab.style.display = '';
+          if (sharedData.length > 0) {
+            sharedBadge.textContent = String(sharedData.length);
+            sharedBadge.style.display = '';
+          } else {
+            sharedBadge.style.display = 'none';
+          }
+        }
       });
     }
 
-    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork'];
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared'];
     function switchTab(tabName) {
       TAB_NAMES.forEach(function (name) {
         document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
@@ -1231,8 +1468,11 @@
       var sub = document.getElementById('page-sub');
       var govNote = document.getElementById('gov-note');
 
+      // Light theme applies to everyone now, internal and client alike —
+      // only the copy/content differs by role.
+      document.documentElement.classList.add('theme-client');
+
       if (me.isClient) {
-        document.documentElement.classList.add('theme-client');
         kicker.textContent = 'Client requirement';
         heading.textContent = 'Turn your ideas into reality.';
         sub.textContent = "Whatever you're picturing, we'll help you build it.";
@@ -1267,9 +1507,13 @@
     // Reduces (doesn't eliminate) the staleness window that causes "someone
     // else already acted on this" errors — periodic refresh plus refresh on
     // returning to the tab, since that's the moment a stale view is most
-    // likely to actually get acted on.
-    setInterval(function () { if (me) loadArtifacts(); }, 15000);
-    window.addEventListener('focus', function () { if (me) loadArtifacts(); });
+    // likely to actually get acted on. Skipped while a slow action (detailed
+    // report / team split generation) is in flight — a Sonnet 5 call often
+    // runs well past 15s, and a mid-flight refresh would wipe out the
+    // progress bar and "Working…" state even though the request is still
+    // running server-side.
+    setInterval(function () { if (me && activeSlowActionCount === 0) loadArtifacts(); }, 15000);
+    window.addEventListener('focus', function () { if (me && activeSlowActionCount === 0) loadArtifacts(); });
 
     document.getElementById('logout-btn').addEventListener('click', function () {
       fetch(window.API_BASE + '/api/auth/logout', { method: 'POST', credentials: 'include' }).then(function () {
@@ -1357,6 +1601,10 @@
             '<button class="btn" id="review-send-btn" type="button">Send requirement</button>' +
             '<button class="btn secondary" id="review-edit-btn" type="button">Edit</button>' +
           '</div>' +
+          '<div class="progress-bar-wrap" id="review-progress-wrap">' +
+            '<div class="progress-bar-label"><span id="review-progress-text">Generating the detailed report with Claude Sonnet 5…</span><span id="review-progress-pct">0%</span></div>' +
+            '<div class="progress-bar-track"><div class="progress-bar-fill" id="review-progress-fill"></div></div>' +
+          '</div>' +
           '<p class="chat-summary-note" id="review-note"></p>';
 
         document.getElementById('review-edit-btn').addEventListener('click', function () {
@@ -1374,21 +1622,28 @@
           var btn = document.getElementById('review-send-btn');
           var editBtn = document.getElementById('review-edit-btn');
           var note = document.getElementById('review-note');
+          var progressWrap = document.getElementById('review-progress-wrap');
+          var progressFill = document.getElementById('review-progress-fill');
+          var progressPct = document.getElementById('review-progress-pct');
           btn.disabled = true;
           editBtn.disabled = true;
           btn.textContent = 'Sending...';
 
           // Submitting runs the whole pipeline inline — self-approval, then
           // the Sonnet 5 detailed report, which alone takes over a minute.
-          // Without a running counter the button looks hung, so show one and
-          // say what it's waiting on.
+          // A bare "Sending..." button looks hung that long, so estimate
+          // progress against the observed ~75-90s typical duration — capped
+          // short of 100% since we don't actually know when it'll finish —
+          // and jump to 100% only once the response actually lands.
+          var ESTIMATED_MS = 82500;
           var startedAt = new Date().getTime();
-          note.classList.add('visible');
+          progressWrap.classList.add('visible');
           var tick = setInterval(function () {
-            var secs = Math.round((new Date().getTime() - startedAt) / 1000);
-            btn.textContent = 'Sending... ' + secs + 's';
-            note.textContent = 'Generating the detailed report with Claude Sonnet 5 — this usually takes 75-90 seconds. Leave this open.';
-          }, 1000);
+            var elapsed = new Date().getTime() - startedAt;
+            var pct = Math.min(96, Math.round((elapsed / ESTIMATED_MS) * 100));
+            progressFill.style.width = pct + '%';
+            progressPct.textContent = pct + '%';
+          }, 300);
           var stopTick = function () { clearInterval(tick); };
 
           fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/submit', {
@@ -1400,6 +1655,8 @@
             .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
             .then(function (result) {
               stopTick();
+              progressFill.style.width = '100%';
+              progressPct.textContent = '100%';
               if (!result.ok) throw new Error(result.body.error || 'Could not send requirement');
               var sentMsg = 'Sent — routed to ' + fmtChain(result.body.artifact) + '. Track it under "Submissions."';
               note.textContent = sentMsg;
@@ -1412,6 +1669,7 @@
             })
             .catch(function (err) {
               stopTick();
+              progressWrap.classList.remove('visible');
               btn.disabled = false;
               editBtn.disabled = false;
               btn.textContent = 'Send requirement';

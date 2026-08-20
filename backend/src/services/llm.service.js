@@ -127,6 +127,10 @@ const DETAILED_REPORT_TOOL = {
           type: 'string',
           description: 'Technical architecture overview: components, integration points, how pieces talk to each other, and the end-to-end request/data flow through the system (e.g. client → API → database → response) described in prose.',
         },
+        architectureDiagram: {
+          type: 'string',
+          description: "A Mermaid diagram (valid syntax, starting with 'flowchart TD' or 'graph LR') showing this build's actual architecture — every component named in techStack as a node, with labelled arrows for the real request/data flow between them (client, API, database, third-party services, etc.). Do not include the ```mermaid code fence — just the diagram body, starting with the diagram-type declaration.",
+        },
         techStack: {
           type: 'array',
           description: 'The concrete technology choice for every layer of the build — no layer should be left vague.',
@@ -158,6 +162,10 @@ const DETAILED_REPORT_TOOL = {
             required: ['entity', 'fields', 'description'],
           },
         },
+        dbSchemaDiagram: {
+          type: 'string',
+          description: "A Mermaid ER diagram (valid syntax, starting with 'erDiagram') showing the entities from dataModel and the relationships between them, same style as a database schema diagram. Do not include the ```mermaid code fence — just the diagram body.",
+        },
         pageBehavior: {
           type: 'array',
           description: 'Screens or pages the user interacts with, and what happens on each.',
@@ -182,13 +190,27 @@ const DETAILED_REPORT_TOOL = {
         },
         costEstimate: {
           type: 'object',
-          description: 'A rough but concrete cost estimate — order-of-magnitude figures are fine, but every field must have a real number or range, never left blank.',
+          description: 'A detailed cost estimate for this build, in Indian Rupees (INR/₹) — order-of-magnitude figures are fine, but every field must have a real number or range, never left blank or "TBD".',
           properties: {
-            developmentEstimate: { type: 'string', description: "Rough dev effort/cost, e.g. '3-4 weeks, 1 full-stack engineer' or a $ range." },
-            infrastructureMonthlyEstimate: { type: 'string', description: "Rough ongoing monthly infra cost at the stated scale, e.g. '$50-150/month (hosting, database, backups)'." },
-            notes: { type: 'string', description: 'Anything that could swing the estimate up or down — e.g. compliance work, third-party API costs.' },
+            componentCosts: {
+              type: 'array',
+              description: "Itemized cost per architecture component — one entry for every layer named in techStack (frontend build, backend/API build, database setup & hosting, cloud infrastructure) plus any recurring cost driver (AI/LLM API usage, third-party integrations, security scanning tooling, DevOps/CI setup). Cover every component actually used in this build.",
+              items: {
+                type: 'object',
+                properties: {
+                  component: { type: 'string', description: "e.g. 'Frontend build', 'Backend/API build', 'Database hosting', 'Cloud infrastructure', 'AI/LLM API usage', 'Security scanning tooling'." },
+                  oneTimeCostInr: { type: 'string', description: "One-time/development cost in INR, e.g. '₹1,50,000 – ₹2,00,000'. Use '—' if this component has no one-time cost." },
+                  monthlyCostInr: { type: 'string', description: "Ongoing monthly cost in INR at the stated scale, e.g. '₹3,000/month'. Use '—' if this component has no recurring cost." },
+                  notes: { type: 'string', description: 'What drives this figure, in one short phrase.' },
+                },
+                required: ['component', 'oneTimeCostInr', 'monthlyCostInr', 'notes'],
+              },
+            },
+            totalOneTimeCostInr: { type: 'string', description: "Sum of all one-time/development costs across componentCosts, e.g. '₹4,50,000 – ₹6,00,000'." },
+            totalMonthlyCostInr: { type: 'string', description: "Sum of all recurring monthly costs across componentCosts, e.g. '₹12,000 – ₹18,000/month'." },
+            notes: { type: 'string', description: 'Anything that could swing the total estimate up or down — e.g. compliance work, scale assumptions.' },
           },
-          required: ['developmentEstimate', 'infrastructureMonthlyEstimate', 'notes'],
+          required: ['componentCosts', 'totalOneTimeCostInr', 'totalMonthlyCostInr', 'notes'],
         },
         timeline: {
           type: 'array',
@@ -210,9 +232,11 @@ const DETAILED_REPORT_TOOL = {
         'conversationSummary',
         'objective',
         'architecture',
+        'architectureDiagram',
         'techStack',
         'userFlow',
         'dataModel',
+        'dbSchemaDiagram',
         'pageBehavior',
         'securityDesign',
         'deploymentAndOperations',
@@ -416,9 +440,12 @@ Then base the rest of the report on the approved summary and the original intake
 
 Specifically:
 - architecture must describe the actual end-to-end request/data flow (e.g. "client submits → API validates → writes to DB → triggers notification"), not just list components.
+- architectureDiagram must be a real, valid Mermaid flowchart (flowchart TD or graph LR) with a node for every component named in techStack and labelled arrows for the actual data flow between them — not a generic three-box sketch.
 - techStack must name a concrete, specific technology for every layer (frontend, backend, database, hosting, auth, CI/CD) — never "a suitable framework" or similarly vague.
 - userFlow must be the real ordered steps a user actually takes, specific to this requirement.
-- costEstimate and timeline must have real numbers/ranges/durations — order-of-magnitude estimates are fine, but never leave a field blank or say "TBD."
+- dbSchemaDiagram must be a real, valid Mermaid erDiagram covering every entity in dataModel and the relationships between them (use ||--o{, ||--||, etc. as appropriate) — mirror the entities/fields already described in dataModel rather than inventing new ones.
+- costEstimate must be in Indian Rupees (₹). componentCosts must itemize every layer named in techStack plus any recurring cost driver (AI/LLM API usage, third-party APIs, security tooling) with real one-time and/or monthly rupee figures — never leave a figure blank or say "TBD"; use '—' only for a component that genuinely has no cost of that type. totalOneTimeCostInr and totalMonthlyCostInr must be the real sum of componentCosts, not independently invented.
+- timeline must have real durations that sum to a realistic total delivery timeline.
 - deploymentAndOperations must cover how this actually runs in production: environments, CI/CD, monitoring, backups, rollback — not just how it's built.
 Call generate_detailed_report exactly once.`;
 }
@@ -443,9 +470,10 @@ async function runDetailedReport({ originatorLabel, summary, history }) {
   // Claude Sonnet 5 uses extended thinking by default, which consumes part
   // of max_tokens before it ever emits the tool call — budget well above
   // the actual JSON's real size to leave room for that.
-  // This schema is large enough (13 required fields, several nested) that a
-  // single retry isn't always enough — budget an extra attempt.
-  return callForcedTool({ model: DETAILED_REPORT_MODEL, messages, tool: DETAILED_REPORT_TOOL, maxTokens: 12000, retries: 2 });
+  // This schema is large enough (15 required fields, several nested, plus
+  // two Mermaid diagrams and an itemized cost table) that a single retry
+  // isn't always enough — budget an extra attempt.
+  return callForcedTool({ model: DETAILED_REPORT_MODEL, messages, tool: DETAILED_REPORT_TOOL, maxTokens: 14000, retries: 2 });
 }
 
 // Same shape as DETAILED_REPORT_TOOL, plus a changeSummary field so the chat
@@ -488,7 +516,7 @@ async function runFsdChatEdit({ originatorLabel, actorRole, detailedReport, hist
     { role: 'user', content: 'Current detailed report:\n' + JSON.stringify(detailedReport, null, 2) },
     ...history.map((h) => ({ role: h.role, content: h.content })),
   ];
-  return callForcedTool({ model: DETAILED_REPORT_MODEL, messages, tool: FSD_CHAT_EDIT_TOOL, maxTokens: 12000 });
+  return callForcedTool({ model: DETAILED_REPORT_MODEL, messages, tool: FSD_CHAT_EDIT_TOOL, maxTokens: 14000 });
 }
 
 // Fixed department taxonomy — every team split must use exactly these

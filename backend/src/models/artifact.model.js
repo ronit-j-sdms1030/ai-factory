@@ -97,9 +97,9 @@ const artifactSchema = new Schema(
     // report split into per-discipline work packages for team leads.
     teamReports: [teamReportSchema],
     teamReportsGeneratedAt: Date,
-    // A TL can share this report with another TL for discussion, even if
-    // the recipient's own department has no package here — this grants
-    // that visibility explicitly.
+    // Any internal role with access can share this report with another
+    // internal colleague for discussion, even if the recipient has no
+    // package here — this grants that visibility explicitly.
     discussionRecipients: [String], // userIds
     discussionShares: [
       {

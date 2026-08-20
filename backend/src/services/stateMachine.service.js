@@ -23,8 +23,11 @@ const TRANSITIONS = {
   fsd_final_approval: { giveFinalFsdApproval: 'approved' },
 };
 
+const FINAL_APPROVER_TIERS = ['vp', 'ceo', 'md'];
+
 function transition(artifact, action, actor, options = {}) {
   const comment = options.comment || '';
+  const finalApproverTier = options.finalApproverTier || null;
   const fromStage = artifact.currentStage;
   const stageMap = TRANSITIONS[fromStage];
 
@@ -86,6 +89,22 @@ function transition(artifact, action, actor, options = {}) {
   if (action === 'sendFsdToClient' && isSelfOriginMdCeo(artifact)) {
     artifact.currentStage =
       artifact.currentApprovalIndex >= artifact.approvalChain.length ? 'approved' : 'pending_approval';
+    pushHistory(artifact, actor, action, comment, artifact.currentStage);
+    return artifact;
+  }
+
+  // A TL's idea has no real second gate by default — the reviewer pool
+  // (md/ceo/vp) that cleared gate 0 also gives the final signoff, so
+  // sendFsdToClient finishes straight through. But whoever is sending it can
+  // optionally route it to one specific person (VP, CEO, or MD) for a real
+  // extra layer of oversight instead — their choice, not a fixed rule. Skip
+  // (no finalApproverTier) keeps the original straight-through behavior.
+  if (action === 'sendFsdToClient' && artifact.originator.tierId === 'tl' && finalApproverTier) {
+    if (!FINAL_APPROVER_TIERS.includes(finalApproverTier)) {
+      throw new Error(`Invalid finalApproverTier: "${finalApproverTier}" (must be one of ${FINAL_APPROVER_TIERS.join(', ')}).`);
+    }
+    artifact.approvalChain.push({ approverTiers: [finalApproverTier], mode: 'any', approvedBy: [] });
+    artifact.currentStage = 'pending_approval';
     pushHistory(artifact, actor, action, comment, artifact.currentStage);
     return artifact;
   }

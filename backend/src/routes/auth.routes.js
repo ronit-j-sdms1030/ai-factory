@@ -63,16 +63,18 @@ router.get('/me', (req, res) => {
   res.json({ user: req.session.user });
 });
 
-// Lists every team lead, for the "send for discussion" recipient picker.
-// TL-only — no other role needs this list.
-router.get('/team-leads', requireAuth, async (req, res) => {
+// Lists every internal colleague (any tier), for the "send for discussion"
+// recipient picker — any internal role can share a report with any other
+// internal role, not just TL-to-TL. Clients are excluded both as senders
+// (blocked in shareForDiscussion) and as recipients here.
+router.get('/colleagues', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  if (actor.isClient || actor.tierId !== 'tl') {
-    return res.status(403).json({ error: 'Only team leads can view this list' });
+  if (actor.isClient) {
+    return res.status(403).json({ error: 'Only internal roles can view this list' });
   }
-  const tls = await User.find({ tierId: 'tl' }, 'name email department').sort({ department: 1, name: 1 });
+  const colleagues = await User.find({ isClient: false }, 'name email tierId department').sort({ tierId: 1, department: 1, name: 1 });
   res.json({
-    teamLeads: tls.map((u) => ({ id: u._id.toString(), name: u.name, email: u.email, department: u.department })),
+    colleagues: colleagues.map((u) => ({ id: u._id.toString(), name: u.name, email: u.email, tierId: u.tierId, department: u.department })),
   });
 });
 
