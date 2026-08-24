@@ -13,9 +13,7 @@ function makeArtifact(originatorTierId) {
 }
 
 describe('submit -> pending_approval -> approved', () => {
-  test('PM and TL submissions both need only one of MD, CEO, or VP', () => {
-    // PM is no longer an approver of anything — both PM's and TL's own
-    // ideas go to the same single gate, any of MD/CEO/VP.
+  test('PM needs one MD/CEO/VP approval, while TL has MD/CEO then VP gates', () => {
     const pmArtifact = makeArtifact('pm');
     transition(pmArtifact, 'submit', { userId: 'u-pm', tierId: 'pm' });
     transition(pmArtifact, 'approve', { userId: 'u-vp', tierId: 'vp' }, { comment: 'looks good' });
@@ -24,7 +22,9 @@ describe('submit -> pending_approval -> approved', () => {
     const tlArtifact = makeArtifact('tl');
     transition(tlArtifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
     transition(tlArtifact, 'approve', { userId: 'u-md', tierId: 'md' });
-    expect(tlArtifact.currentStage).toBe('approved');
+    expect(tlArtifact.currentStage).toBe('pending_approval');
+    expect(tlArtifact.currentApprovalIndex).toBe(1);
+    expect(tlArtifact.approvalChain[1].approverTiers).toEqual(['vp']);
   });
 
   test('PM can no longer approve anything — not even a TL submission', () => {
@@ -44,6 +44,31 @@ describe('submit -> pending_approval -> approved', () => {
     // MD never had to act — the CEO's approval alone satisfied the 'any' step
     expect(artifact.approvalChain[0].approvedBy).toHaveLength(1);
     expect(artifact.approvalChain[0].approvedBy[0].tierId).toBe('ceo');
+  });
+
+  test('VP FSD goes MD/CEO -> VP -> production without returning for final approval', () => {
+    const artifact = makeArtifact('vp');
+    transition(artifact, 'submit', { userId: 'u-vp', tierId: 'vp' });
+    transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' });
+
+    // The route generates the FSD and gives MD/CEO their editing pass.
+    artifact.currentStage = 'fsd_review';
+    transition(artifact, 'sendFsdToClient', { userId: 'u-md', tierId: 'md' });
+    expect(artifact.currentStage).toBe('fsd_pending_client');
+
+    // VP sends it directly to TL production/team splitting.
+    transition(artifact, 'approveFsd', { userId: 'u-vp', tierId: 'vp' });
+    expect(artifact.currentStage).toBe('approved');
+  });
+
+  test('VP can release a legacy artifact already stuck at final FSD approval', () => {
+    const artifact = makeArtifact('vp');
+    transition(artifact, 'submit', { userId: 'u-vp', tierId: 'vp' });
+    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
+    artifact.currentStage = 'fsd_final_approval';
+
+    transition(artifact, 'giveFinalFsdApproval', { userId: 'u-vp', tierId: 'vp' });
+    expect(artifact.currentStage).toBe('approved');
   });
 
   test('MD and CEO self-approve gate 0, then VP still gates the FSD', () => {
@@ -91,46 +116,54 @@ describe('submit -> pending_approval -> approved', () => {
     expect(artifact.currentApprovalIndex).toBe(2);
   });
 
-  test('a TL idea finishes straight through by default, with no second gate', () => {
-    const artifact = makeArtifact('tl');
-    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
-    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
+  test('an MD can send the reviewed FSD directly to CEO instead of VP', () => {
+    const artifact = makeArtifact('md');
+    transition(artifact, 'submit', { userId: 'u-md', tierId: 'md' });
+    transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' });
     artifact.currentStage = 'fsd_review';
 
-    transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' });
-    expect(artifact.currentStage).toBe('fsd_pending_client');
-  });
+    transition(
+      artifact,
+      'sendFsdToClient',
+      { userId: 'u-md', tierId: 'md' },
+      { finalApproverTier: 'ceo' }
+    );
 
-  test('a TL idea can optionally be routed to a chosen final approver (VP, CEO, or MD)', () => {
-    const artifact = makeArtifact('tl');
-    transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
-    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
-    expect(artifact.currentApprovalIndex).toBe(1);
-    artifact.currentStage = 'fsd_review';
-
-    // The reviewer sending it chooses CEO for the extra sign-off, even
-    // though VP was the one who cleared gate 0.
-    transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' }, { finalApproverTier: 'ceo' });
     expect(artifact.currentStage).toBe('pending_approval');
-    expect(artifact.approvalChain).toHaveLength(2);
     expect(artifact.approvalChain[1].approverTiers).toEqual(['ceo']);
-    expect(artifact.currentApprovalIndex).toBe(1);
-
-    // Only CEO can clear this new gate — not VP, not MD.
-    expect(() => transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Unauthorized approver/);
-    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' }, { comment: 'Signed off' });
+    expect(() => transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' })).toThrow(/Unauthorized approver/);
+    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
     expect(artifact.currentStage).toBe('approved');
   });
 
-  test('an invalid finalApproverTier is rejected', () => {
+  test('VP cannot reject an FSD sent by MD or CEO', () => {
+    const artifact = makeArtifact('md');
+    transition(artifact, 'submit', { userId: 'u-md', tierId: 'md' });
+    transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' });
+    artifact.currentStage = 'fsd_review';
+    transition(artifact, 'sendFsdToClient', { userId: 'u-md', tierId: 'md' });
+
+    expect(() => transition(artifact, 'reject', { userId: 'u-vp', tierId: 'vp' })).toThrow(/cannot reject/);
+    expect(artifact.currentStage).toBe('pending_approval');
+  });
+
+  test('a TL idea follows MD/CEO FSD review -> VP -> production', () => {
     const artifact = makeArtifact('tl');
     transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
-    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
+    expect(() => transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' })).toThrow(/Unauthorized approver/);
+    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
+    expect(artifact.currentApprovalIndex).toBe(1);
     artifact.currentStage = 'fsd_review';
 
-    expect(() =>
-      transition(artifact, 'sendFsdToClient', { userId: 'u-vp', tierId: 'vp' }, { finalApproverTier: 'pm' })
-    ).toThrow(/Invalid finalApproverTier/);
+    transition(artifact, 'sendFsdToClient', { userId: 'u-ceo', tierId: 'ceo' });
+    expect(artifact.currentStage).toBe('pending_approval');
+    expect(artifact.approvalChain).toHaveLength(2);
+    expect(artifact.approvalChain[1].approverTiers).toEqual(['vp']);
+    expect(artifact.currentApprovalIndex).toBe(1);
+
+    expect(() => transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Unauthorized approver/);
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' }, { comment: 'Sent to production' });
+    expect(artifact.currentStage).toBe('approved');
   });
 
   test('client submissions clear an MD/CEO gate, then a separate VP gate', () => {
@@ -158,10 +191,10 @@ describe('reject and revision paths', () => {
   test('reject moves straight to rejected and stops there', () => {
     const artifact = makeArtifact('tl');
     transition(artifact, 'submit', { userId: 'u-tl', tierId: 'tl' });
-    transition(artifact, 'reject', { userId: 'u-vp', tierId: 'vp' }, { comment: 'not scoped correctly' });
+    transition(artifact, 'reject', { userId: 'u-md', tierId: 'md' }, { comment: 'not scoped correctly' });
 
     expect(artifact.currentStage).toBe('rejected');
-    expect(() => transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' })).toThrow(/Cannot perform "approve"/);
+    expect(() => transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' })).toThrow(/Cannot perform "approve"/);
   });
 
   test('requestRevision sends it back, and resubmitting restarts the approval chain', () => {

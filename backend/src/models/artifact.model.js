@@ -68,6 +68,7 @@ const artifactSchema = new Schema(
         // Client approved the FSD — MD/CEO gives a final signoff before the
         // chain proceeds to VP.
         'fsd_final_approval',
+        'team_revision_requested',
       ],
       default: 'draft',
     },
@@ -92,6 +93,34 @@ const artifactSchema = new Schema(
     // correctly but stripped on save because the schema didn't know them.
     teamReports: [Schema.Types.Mixed],
     teamReportsGeneratedAt: Date,
+    teamReportEditHistory: [
+      {
+        department: String,
+        role: { type: String, enum: ['user', 'assistant'] },
+        content: String,
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
+    teamRevisionRequests: [
+      {
+        department: String,
+        requestedBy: String,
+        requestedByName: String,
+        comment: String,
+        status: { type: String, enum: ['open', 'resolved'], default: 'open' },
+        timestamp: { type: Date, default: Date.now },
+        resolvedAt: Date,
+      },
+    ],
+    discussionMessages: [
+      {
+        userId: String,
+        name: String,
+        department: String,
+        message: String,
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
     // Any internal role with access can share this report with another
     // internal colleague for discussion, even if the recipient has no
     // package here — this grants that visibility explicitly.
@@ -102,6 +131,7 @@ const artifactSchema = new Schema(
         fromName: String,
         toUserId: String,
         toName: String,
+        sharedTeam: String,
         note: String,
         timestamp: { type: Date, default: Date.now },
       },

@@ -45,6 +45,12 @@ function transition(artifact, action, actor, options = {}) {
         `Unauthorized approver: "${actor.tierId}" cannot act on this step (expected one of: ${step.approverTiers.join(', ')}).`
       );
     }
+    if (
+      action === 'reject' && actor.tierId === 'vp' && artifact.currentApprovalIndex > 0 &&
+      ['md', 'ceo', 'tl'].includes(artifact.originator.tierId)
+    ) {
+      throw new Error('VP cannot reject this reviewed FSD; edit it or send it to TL for production.');
+    }
     if (action === 'approve') {
       applyApproval(artifact, actor, step, comment);
       return artifact;
@@ -59,7 +65,12 @@ function transition(artifact, action, actor, options = {}) {
   // a PM or TL (gate 0: md/ceo/vp) without special-casing each one.
   if (fromStage === 'fsd_review' || fromStage === 'fsd_final_approval') {
     const reviewerPool = artifact.approvalChain[0].approverTiers;
-    if (!reviewerPool.includes(actor.tierId)) {
+    const vpOriginatorFinishingLegacyFsd =
+      fromStage === 'fsd_final_approval' &&
+      artifact.originator.tierId === 'vp' &&
+      artifact.originator.userId === actor.userId &&
+      action === 'giveFinalFsdApproval';
+    if (!reviewerPool.includes(actor.tierId) && !vpOriginatorFinishingLegacyFsd) {
       throw new Error(`Unauthorized: "${actor.tierId}" is not part of this requirement's reviewer pool (${reviewerPool.join(', ')}).`);
     }
   }
@@ -76,6 +87,15 @@ function transition(artifact, action, actor, options = {}) {
     artifact.currentApprovalIndex = 0;
   }
 
+  // VP-originated requirements follow VP -> MD/CEO -> VP -> TL. Once the
+  // VP accepts the FSD, it goes straight to production/team splitting; it
+  // must not bounce back to MD/CEO for a redundant final approval.
+  if (action === 'approveFsd' && artifact.originator.tierId === 'vp') {
+    artifact.currentStage = 'approved';
+    pushHistory(artifact, actor, action, comment, artifact.currentStage);
+    return artifact;
+  }
+
   // Client's approvalChain has 2 real steps (MD/CEO, then VP) — gate 0 was
   // already consumed when the FSD loop started, so currentApprovalIndex is
   // already 1, meaning VP's gate genuinely still lies ahead. Every other
@@ -87,23 +107,29 @@ function transition(artifact, action, actor, options = {}) {
   // straight to the next real gate instead — VP, who signs off before the
   // team split runs.
   if (action === 'sendFsdToClient' && isSelfOriginMdCeo(artifact)) {
+    if (finalApproverTier) {
+      if (!FINAL_APPROVER_TIERS.includes(finalApproverTier) || finalApproverTier === artifact.originator.tierId) {
+        throw new Error(`Invalid finalApproverTier: "${finalApproverTier}" for this requirement.`);
+      }
+      const nextStep = artifact.approvalChain[artifact.currentApprovalIndex];
+      if (nextStep) {
+        nextStep.approverTiers = [finalApproverTier];
+        nextStep.mode = 'any';
+        nextStep.approvedBy = [];
+      } else {
+        artifact.approvalChain.push({ approverTiers: [finalApproverTier], mode: 'any', approvedBy: [] });
+      }
+    }
     artifact.currentStage =
       artifact.currentApprovalIndex >= artifact.approvalChain.length ? 'approved' : 'pending_approval';
     pushHistory(artifact, actor, action, comment, artifact.currentStage);
     return artifact;
   }
 
-  // A TL's idea has no real second gate by default — the reviewer pool
-  // (md/ceo/vp) that cleared gate 0 also gives the final signoff, so
-  // sendFsdToClient finishes straight through. But whoever is sending it can
-  // optionally route it to one specific person (VP, CEO, or MD) for a real
-  // extra layer of oversight instead — their choice, not a fixed rule. Skip
-  // (no finalApproverTier) keeps the original straight-through behavior.
-  if (action === 'sendFsdToClient' && artifact.originator.tierId === 'tl' && finalApproverTier) {
-    if (!FINAL_APPROVER_TIERS.includes(finalApproverTier)) {
-      throw new Error(`Invalid finalApproverTier: "${finalApproverTier}" (must be one of ${FINAL_APPROVER_TIERS.join(', ')}).`);
-    }
-    artifact.approvalChain.push({ approverTiers: [finalApproverTier], mode: 'any', approvedBy: [] });
+  // TL requirements always move from the MD/CEO FSD review to the existing
+  // VP gate. They do not return to the originating TL until VP releases the
+  // generated production packages.
+  if (action === 'sendFsdToClient' && artifact.originator.tierId === 'tl') {
     artifact.currentStage = 'pending_approval';
     pushHistory(artifact, actor, action, comment, artifact.currentStage);
     return artifact;

@@ -163,6 +163,8 @@
   .progress-bar-wrap.visible { display: flex; }
   .progress-bar-track { width: 100%; height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
   .progress-bar-fill { height: 100%; width: 0%; border-radius: 999px; background: var(--accent); transition: width 0.4s ease; }
+  .progress-bar-fill.indeterminate { width: 35% !important; animation: progress-indeterminate 1.4s ease-in-out infinite; }
+  @keyframes progress-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
   .progress-bar-label { font-size: 0.78rem; color: var(--text-faint); display: flex; justify-content: space-between; }
 
   #logout-btn { width: 100%; }
@@ -203,7 +205,7 @@
         <button class="side-nav-btn" id="tab-approvals" type="button" data-tab="approvals">Approvals<span class="tab-badge" id="approvals-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-submissions" type="button" data-tab="submissions">Submissions</button>
         <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
-        <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Shared with me<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
+        <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Discussions<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-history" type="button" data-tab="history" style="display:none;">History<span class="tab-badge" id="history-badge" style="display:none;"></span></button>
       </nav>
 
@@ -242,7 +244,7 @@
                 <textarea id="chat-input" rows="1" placeholder="Type your reply..."></textarea>
                 <button class="btn" id="chat-send-btn" type="button">Send</button>
               </div>
-              <p class="chat-footnote">Claude Haiku 4.5 asks the questions &middot; GPT-4o mini structures the requirement &middot; DeepSeek V3.2 writes the detailed report.</p>
+              <p class="chat-footnote">Claude Haiku 4.5 asks the questions &middot; GPT-4o Mini structures the requirement &middot; DeepSeek V3.2 writes the detailed report.</p>
             </div>
           </div>
         </div>
@@ -274,8 +276,8 @@
 
         <div class="tab-view" id="view-shared" style="display:none;">
           <div class="card">
-            <h2>Shared with me</h2>
-            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Reports a colleague invited you into for discussion, outside your normal reviewer or department queue.</p>
+            <h2>Requirement discussions</h2>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Requirement group chats opened by Team Leads. Assigned TLs, VP, MD, and CEO can participate. Use Request revision when the FSD or package must change.</p>
             <div class="list" id="shared-list"></div>
             <div class="pagination" id="shared-pagination"></div>
           </div>
@@ -379,6 +381,7 @@
       fsd_pending_client: 'FSD pending originator',
       fsd_final_approval: 'FSD final approval',
       pending_client_review: 'pending client review',
+      team_revision_requested: 'TL revision requested',
     };
     function stageLabel(stage) { return STAGE_LABELS[stage] || stage.replace(/_/g, ' '); }
 
@@ -393,7 +396,7 @@
       }
       return null;
     }
-    var WHY_PREFIX = { reject: 'Rejected — ', requestRevision: 'Revision requested — ', proposeChanges: 'Changes proposed — ' };
+    var WHY_PREFIX = { reject: 'Rejected — ', requestRevision: 'Revision requested — ', requestTeamRevision: 'TL revision requested — ', proposeChanges: 'Changes proposed — ' };
 
     // Which action buttons apply to this artifact, based on its stage and
     // the viewer's role — the same rules the backend enforces, mirrored
@@ -419,12 +422,20 @@
         if (stage === 'pending_approval') {
           var step = artifact.approvalChain[artifact.currentApprovalIndex];
           if (step && step.approverTiers.indexOf(me.tierId) !== -1) {
-            buttons.push({ action: 'approve', label: 'Approve' });
+            var sendsFsdToProduction = me.tierId === 'vp' && artifact.currentApprovalIndex > 0 &&
+              ['md', 'ceo', 'tl'].indexOf(artifact.originator.tierId) !== -1 && artifact.detailedReport;
+            buttons.push({ action: 'approve', label: sendsFsdToProduction ? 'Send to TL for production' : 'Approve' });
             if (artifact.currentApprovalIndex === 0) {
               buttons.push({ action: 'proposeChanges', label: 'Propose changes', secondary: true, modal: 'proposeChanges' });
             }
-            buttons.push({ action: 'requestRevision', label: 'Request revision', secondary: true });
-            buttons.push({ action: 'reject', label: 'Reject', danger: true });
+            if (sendsFsdToProduction) {
+              buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
+            } else {
+              buttons.push({ action: 'requestRevision', label: 'Request revision', secondary: true });
+            }
+            if (!(me.tierId === 'vp' && artifact.currentApprovalIndex > 0 && ['md', 'ceo', 'tl'].indexOf(artifact.originator.tierId) !== -1)) {
+              buttons.push({ action: 'reject', label: 'Reject', danger: true });
+            }
           }
         }
         // fsd_review / fsd_final_approval are gated by the requirement's own
@@ -433,33 +444,37 @@
         var reviewerPool = artifact.approvalChain[0].approverTiers;
         if (stage === 'fsd_review' && reviewerPool.indexOf(me.tierId) !== -1) {
           buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
-          if (artifact.originator.tierId === 'tl' && !isOriginator) {
-            // A TL's idea has no fixed second gate — whoever is reviewing it
-            // can finish it straight through (today's default) or route it
-            // to one specific person (VP, CEO, or MD) for real extra
-            // oversight, their choice.
-            buttons.push({ action: 'sendFsdToClient', label: 'Send / finish', modal: 'routeTlFsd' });
+          if (artifact.originator.tierId === 'tl') {
+            buttons.push({ action: 'sendFsdToClient', label: 'Send to VP for production review' });
           } else {
             // Self-originated requirements loop back to the same person, so
             // "Send for review" would read as sending it to themselves.
             buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for production' : 'Send for review' });
           }
-          // MD/CEO peer visibility is non-gating (neither approves the
-          // other's idea), but the originator should still be able to loop
-          // their peer in on the FSD before it goes to VP — reuses the
-          // existing share-for-discussion flow, pre-targeted at the peer.
+          // MD/CEO can route directly to their peer as the final production
+          // approver. This is a one-click approval route, not a discussion
+          // share with a recipient/note modal.
           if (isOriginator && (me.tierId === 'md' || me.tierId === 'ceo')) {
             buttons.push({
-              action: 'shareToPeer',
+              action: 'sendFsdToClient',
               label: 'Send to ' + (me.tierId === 'md' ? 'CEO' : 'MD'),
               secondary: true,
-              modal: 'shareToPeer',
-              peerTierId: me.tierId === 'md' ? 'ceo' : 'md',
+              finalApproverTier: me.tierId === 'md' ? 'ceo' : 'md',
             });
           }
         }
         if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
           buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
+        }
+        // Recovery for VP-originated artifacts created under the old
+        // workflow, which stopped at fsd_final_approval and expected an
+        // unnecessary MD/CEO bounce-back.
+        if (stage === 'fsd_final_approval' && isOriginator && me.tierId === 'vp') {
+          buttons.push({ action: 'giveFinalFsdApproval', label: 'Send to TL for production' });
+        }
+        if (stage === 'team_revision_requested' && me.tierId === 'vp') {
+          buttons.push({ action: 'editFsd', label: 'Revise FSD', secondary: true, modal: 'fsdChat' });
+          buttons.push({ action: 'regenerateTeamSplit', label: 'Resend to TL for production' });
         }
       }
 
@@ -480,10 +495,31 @@
       if (isOriginator) {
         if (stage === 'pending_client_review') buttons.push({ action: 'acceptChanges', label: 'Accept changes' });
         if (stage === 'fsd_pending_client') {
-          buttons.push({ action: 'approveFsd', label: 'Approve FSD' });
+          buttons.push({ action: 'approveFsd', label: me.tierId === 'vp' ? 'Send to TL for production' : 'Approve FSD' });
           buttons.push({ action: 'requestFsdChanges', label: 'Request changes', secondary: true, modal: 'fsdChat' });
         }
         if (stage === 'revision_requested') buttons.push({ action: 'resubmit', label: 'Edit & resubmit', secondary: true, modal: 'resubmit' });
+      }
+
+      var assignedTeamPackage = !me.isClient && me.tierId === 'tl' && me.department &&
+        (artifact.teamReports || []).some(function (report) { return report.team === me.department; });
+      if (assignedTeamPackage && stage === 'approved') {
+        buttons.push({ action: 'editTeamReport', label: 'Edit split package', secondary: true, modal: 'teamReportChat' });
+        buttons.push({ action: 'requestTeamRevision', label: 'Request revision', secondary: true });
+      }
+
+      // Recovery when approval succeeded but automatic team splitting
+      // failed. Previously this action was unreachable because the split
+      // button only existed after at least one package already existed.
+      // Non-TL roles receive a deliberately redacted teamReports array, so
+      // its length cannot indicate generation status. The timestamp is the
+      // safe status signal: it confirms delivery without exposing another
+      // department's package content to VP/MD/CEO.
+      var canGenerateMissingPackages = stage === 'approved' && artifact.detailedReport &&
+        !artifact.teamReportsGeneratedAt && !me.isClient &&
+        (isOriginator || me.tierId === 'vp' || artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1);
+      if (canGenerateMissingPackages) {
+        buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
       return buttons;
@@ -563,8 +599,9 @@
         btn.addEventListener('click', function () {
           if (btnDef.modal === 'proposeChanges') return openProposeChangesModal(artifact);
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
+          if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
-          if (btnDef.modal === 'shareToPeer') return openShareForDiscussionModal(artifact, btnDef.peerTierId);
+          if (btnDef.finalApproverTier) return sendFsdDirectly(artifact, btnDef.finalApproverTier, btn, actionsEl);
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
           actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
@@ -667,13 +704,27 @@
       });
     }
 
+    function renderDiscussionItem(artifact) {
+      var messages = artifact.discussionMessages || [];
+      var last = messages.length ? messages[messages.length - 1] : null;
+      var el = document.createElement('div');
+      el.className = 'item';
+      el.innerHTML =
+        '<div class="item-head"><div><strong class="item-title">' + escapeHtml(artifact.title || 'Untitled requirement') + '</strong>' +
+        '<div class="item-meta">' + messages.length + ' message' + (messages.length === 1 ? '' : 's') + '</div></div></div>' +
+        '<p class="item-summary">' + (last ? '<strong>' + escapeHtml(last.name) + ' (' + escapeHtml(last.department) + '):</strong> ' + escapeHtml(last.message) : 'No messages yet. Start the requirement discussion.') + '</p>' +
+        '<div class="item-actions"><button class="btn" type="button" data-open-discussion>Open discussion</button></div>';
+      el.querySelector('[data-open-discussion]').addEventListener('click', function () { openRequirementDiscussion(artifact); });
+      return el;
+    }
+
     function renderSharedList() {
       renderPaginatedList({
         listId: 'shared-list',
         paginationId: 'shared-pagination',
         data: sharedData,
-        emptyText: 'Nobody has shared a report with you yet.',
-        renderItem: renderArtifactItem,
+        emptyText: 'No requirement discussions are available yet.',
+        renderItem: renderDiscussionItem,
         getPage: function () { return sharedPage; },
         setPage: function (p) { sharedPage = p; },
         rerender: renderSharedList,
@@ -738,11 +789,6 @@
           asArray(c.recommendedModels).map(function (m) { return '<li><strong>' + escapeHtml(m.model) + '</strong> — ' + escapeHtml(m.purpose) + ' <span style="color:var(--text-faint);">(' + escapeHtml(m.rationale) + ')</span></li>'; }).join('') +
           '</ul></div>';
       }
-      if (asArray(c.recommendedSecurityTools).length) {
-        html += '<div><div class="modal-section-label">Security tools</div><ul class="modal-list">' +
-          asArray(c.recommendedSecurityTools).map(function (t) { return '<li><strong>' + escapeHtml(t.tool) + '</strong> — ' + escapeHtml(t.category) + ' <span style="color:var(--text-faint);">(' + escapeHtml(t.rationale) + ')</span></li>'; }).join('') +
-          '</ul></div>';
-      }
       if (c.preferredCodeGenModel) {
         html += '<div><div class="modal-section-label">Preferred code-gen model</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.preferredCodeGenModel) + '</p></div>';
       }
@@ -770,7 +816,7 @@
     function openViewModal(artifact) {
       document.getElementById('modal-title').textContent = artifact.title || 'Untitled requirement';
       var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage)) + '</span></div>';
-      var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
+      var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'requestTeamRevision', 'proposeChanges']);
       if (viewWhy) {
         body += '<p class="item-why" style="margin:0;">' + escapeHtml((WHY_PREFIX[viewWhy.action] || '') + viewWhy.comment) + '</p>';
       }
@@ -786,33 +832,6 @@
         body += '<div><button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download FSD</button></div>';
       }
 
-      // Team-report content is Team Lead-only now (see visibleTeamReportsFor
-      // on the backend) — discussing it is scoped the same way, otherwise
-      // "share for discussion" would be a side channel for MD/CEO/VP/the
-      // originator to pull in content they're no longer sent by the API.
-      var canDiscuss = !me.isClient && me.tierId === 'tl' && (artifact.teamReports || []).length > 0;
-      if (canDiscuss) {
-        body += '<div><button class="btn secondary" id="share-discussion-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Send for discussion</button></div>';
-      }
-
-      // A discussion share is a private note between the two people involved
-      // — anyone else with access to this artifact (a TL whose department
-      // has a package here, VP as part of the reviewer pool, etc.) has no
-      // business seeing it just because they can see the parent document.
-      var visibleDiscussionShares = (artifact.discussionShares || []).filter(function (s) {
-        return s.fromUserId === me.id || s.toUserId === me.id;
-      });
-      if (visibleDiscussionShares.length) {
-        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
-        body += '<div><div class="modal-section-label" style="color:var(--accent);">Discussion</div></div>';
-        visibleDiscussionShares.forEach(function (s) {
-          body += '<div class="item-why" style="margin-top:0;">' +
-            '<strong>' + escapeHtml(s.fromName) + '</strong> → <strong>' + escapeHtml(s.toName) + '</strong>' +
-            (s.note ? ': ' + escapeHtml(s.note) : '') +
-            '<br /><span style="color:var(--text-faint);font-size:0.76rem;">' + new Date(s.timestamp).toLocaleString() + '</span>' +
-            '</div>';
-        });
-      }
 
       body += '<div><div class="modal-section-label">Approval chain</div><p style="margin:0;font-size:0.86rem;color:var(--text-soft);font-family:var(--font-mono);">' + escapeHtml(fmtChain(artifact)) + '</p></div>';
 
@@ -825,8 +844,6 @@
       var downloadBtn = document.getElementById('download-fsd-btn');
       if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
 
-      var shareBtn = document.getElementById('share-discussion-btn');
-      if (shareBtn) shareBtn.addEventListener('click', function () { openShareForDiscussionModal(artifact); });
     }
 
     // A separate modal for the team split report — kept apart from
@@ -946,6 +963,104 @@
       document.getElementById('modal-overlay').classList.add('open');
     }
 
+    function sendFsdDirectly(artifact, finalApproverTier, btn, actionsEl) {
+      var buttons = actionsEl ? Array.prototype.slice.call(actionsEl.querySelectorAll('button')) : [];
+      buttons.forEach(function (button) { button.disabled = true; });
+      var originalText = btn.textContent;
+      btn.textContent = 'Sending…';
+
+      fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/sendFsdToClient', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finalApproverTier: finalApproverTier }),
+      })
+        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not send the FSD');
+          showToast('FSD sent directly to ' + finalApproverTier.toUpperCase() + '.');
+          loadArtifacts();
+        })
+        .catch(function (err) {
+          showToast(err.message, true);
+          buttons.forEach(function (button) { button.disabled = false; });
+          btn.textContent = originalText;
+        });
+    }
+
+    function openRequirementDiscussion(artifact) {
+      document.getElementById('modal-title').textContent = artifact.title || 'Requirement discussion';
+      document.getElementById('modal-body').innerHTML =
+        '<div class="chat-box" style="height:58vh;min-height:360px;">' +
+          '<div id="discussion-messages" class="chat-messages"></div>' +
+          '<div class="chat-composer">' +
+            '<textarea id="discussion-input" rows="1" placeholder="Message the requirement group..."></textarea>' +
+            '<button class="btn" id="discussion-send-btn" type="button">Send</button>' +
+          '</div>' +
+        '</div>';
+      document.getElementById('modal-overlay').classList.add('open');
+
+      var box = document.getElementById('discussion-messages');
+      function renderMessages() {
+        box.innerHTML = '';
+        var messages = artifact.discussionMessages || [];
+        if (!messages.length) {
+          box.innerHTML = '<p class="modal-empty">No messages yet. Start the discussion for this requirement.</p>';
+          return;
+        }
+        messages.forEach(function (entry) {
+          var wrap = document.createElement('div');
+          wrap.style.alignSelf = entry.userId === me.id ? 'flex-end' : 'flex-start';
+          wrap.style.maxWidth = '85%';
+          wrap.innerHTML =
+            '<div style="font-size:0.72rem;color:var(--text-faint);margin-bottom:0.2rem;">' +
+              escapeHtml(entry.name) + ' · ' + escapeHtml(entry.department) + ' · ' + new Date(entry.timestamp).toLocaleString() +
+            '</div>' +
+            '<div style="padding:0.6rem 0.85rem;border-radius:9px;font-size:0.9rem;line-height:1.5;background:' +
+              (entry.userId === me.id ? 'var(--accent-soft)' : 'var(--surface-2)') + ';border:1px solid var(--line);white-space:pre-wrap;"></div>';
+          wrap.lastElementChild.textContent = entry.message;
+          box.appendChild(wrap);
+        });
+        box.scrollTop = box.scrollHeight;
+      }
+      renderMessages();
+
+      function sendMessage() {
+        var input = document.getElementById('discussion-input');
+        var btn = document.getElementById('discussion-send-btn');
+        var message = input.value.trim();
+        if (!message) return;
+        input.disabled = true;
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/discussionMessage', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message }),
+        })
+          .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not send message');
+            artifact.discussionMessages = result.body.artifact.discussionMessages || [];
+            input.value = '';
+            renderMessages();
+            loadArtifacts();
+          })
+          .catch(function (err) { showToast(err.message, true); })
+          .then(function () {
+            input.disabled = false;
+            btn.disabled = false;
+            btn.textContent = 'Send';
+            input.focus();
+          });
+      }
+      document.getElementById('discussion-send-btn').addEventListener('click', sendMessage);
+      document.getElementById('discussion-input').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }
+      });
+    }
+
     function openShareForDiscussionModal(artifact, preferredTierId) {
       document.getElementById('modal-title').textContent = preferredTierId ? 'Send FSD to ' + preferredTierId.toUpperCase() : 'Send for discussion';
       document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading colleagues...</p>';
@@ -1022,7 +1137,7 @@
       var h = opts.headingLevel || '##';
       var h2 = h + '#';
 
-      if (d.objective) lines.push(h + ' Objective', '', d.objective, '');
+      if (d.objective && !opts.skipObjective) lines.push(h + ' Objective', '', d.objective, '');
       if (d.architecture) lines.push(h + ' Architecture', '', d.architecture, '');
       if (d.architectureDiagram) lines.push(h2 + ' Architecture Diagram', '', '```mermaid', d.architectureDiagram, '```', '');
       if (asArray(d.techStack).length) {
@@ -1048,17 +1163,6 @@
       }
       mdListSection(lines, 'Security Design', d.securityDesign, h);
       if (opts.deployment) mdListSection(lines, 'Deployment & Operations', d.deploymentAndOperations, h);
-      if (d.costEstimate && asArray(d.costEstimate.componentCosts).length) {
-        var ceMd = d.costEstimate;
-        lines.push(h + ' Cost Estimate (₹ INR)', '');
-        lines.push('| Component | One-time | Monthly | Notes |', '|---|---|---|---|');
-        asArray(ceMd.componentCosts).forEach(function (row) {
-          lines.push('| ' + row.component + ' | ' + row.oneTimeCostInr + ' | ' + row.monthlyCostInr + ' | ' + row.notes + ' |');
-        });
-        lines.push('| **Total** | **' + ceMd.totalOneTimeCostInr + '** | **' + ceMd.totalMonthlyCostInr + '** | |');
-        lines.push('');
-        if (ceMd.notes) lines.push('*' + ceMd.notes + '*', '');
-      }
       if (opts.timeline && asArray(d.timeline).length) {
         lines.push(h + ' Timeline', '');
         asArray(d.timeline).forEach(function (t) { lines.push('- **' + t.phase + '** (' + t.duration + '): ' + t.description); });
@@ -1090,6 +1194,9 @@
       var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
       var lines = ['# ' + (artifact.title || 'Untitled requirement'), ''];
 
+      // The production FSD begins with its business objective. The intake
+      // summary remains after it as supporting context.
+      if (d.objective) lines.push('## Objective', '', d.objective, '');
       lines.push('## Summary', '', (typeof artifact.content === 'string' ? artifact.content : c.summary) || '', '');
       mdListSection(lines, 'In Scope', c.inScope);
       mdListSection(lines, 'Out of Scope', c.outOfScope);
@@ -1100,16 +1207,11 @@
         asArray(c.recommendedModels).forEach(function (m) { lines.push('- **' + m.model + '**: ' + m.purpose + ' — ' + m.rationale); });
         lines.push('');
       }
-      if (asArray(c.recommendedSecurityTools).length) {
-        lines.push('## Security Tools', '');
-        asArray(c.recommendedSecurityTools).forEach(function (t) { lines.push('- **' + t.tool + '** (' + t.category + '): ' + t.rationale); });
-        lines.push('');
-      }
       if (c.preferredCodeGenModel) lines.push('## Preferred Code-Gen Model', '', c.preferredCodeGenModel, '');
       mdListSection(lines, 'Open Questions (Initial Requirement)', c.openQuestions);
 
-      if (d.conversationSummary) lines.push('## Conversation Summary', '', d.conversationSummary, '');
       appendReportSections(lines, d, {
+        skipObjective: true,
         userFlow: true,
         dbSchemaDiagram: true,
         deployment: true,
@@ -1122,15 +1224,10 @@
       return lines.join('\n');
     }
 
-    // The backend (visibleTeamReportsFor in artifact.routes.js) now only ever
-    // sends a TL their own department's package — everyone else gets an
-    // empty teamReports array over the wire. This mirrors that scoping
-    // client-side too, as defense in depth rather than trusting the payload
-    // shape blindly.
+    // The backend scopes this array to the TL's own department plus any
+    // department package explicitly shared with them for discussion.
     function getVisibleTeamReports(artifact) {
-      return (me && !me.isClient && me.tierId === 'tl' && me.department)
-        ? (artifact.teamReports || []).filter(function (t) { return t.team === me.department; })
-        : [];
+      return (me && !me.isClient && me.tierId === 'tl') ? (artifact.teamReports || []) : [];
     }
 
     // The team split report is its own document, separate from the FSD —
@@ -1318,8 +1415,8 @@
     }
 
     // Edit FSD via chat: MD/CEO (during fsd_review) or the client (during
-    // fsd_pending_client) describe a change in plain language and Claude
-    // applies it to the detailed report — replaces the old static form.
+    // fsd_pending_client) describe a change in plain language and the AI
+    // applies a small patch to the detailed report.
     function openFsdChatModal(artifact) {
       document.getElementById('modal-title').textContent = 'Edit detailed report';
       document.getElementById('modal-body').innerHTML =
@@ -1369,6 +1466,9 @@
         input.value = '';
         input.disabled = true;
         sendBtn.disabled = true;
+        sendBtn.textContent = 'Updating…';
+        addBubble('assistant', 'Applying your change…');
+        var workingBubble = box.lastElementChild;
 
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/fsdChat', {
           method: 'POST',
@@ -1379,17 +1479,22 @@
           .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
           .then(function (result) {
             if (!result.ok) throw new Error(result.body.error || 'Could not apply that change');
+            if (workingBubble) workingBubble.remove();
+            artifact.title = result.body.artifact.title;
+            artifact.content = result.body.artifact.content;
             artifact.detailedReport = result.body.artifact.detailedReport;
             artifact.fsdChatHistory = result.body.artifact.fsdChatHistory;
             addBubble('assistant', result.body.reply);
             loadArtifacts();
           })
           .catch(function (err) {
+            if (workingBubble) workingBubble.remove();
             addBubble('assistant', 'Error: ' + err.message);
           })
           .then(function () {
             input.disabled = false;
             sendBtn.disabled = false;
+            sendBtn.textContent = 'Send';
             input.focus();
           });
       }
@@ -1397,6 +1502,79 @@
       document.getElementById('fsd-chat-send-btn').addEventListener('click', send);
       document.getElementById('fsd-chat-input').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+    }
+
+    function openTeamReportChatModal(artifact) {
+      document.getElementById('modal-title').textContent = 'Edit ' + me.department + ' work package';
+      document.getElementById('modal-body').innerHTML =
+        '<div class="chat-box" style="height:58vh;min-height:360px;">' +
+          '<div id="team-edit-messages" class="chat-messages"></div>' +
+          '<div class="chat-composer">' +
+            '<textarea id="team-edit-input" rows="1" placeholder="Describe what to change in your package..."></textarea>' +
+            '<button class="btn" id="team-edit-send" type="button">Send</button>' +
+          '</div>' +
+        '</div>';
+      document.getElementById('modal-overlay').classList.add('open');
+      var box = document.getElementById('team-edit-messages');
+
+      function addBubble(role, text) {
+        var wrap = document.createElement('div');
+        wrap.style.alignSelf = role === 'user' ? 'flex-end' : 'flex-start';
+        wrap.style.maxWidth = '85%';
+        var bubble = document.createElement('div');
+        bubble.style.padding = '0.6rem 0.85rem';
+        bubble.style.borderRadius = '9px';
+        bubble.style.fontSize = '0.9rem';
+        bubble.style.lineHeight = '1.5';
+        bubble.style.background = role === 'user' ? 'var(--accent-soft)' : 'var(--surface-2)';
+        bubble.style.border = '1px solid var(--line)';
+        bubble.style.whiteSpace = 'pre-wrap';
+        bubble.textContent = text;
+        wrap.appendChild(bubble);
+        box.appendChild(wrap);
+        box.scrollTop = box.scrollHeight;
+      }
+
+      var history = (artifact.teamReportEditHistory || []).filter(function (entry) { return entry.department === me.department; });
+      if (history.length) history.forEach(function (entry) { addBubble(entry.role, entry.content); });
+      else addBubble('assistant', 'Describe the change you want in your department package. Other departments and the main FSD will not be changed.');
+
+      function send() {
+        var input = document.getElementById('team-edit-input');
+        var btn = document.getElementById('team-edit-send');
+        var message = input.value.trim();
+        if (!message) return;
+        addBubble('user', message);
+        input.value = '';
+        input.disabled = true;
+        btn.disabled = true;
+        btn.textContent = 'Updating…';
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/teamReportChat', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message }),
+        })
+          .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not update package');
+            artifact.teamReports = result.body.artifact.teamReports;
+            artifact.teamReportEditHistory = result.body.artifact.teamReportEditHistory;
+            addBubble('assistant', result.body.reply);
+            loadArtifacts();
+          })
+          .catch(function (err) { addBubble('assistant', 'Error: ' + err.message); })
+          .then(function () {
+            input.disabled = false;
+            btn.disabled = false;
+            btn.textContent = 'Send';
+            input.focus();
+          });
+      }
+      document.getElementById('team-edit-send').addEventListener('click', send);
+      document.getElementById('team-edit-input').addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); }
       });
     }
 
@@ -1419,6 +1597,7 @@
     var COMMENT_ACTIONS = {
       reject: { title: 'Reject requirement', label: 'Reason for rejecting (optional)' },
       requestRevision: { title: 'Request revision', label: 'What needs revision? (optional)' },
+      requestTeamRevision: { title: 'Request team-package revision', label: 'Describe exactly what your team needs changed' },
     };
 
     function openCommentModal(title, label, onSubmit) {
@@ -1440,15 +1619,15 @@
       document.getElementById('comment-input').focus();
     }
 
-    // These actions can trigger a DeepSeek V3.2 call (detailed report or
-    // team split generation) that's observed taking anywhere from ~30s to
-    // over 2 minutes — with no feedback, that reads as a frozen page. Each
+    // These actions can trigger an AI call (detailed report or team split
+    // generation) that may take tens of seconds. Each
     // gets a rough estimated duration to drive a progress bar (capped short
     // of 100% since we don't actually know when it'll finish).
     var SLOW_ACTIONS = {
       approve: { ms: 60000, label: 'AI is working — generating the detailed report or team split…' },
       giveFinalFsdApproval: { ms: 45000, label: 'AI is working — generating the team split…' },
       regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report…' },
+      regenerateTeamSplit: { ms: 60000, label: 'Generating work packages for Team Leads…' },
     };
 
     // Blocks the periodic/focus auto-refresh (see setInterval below) while
@@ -1476,12 +1655,19 @@
           var startedAt = new Date().getTime();
           var tick = setInterval(function () {
             var elapsed = new Date().getTime() - startedAt;
-            var pct = Math.min(96, Math.round((elapsed / slowSpec.ms) * 100));
-            progressFill.style.width = pct + '%';
-            progressPct.textContent = pct + '%';
+            if (elapsed >= slowSpec.ms) {
+              progressFill.classList.add('indeterminate');
+              progressText.textContent = slowSpec.label + ' Still working…';
+              progressPct.textContent = '';
+            } else {
+              var pct = Math.round((elapsed / slowSpec.ms) * 90);
+              progressFill.style.width = pct + '%';
+              progressPct.textContent = pct + '%';
+            }
           }, 300);
           stopTick = function () {
             clearInterval(tick);
+            progressFill.classList.remove('indeterminate');
             progressFill.style.width = '100%';
             progressPct.textContent = '100%';
           };
@@ -1543,21 +1729,20 @@
           if ((a.currentStage === 'fsd_review' || a.currentStage === 'fsd_final_approval') && a.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1) {
             return true;
           }
+          if (a.currentStage === 'team_revision_requested' && me.tierId === 'vp') return true;
           return false;
         });
         var teamwork = (!me.isClient && me.tierId === 'tl' && me.department)
           ? artifacts.filter(function (a) { return (a.teamReports || []).some(function (t) { return t.team === me.department; }); })
           : [];
-        // Anyone invited into a discussion (any role, not just TL) but not
-        // already surfaced above — otherwise a shared report an approver
-        // could also act on would show up twice.
-        var shared = !me.isClient ? artifacts.filter(function (a) {
-          if (a.originator.userId === me.id) return false;
-          if ((a.discussionRecipients || []).indexOf(me.id) === -1) return false;
-          if (awaiting.indexOf(a) !== -1) return false;
-          if (teamwork.indexOf(a) !== -1) return false;
-          return true;
-        }) : [];
+        // One group discussion per requirement assigned to this TL. This is
+        // intentionally the same requirement set as Team Work, presented as
+        // chats instead of report cards.
+        var shared = (!me.isClient && me.tierId === 'tl')
+          ? teamwork.slice()
+          : (!me.isClient && ['md', 'ceo', 'vp'].indexOf(me.tierId) !== -1)
+            ? artifacts.filter(function (a) { return (a.discussionMessages || []).length > 0; })
+            : [];
         // Anything I acted on at some point (approved a gate, gave final
         // FSD sign-off, etc.) but that's since moved past my queue entirely
         // — not pending on me, not mine, not a department match, not a
@@ -1608,7 +1793,7 @@
 
         var sharedTab = document.getElementById('tab-shared');
         var sharedBadge = document.getElementById('shared-badge');
-        if (!me.isClient) {
+        if (!me.isClient && ['tl', 'md', 'ceo', 'vp'].indexOf(me.tierId) !== -1) {
           sharedTab.style.display = '';
           if (sharedData.length > 0) {
             sharedBadge.textContent = String(sharedData.length);
@@ -1616,15 +1801,15 @@
           } else {
             sharedBadge.style.display = 'none';
           }
+        } else {
+          sharedTab.style.display = 'none';
         }
 
         var historyTab = document.getElementById('tab-history');
         var historyBadge = document.getElementById('history-badge');
         if (!me.isClient) {
           historyTab.style.display = '';
-          // Deliberately no badge count here — unlike Approvals/Team Work/
-          // Shared, nothing in History is waiting on an action, so a badge
-          // would read as "N things to do" when there's nothing to do.
+          // Deliberately no badge count here: History has no pending action.
           historyBadge.style.display = 'none';
         }
       });
@@ -1832,11 +2017,21 @@
           progressWrap.classList.add('visible');
           var tick = setInterval(function () {
             var elapsed = new Date().getTime() - startedAt;
-            var pct = Math.min(96, Math.round((elapsed / ESTIMATED_MS) * 100));
-            progressFill.style.width = pct + '%';
-            progressPct.textContent = pct + '%';
+            if (elapsed >= ESTIMATED_MS) {
+              progressFill.classList.add('indeterminate');
+              var progressTextEl = document.getElementById('review-progress-text');
+              if (progressTextEl) progressTextEl.textContent = 'AI is still generating the detailed report…';
+              progressPct.textContent = '';
+            } else {
+              var pct = Math.round((elapsed / ESTIMATED_MS) * 90);
+              progressFill.style.width = pct + '%';
+              progressPct.textContent = pct + '%';
+            }
           }, 300);
-          var stopTick = function () { clearInterval(tick); };
+          var stopTick = function () {
+            clearInterval(tick);
+            progressFill.classList.remove('indeterminate');
+          };
 
           fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/submit', {
             method: 'POST',

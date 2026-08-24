@@ -24,8 +24,9 @@ const TIERS = {
 // gate. Gate 1 is VP, who signs off on the generated FSD before it is split
 // into team packages — the same second gate a client submission has, and the
 // reason the split lands on TLs only after VP has actually seen the report.
-// pm/tl: PM is not an approver of anything — both PM's and TL's own ideas go
-// to the same single gate, any of MD/CEO/VP.
+// pm: any MD/CEO/VP can clear the requirement.
+// tl: MD/CEO first review and generate the FSD, then VP releases it to the
+// production/team split. This is always TL -> MD/CEO -> VP -> TL.
 // vp: unchanged — MD/CEO peer-gate VP's own idea.
 // client: unchanged — two real gates, MD/CEO then VP.
 const APPROVAL_RULES = {
@@ -39,7 +40,10 @@ const APPROVAL_RULES = {
   ],
   vp: [{ approverTiers: ['md', 'ceo'], mode: 'any' }],
   pm: [{ approverTiers: ['md', 'ceo', 'vp'], mode: 'any' }],
-  tl: [{ approverTiers: ['md', 'ceo', 'vp'], mode: 'any' }],
+  tl: [
+    { approverTiers: ['md', 'ceo'], mode: 'any' },
+    { approverTiers: ['vp'], mode: 'any' },
+  ],
   client: [
     { approverTiers: ['md', 'ceo'], mode: 'any' },
     { approverTiers: ['vp'], mode: 'any' },
