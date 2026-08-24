@@ -21,11 +21,14 @@ const client = new OpenAI({
 // hand-written "finalize_requirement={...}" string into the chat instead of
 // using the real tool-call format) — so that step runs on a stronger model.
 // The post-approval detailed report/FSD is the highest-stakes document in
-// the pipeline (architecture, data model, security design) and benefits
-// most from the strongest reasoning, so it runs on Claude specifically.
+// the pipeline (architecture, data model, security design) and needs strong
+// reasoning plus reliable adherence to a large forced-tool-call schema —
+// verified directly against the real schema before choosing this model, not
+// assumed from benchmarks alone (Claude Sonnet 5 was the original choice
+// here; DeepSeek V3.2 matched it on output quality at ~8% of the cost).
 const CHAT_MODEL = 'anthropic/claude-haiku-4.5';
 const REPORT_MODEL = 'openai/gpt-4o-mini';
-const DETAILED_REPORT_MODEL = 'anthropic/claude-sonnet-5';
+const DETAILED_REPORT_MODEL = 'deepseek/deepseek-v3.2';
 
 const READY_SENTINEL = 'READY_TO_FINALIZE';
 
@@ -37,7 +40,7 @@ const READY_SENTINEL = 'READY_TO_FINALIZE';
 // below because a model that decides it has "enough" will otherwise emit the
 // sentinel early, and the coverage checklist in the system prompt, which is
 // what makes those questions substantive rather than generic form-filling.
-const MIN_CLARIFYING_QUESTIONS = 8;
+const MIN_CLARIFYING_QUESTIONS = 4;
 
 // The floor is a quality guard, not a trap — an explicit request to stop
 // always wins over it, so nobody gets held in an interrogation they've asked
@@ -69,7 +72,7 @@ const FINALIZE_TOOL = {
             type: 'object',
             properties: {
               purpose: { type: 'string', description: "What this model would be used for within the product, e.g. 'in-app support chat' or 'document search'." },
-              model: { type: 'string', description: "Specific recommended model, e.g. 'Claude Opus 5' or 'Claude Haiku 4.5'." },
+              model: { type: 'string', description: "Name ONE specific real model or vendor for this capability — even for a specialized case (recommendation engines, visual/image search, OCR) with no single obvious industry standard. If the conversation didn't state a preference, choose the best-fit REAL option yourself (e.g. 'Amazon Personalize' or 'Google Cloud Vision API') rather than listing several alternatives — a single named pick is what lets a real cost be attached to it later; a range of options can't be costed. Never state a plausible-sounding product name you are not confident actually exists — if you're unsure whether a niche vendor is real, default to a major, verifiably real cloud provider's equivalent service instead of an invented boutique one." },
               rationale: { type: 'string' },
             },
             required: ['purpose', 'model', 'rationale'],
@@ -110,6 +113,11 @@ const FINALIZE_TOOL = {
   },
 };
 
+// Shared between the main FSD's techStack and each department's own
+// techStack in the team split — same anti-hallucination rule applies
+// either way.
+const TECH_STACK_CHOICE_DESCRIPTION = "Name ONE specific real technology or vendor for this layer, e.g. 'React + TypeScript', 'PostgreSQL' — including for a specialized AI/ML capability (recommendation engines, visual/image search, OCR) where several real vendors compete. If the client didn't state a preference, choose the single best-fit REAL, well-established option yourself (e.g. 'Amazon Rekognition' or 'Google Cloud Vision API') rather than listing multiple alternatives — a specific named pick is what lets a real cost be attached to it in the cost estimate; a range of options can't be costed. A plausible-sounding but non-existent product name is a serious error — if you are not confident a named product actually exists, default to a major, verifiably real cloud vendor's equivalent service instead of a specific boutique product you're unsure about.";
+
 const DETAILED_REPORT_TOOL = {
   type: 'function',
   function: {
@@ -138,7 +146,7 @@ const DETAILED_REPORT_TOOL = {
             type: 'object',
             properties: {
               layer: { type: 'string', description: "e.g. 'Frontend', 'Backend/API', 'Database', 'Hosting/Infrastructure', 'Authentication', 'CI/CD'." },
-              choice: { type: 'string', description: "Specific technology, e.g. 'React + TypeScript', 'Node.js/Express', 'PostgreSQL', 'AWS (ECS + RDS)'." },
+              choice: { type: 'string', description: TECH_STACK_CHOICE_DESCRIPTION },
               rationale: { type: 'string', description: 'Why this choice fits the requirement, in one sentence.' },
             },
             required: ['layer', 'choice', 'rationale'],
@@ -252,30 +260,27 @@ const DETAILED_REPORT_TOOL = {
 function buildChatSystemPrompt(originatorLabel, questionsAsked, userWantsOut) {
   return `You are the requirement-intake analyst inside Stark Digital's AI Software Factory. You're talking with ${originatorLabel}.
 
-Your job is to interrogate the idea until it is genuinely buildable — you do NOT produce the final document yourself, someone else handles that. Everything downstream is built from this conversation alone, so anything you fail to ask about becomes a gap the engineering team hits later.
+Your job is to get the BROAD STROKES of the idea down — not every detail. There is a review/edit step right after this conversation where the requester can correct or add anything, so you are not the last line of defense on precision. Stay at product altitude; do not chase niche edge cases, exact field names, or hyper-specific implementation details — that level of detail belongs in the edit step or later design work, not this chat.
 
 HOW TO ASK
 - One question at a time, never a wall of questions.
 - Keep it tight: at most 2-5 sentences. One short sentence reflecting back what you understood is welcome, then the single question.
 - Write plain conversational text. The chat bubble renders literally, so no markdown, no **bold**, no bullet points, no headings — asterisks show up as asterisks.
 - Reply in whatever language the requester is using. If they write in Hinglish, Marathi, or a mix, match it rather than switching to formal English.
-- Ask about THIS domain, not a generic intake form. Work out what is actually being built, then ask what a competent analyst in that domain would ask. "Who are the primary users and what are their roles and responsibilities within the organization?" is a wasted turn. "Are riders asking for live train timings, or booking and paying for tickets inside the chat?" is not.
-- When an answer is vague, one word, or rests on an assumption you cannot verify, drill into it before moving on. Do not quietly accept "it should be fast" or "the usual security".
-- Favour questions whose answer would actually change what gets built.
+- Ask about THIS domain, not a generic intake form, but keep it broad — "what should happen when someone searches for a product" is the right altitude; "should search match partial SKU codes or only exact ones" is too deep for this conversation.
+- If an answer is vague or one word, ask ONE follow-up to sharpen it, then move on regardless of whether it's fully resolved — never circle back to the same point a second time. Good enough beats exhaustive.
+- Favour questions whose answer would actually change what gets built. One question can cover more than one checklist item at once — don't ask them one-by-one just because they're listed separately.
+- Never say "last one", "one more thing", "before we lock this in", "just to wrap up", or any other framing about how many questions remain — you cannot reliably judge that in the moment, and getting it wrong reads as dishonest. Just ask each question plainly, with no countdown language at all.
 
 WHAT TO COVER — track these and do not finalize while any is still blank:
-1. Primary users, and the situation they are in when they use this.
-2. The core flow step by step: what the user does, what the system does back.
-3. Net-new vs integration — which existing systems, APIs, or data sources this must talk to, and whether access to them already exists.
-4. Data sensitivity: PII, payment, location, or other regulated data, and how long it is kept.
-5. Scale and deadline: rough volume, and any date this is tied to.
-6. Failure and edge cases on the core flow — what should happen when a dependency is down or returns nothing.
-7. Whether any AI-powered features are wanted inside the product itself.
-8. Security or compliance requirements the requester already has in mind.
-9. Separately from any AI features in the product: which AI model they want Stark Digital's factory to use to GENERATE THE CODE for this build. "No preference" is a valid answer.
+1. Primary users, and the core flow: what they do, what the system does back.
+2. Net-new vs integration — which existing systems, APIs, or data sources this must talk to.
+3. Data sensitivity and scale — regulated data (PII, payment, etc.), if any, and rough volume.
+4. Whether any AI-powered features are wanted inside the product itself.
+5. Separately from any AI features in the product: which AI model they want Stark Digital's factory to use to GENERATE THE CODE for this build. "No preference" is a valid answer.
 
 WHEN TO STOP
-You have asked ${questionsAsked} question${questionsAsked === 1 ? '' : 's'} so far. Ask at least ${MIN_CLARIFYING_QUESTIONS}, and do not finalize while any checklist item above is unanswered.
+You have asked ${questionsAsked} question${questionsAsked === 1 ? '' : 's'} so far. Ask at least ${MIN_CLARIFYING_QUESTIONS}, and do not finalize while any checklist item above is unanswered — but the moment all five have a broad-strokes answer, stop asking and finalize. Do not keep going in search of more precision once the checklist is covered.
 ${userWantsOut ? 'The requester has asked to wrap up. Honour that — finalize now even if items remain unanswered.\n' : ''}Only once that bar is met, reply with EXACTLY this and nothing else — no punctuation, no extra words: ${READY_SENTINEL}`;
 }
 
@@ -384,8 +389,29 @@ function normalizeDoubleEncodedFields(value) {
 // mid-JSON, which fails to parse — retrying once (a fresh call, not a repeat
 // of the same truncated output) resolves the transient case without
 // dead-ending the whole session on a single bad generation.
+// Forced tool-calling doesn't guarantee schema compliance (no `strict`
+// mode in use here) — a large input or a tight token budget can make the
+// model quietly drop a required field on one array item while the
+// top-level JSON still parses fine. Checks one level deep: for every
+// top-level property that's an array of objects with its own `required`
+// list, every item must have each of those fields present.
+function findMissingFields(parsed, params) {
+  const missing = (params.required || []).filter((f) => !(f in parsed));
+  Object.entries(params.properties || {}).forEach(([propName, propSchema]) => {
+    if (propSchema.type !== 'array' || !propSchema.items || !propSchema.items.required) return;
+    const arr = parsed[propName];
+    if (!Array.isArray(arr)) return;
+    arr.forEach((item, i) => {
+      propSchema.items.required.forEach((field) => {
+        if (!item || !(field in item)) missing.push(`${propName}[${i}].${field}`);
+      });
+    });
+  });
+  return missing;
+}
+
 async function callForcedTool({ model, messages, tool, maxTokens, retries = 1 }) {
-  const requiredFields = tool.function.parameters.required || [];
+  const params = tool.function.parameters;
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -408,7 +434,7 @@ async function callForcedTool({ model, messages, tool, maxTokens, retries = 1 })
       // A large schema occasionally drops a required field (or leaves one
       // truncated) even when the JSON itself parses fine — catch that here
       // rather than shipping an incomplete document, and retry.
-      const missing = requiredFields.filter((f) => !(f in parsed));
+      const missing = findMissingFields(parsed, params);
       if (missing.length) throw new Error(`the model's response was missing required fields: ${missing.join(', ')}`);
 
       return parsed;
@@ -441,13 +467,28 @@ Then base the rest of the report on the approved summary and the original intake
 Specifically:
 - architecture must describe the actual end-to-end request/data flow (e.g. "client submits → API validates → writes to DB → triggers notification"), not just list components.
 - architectureDiagram must be a real, valid Mermaid flowchart (flowchart TD or graph LR) with a node for every component named in techStack and labelled arrows for the actual data flow between them — not a generic three-box sketch.
-- techStack must name a concrete, specific technology for every layer (frontend, backend, database, hosting, auth, CI/CD) — never "a suitable framework" or similarly vague.
+- techStack must name a concrete, specific technology for every layer (frontend, backend, database, hosting, auth, CI/CD) — never "a suitable framework" or similarly vague. This includes a specialized capability with several competing real vendors and no obvious single standard (recommendation engines, visual/image search, OCR, and similar narrow AI/ML services): if the client didn't state a preference, choose the single best-fit REAL vendor yourself (e.g. "Amazon Rekognition" or "Google Cloud Vision API") rather than listing several — a specific named pick is required so a real cost can be attached to it in costEstimate; a range of options can't be costed. A plausible-sounding product name you are not confident actually exists is a serious error — if unsure a niche vendor is real, default to a major, verifiably real cloud provider's equivalent service instead.
 - userFlow must be the real ordered steps a user actually takes, specific to this requirement.
 - dbSchemaDiagram must be a real, valid Mermaid erDiagram covering every entity in dataModel and the relationships between them (use ||--o{, ||--||, etc. as appropriate) — mirror the entities/fields already described in dataModel rather than inventing new ones.
 - costEstimate must be in Indian Rupees (₹). componentCosts must itemize every layer named in techStack plus any recurring cost driver (AI/LLM API usage, third-party APIs, security tooling) with real one-time and/or monthly rupee figures — never leave a figure blank or say "TBD"; use '—' only for a component that genuinely has no cost of that type. totalOneTimeCostInr and totalMonthlyCostInr must be the real sum of componentCosts, not independently invented.
 - timeline must have real durations that sum to a realistic total delivery timeline.
 - deploymentAndOperations must cover how this actually runs in production: environments, CI/CD, monitoring, backups, rollback — not just how it's built.
 Call generate_detailed_report exactly once.`;
+}
+
+// The finalized `summary` already distills the conversation's substance, so
+// the raw transcript is supporting context, not the primary source — an
+// unusually long guided intake (a user who kept chatting past the normal
+// ~10-16 message range) shouldn't blow up prompt size and generation time
+// proportionally. Keeps the opening messages (they set the original framing)
+// and the most recent ones (closest to the final, refined answers); drops
+// the uninformative middle rather than trimming from one end.
+const MAX_HISTORY_FOR_DETAILED_REPORT = 30;
+function capHistory(history, max) {
+  if (history.length <= max) return history;
+  const keepStart = Math.floor(max * 0.2);
+  const keepEnd = max - keepStart;
+  return history.slice(0, keepStart).concat(history.slice(history.length - keepEnd));
 }
 
 // Runs once, right after an MD/CEO-level approval gate clears. Takes the
@@ -457,10 +498,11 @@ Call generate_detailed_report exactly once.`;
 // document in the pipeline, so it runs on Claude rather than the
 // cheaper/faster model used for finalize and team-split.
 async function runDetailedReport({ originatorLabel, summary, history }) {
+  const boundedHistory = capHistory(history, MAX_HISTORY_FOR_DETAILED_REPORT);
   const messages = [
     { role: 'system', content: buildDetailedReportSystemPrompt(originatorLabel) },
     { role: 'user', content: 'Approved requirement summary:\n' + JSON.stringify(summary, null, 2) },
-    ...history.map((h) => ({ role: h.role, content: h.content })),
+    ...boundedHistory.map((h) => ({ role: h.role, content: h.content })),
     // history's last entry is the intake assistant's own closing line —
     // Claude rejects a forced tool call when the conversation ends on an
     // assistant turn ("assistant message prefill"), so close with a user
@@ -524,11 +566,16 @@ async function runFsdChatEdit({ originatorLabel, actorRole, detailedReport, hist
 // the requirement was.
 const TEAM_DEPARTMENTS = ['QA', 'AI', 'Development', 'DevOps', 'Sales & Marketing'];
 
+// Each department's package is a mini-FSD in the same structure as the
+// main detailed report (architecture, tech stack, data model, page
+// behavior, security design, cost estimate) — just scoped down to only
+// the slice of the system that department owns, plus its own phased
+// build plan and cross-department dependencies.
 const TEAM_SPLIT_TOOL = {
   type: 'function',
   function: {
     name: 'split_team_reports',
-    description: 'Split an approved detailed report into smaller, department-specific work packages for the team leads to pick up.',
+    description: "Split an approved detailed report (FSD) into smaller, department-specific FSDs — one per department that has real work here, each following the FSD's own structure but scoped to only that department's slice of the system.",
     parameters: {
       type: 'object',
       properties: {
@@ -540,10 +587,97 @@ const TEAM_SPLIT_TOOL = {
             properties: {
               team: { type: 'string', enum: TEAM_DEPARTMENTS, description: 'Must be exactly one of the fixed department names.' },
               objective: { type: 'string', description: 'What this department needs to deliver, in a sentence or two.' },
-              tasks: { type: 'array', items: { type: 'string' }, description: 'Concrete, actionable build tasks for this department.' },
-              relevantDataEntities: { type: 'array', items: { type: 'string' }, description: 'Entities from the data model this department touches, if any.' },
+              architecture: {
+                type: 'string',
+                description: "The end-to-end architecture and data flow for the slice of the system this department owns, at the same level of concrete detail as the main FSD's architecture section — described in prose, scoped to just this department's responsibility, not the whole system.",
+              },
+              architectureDiagram: {
+                type: 'string',
+                description: "A Mermaid diagram (valid syntax, starting with 'flowchart TD' or 'graph LR') covering only the components and data flow this department owns — not the whole system's diagram. Do not include the ```mermaid code fence — just the diagram body.",
+              },
+              techStack: {
+                type: 'array',
+                description: 'Only the technology choices this department is directly responsible for — skip layers another department owns.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    layer: { type: 'string' },
+                    choice: { type: 'string', description: TECH_STACK_CHOICE_DESCRIPTION },
+                    rationale: { type: 'string', description: 'Why this choice fits, in one sentence.' },
+                  },
+                  required: ['layer', 'choice', 'rationale'],
+                },
+              },
+              dataModel: {
+                type: 'array',
+                description: 'Only the entities this department reads or writes, at the same field/description depth as the main FSD\'s data model — omit entities owned entirely by another department.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    entity: { type: 'string' },
+                    fields: { type: 'array', items: { type: 'string' }, description: 'Key fields on this entity.' },
+                    description: { type: 'string' },
+                  },
+                  required: ['entity', 'fields', 'description'],
+                },
+              },
+              pageBehavior: {
+                type: 'array',
+                description: 'Only the screens, pages, or API surfaces this department implements — omit entirely for a department with nothing user-facing (e.g. DevOps).',
+                items: {
+                  type: 'object',
+                  properties: {
+                    page: { type: 'string' },
+                    description: { type: 'string' },
+                  },
+                  required: ['page', 'description'],
+                },
+              },
+              securityDesign: {
+                type: 'array',
+                items: { type: 'string' },
+                description: "Security measures specific to this department's own scope of work — not a repeat of the whole system's security design.",
+              },
+              costEstimate: {
+                type: 'object',
+                description: "This department's own slice of the overall cost estimate, in Indian Rupees (INR) — only the cost components this department is responsible for. Every field must have a real figure, never blank or 'TBD'.",
+                properties: {
+                  componentCosts: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        component: { type: 'string' },
+                        oneTimeCostInr: { type: 'string' },
+                        monthlyCostInr: { type: 'string' },
+                        notes: { type: 'string' },
+                      },
+                      required: ['component', 'oneTimeCostInr', 'monthlyCostInr', 'notes'],
+                    },
+                  },
+                  totalOneTimeCostInr: { type: 'string' },
+                  totalMonthlyCostInr: { type: 'string' },
+                  notes: { type: 'string' },
+                },
+              },
+              plan: {
+                type: 'array',
+                description: 'The ordered, phased implementation plan for this department — 3 to 6 phases, each a concrete milestone the team lead can hand straight to their team. This is the real deliverable: do not collapse it into a single flat task list.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    phase: { type: 'string', description: 'Short phase name, e.g. "Phase 1: Schema & data model".' },
+                    description: { type: 'string', description: 'What this phase accomplishes and why it comes at this point in the sequence.' },
+                    tasks: { type: 'array', items: { type: 'string' }, description: 'Concrete, actionable build tasks that make up this phase.' },
+                  },
+                  required: ['phase', 'tasks'],
+                },
+              },
+              dependencies: { type: 'array', items: { type: 'string' }, description: 'What this department needs from another department, external vendor, or approval before it can start, if any.' },
+              assumptions: { type: 'array', items: { type: 'string' }, description: "Assumptions specific to this department's own slice of the build." },
+              openQuestions: { type: 'array', items: { type: 'string' }, description: 'Anything this department still needs clarified before or during the build.' },
             },
-            required: ['team', 'objective', 'tasks'],
+            required: ['team', 'objective', 'architecture', 'techStack', 'plan'],
           },
         },
       },
@@ -553,21 +687,28 @@ const TEAM_SPLIT_TOOL = {
 };
 
 function buildTeamSplitSystemPrompt(originatorLabel) {
-  return `You are the delivery lead inside Stark Digital's AI Software Factory. The detailed report below, for ${originatorLabel}'s requirement, has just cleared final approval — your job is to split it into smaller, department-specific work packages by calling split_team_reports.
+  return `You are the delivery lead inside Stark Digital's AI Software Factory. The detailed report (FSD) below, for ${originatorLabel}'s requirement, has just cleared final approval — your job is to split it into smaller, department-specific FSDs by calling split_team_reports.
 
-Stark Digital has exactly five departments: ${TEAM_DEPARTMENTS.join(', ')}. Read the architecture, data model, page behavior, and security design in the report, then assign work to whichever of these five actually have something to do — skip any with nothing to do, but never invent a department outside this list. Each department's tasks should be concrete enough for its team lead to hand straight to their team.
+Stark Digital has exactly five departments: ${TEAM_DEPARTMENTS.join(', ')}. Assign work to whichever of these five actually have something to do — skip any with nothing to do, but never invent a department outside this list.
+
+Each department's entry is a genuine mini-FSD, not a task list: give it its own architecture, tech stack, data model, page behavior, security design, and cost estimate, all scoped down to ONLY the slice of the system that department owns — do not repeat the whole system's architecture or data model in every entry, and do not invent detail beyond what the source report actually supports. Then add the department's own phased implementation plan (3-6 sequential phases, e.g. setup/schema, core build, integration, hardening/testing, each with concrete tasks) and call out cross-department dependencies explicitly (e.g. "needs the Development team's auth API before this can start").
 Call split_team_reports exactly once.`;
 }
 
 // Runs once, right after the approval chain is fully cleared. Takes the
-// already-generated detailed report and splits it into per-discipline work
-// packages for team leads — the last step of Phase 1's demo scope.
+// already-generated detailed report and splits it into per-discipline
+// mini-FSDs for team leads — the last step of Phase 1's demo scope.
 async function runTeamSplit({ originatorLabel, detailedReport }) {
   const messages = [
     { role: 'system', content: buildTeamSplitSystemPrompt(originatorLabel) },
     { role: 'user', content: 'Approved detailed report:\n' + JSON.stringify(detailedReport, null, 2) },
   ];
-  return callForcedTool({ model: REPORT_MODEL, messages, tool: TEAM_SPLIT_TOOL, maxTokens: 2500 });
+  // Five department-scoped mini-FSDs (each with its own architecture, tech
+  // stack, data model, cost estimate, and phased plan) need real headroom
+  // — well above the old flat-task-list budget, and retried like the main
+  // detailed report since a schema this size can drop a field under
+  // pressure.
+  return callForcedTool({ model: REPORT_MODEL, messages, tool: TEAM_SPLIT_TOOL, maxTokens: 16000, retries: 2 });
 }
 
 module.exports = { runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit };

@@ -13,6 +13,13 @@ const DEMO_USERS = [
   { name: 'Shubham', email: 'shubham@stark.demo', tierId: 'tl', department: 'Development' },
   { name: 'Adarsh', email: 'adarsh@stark.demo', tierId: 'tl', department: 'Development' },
   { name: 'Pallav', email: 'pallav@stark.demo', tierId: 'tl', department: 'Sales & Marketing' },
+  // QA and DevOps are two of the five departments split_team_reports can
+  // assign work to (see TEAM_DEPARTMENTS in llm.service.js) but had no TL
+  // account — a package landing on either was invisible to everyone, since
+  // GET / scopes a TL's visibility to teamReports.team === their own
+  // department and nobody had that department set.
+  { name: 'Rehan', email: 'rehan@stark.demo', tierId: 'tl', department: 'QA' },
+  { name: 'Neha', email: 'neha@stark.demo', tierId: 'tl', department: 'DevOps' },
 ];
 
 const DEMO_CLIENT = { name: 'Acme Client Co.', email: 'client@example.demo' };

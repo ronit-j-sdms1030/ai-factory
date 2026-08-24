@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/theme-client.css">
 <script src="/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <style>
   #shell { display: flex; min-height: 100vh; }
 
@@ -22,8 +23,6 @@
   .who strong { font-size: 0.94rem; }
   .who span.email { font-size: 0.78rem; color: var(--text-faint); }
   .sidebar-foot { margin-top: auto; }
-  .nav-label { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); }
-  .gov-note { margin: 0.6rem 0 0; font-size: 0.78rem; color: var(--text-faint); line-height: 1.55; }
 
   #main { flex: 1; min-width: 0; overflow-y: auto; }
   .content { max-width: 760px; margin: 0 auto; padding: 2.4rem 2rem 4rem; display: flex; flex-direction: column; gap: 2.2rem; }
@@ -96,6 +95,25 @@
   .modal-list { margin: 0; padding-left: 1.15rem; font-size: 0.88rem; color: var(--text); display: flex; flex-direction: column; gap: 0.3rem; }
   .modal-empty { margin: 0; font-size: 0.84rem; color: var(--text-faint); font-style: italic; }
   .modal-body .field textarea { min-height: 4.2rem; }
+
+  .md-viewer { font-size: 0.9rem; color: var(--text); line-height: 1.55; }
+  .md-viewer h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.7rem; color: var(--text); }
+  .md-viewer h2 { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); font-family: var(--font-mono); margin: 1.3rem 0 0.5rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
+  .md-viewer h1 + h2, .md-viewer > h2:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .md-viewer h3 { font-size: 0.86rem; font-weight: 700; color: var(--accent); margin: 1rem 0 0.4rem; }
+  .md-viewer p { margin: 0 0 0.6rem; }
+  .md-viewer ul, .md-viewer ol { margin: 0 0 0.6rem; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .md-viewer li { margin: 0; }
+  .md-viewer strong { color: var(--text); }
+  .md-viewer code { font-family: var(--font-mono); font-size: 0.85em; background: var(--surface-2); padding: 0.1rem 0.3rem; border-radius: 4px; }
+  .md-viewer pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; overflow-x: auto; }
+  .md-viewer pre code { background: none; padding: 0; }
+  .md-viewer table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 0 0 0.6rem; }
+  .md-viewer th, .md-viewer td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); text-align: left; }
+  .md-viewer th { color: var(--text-faint); font-weight: 700; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .md-viewer hr { border: none; border-top: 1px solid var(--line); margin: 1rem 0; }
+  .md-viewer .mermaid { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
+  .md-viewer em { color: var(--text-faint); }
 
   .side-nav { display: flex; flex-direction: column; gap: 0.15rem; }
   .side-nav-btn {
@@ -186,17 +204,13 @@
         <button class="side-nav-btn" id="tab-submissions" type="button" data-tab="submissions">Submissions</button>
         <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Shared with me<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
+        <button class="side-nav-btn" id="tab-history" type="button" data-tab="history" style="display:none;">History<span class="tab-badge" id="history-badge" style="display:none;"></span></button>
       </nav>
 
       <div class="who">
         <span class="tier-badge" id="who-tier">-</span>
         <strong id="who-name">-</strong>
         <span class="email" id="who-email">-</span>
-      </div>
-
-      <div>
-        <div class="nav-label">Governance</div>
-        <p class="gov-note" id="gov-note">Every submission is gated.</p>
       </div>
 
       <div class="sidebar-foot">
@@ -209,7 +223,7 @@
         <div>
           <div class="kicker" id="page-kicker">Requirement intake</div>
           <h1 id="page-heading">Welcome back.</h1>
-          <p class="sub" id="page-sub">Describe what you need — it'll route to the right gate automatically.</p>
+          <p class="sub" id="page-sub">Describe what you need — it'll route to the right approver automatically.</p>
         </div>
 
         <div class="tab-view" id="view-requirement">
@@ -228,7 +242,7 @@
                 <textarea id="chat-input" rows="1" placeholder="Type your reply..."></textarea>
                 <button class="btn" id="chat-send-btn" type="button">Send</button>
               </div>
-              <p class="chat-footnote">Llama 3.1 8B asks the questions &middot; GPT-4o mini structures the requirement &middot; Claude Sonnet 5 writes the detailed report.</p>
+              <p class="chat-footnote">Claude Haiku 4.5 asks the questions &middot; GPT-4o mini structures the requirement &middot; DeepSeek V3.2 writes the detailed report.</p>
             </div>
           </div>
         </div>
@@ -264,6 +278,15 @@
             <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Reports a colleague invited you into for discussion, outside your normal reviewer or department queue.</p>
             <div class="list" id="shared-list"></div>
             <div class="pagination" id="shared-pagination"></div>
+          </div>
+        </div>
+
+        <div class="tab-view" id="view-history" style="display:none;">
+          <div class="card">
+            <h2>History</h2>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Requirements you acted on at some point — approved, rejected, or reviewed — that have since moved past your queue. Read-only.</p>
+            <div class="list" id="history-list"></div>
+            <div class="pagination" id="history-pagination"></div>
           </div>
         </div>
       </div>
@@ -381,6 +404,17 @@
       var isOriginator = artifact.originator.userId === me.id;
       var buttons = [];
 
+      // A finished guided-intake conversation lands here with structured
+      // content but isn't actually submitted yet — that only happens via
+      // the inline "Review & send requirement" prompt left in the chat at
+      // the moment it finished. If that's gone (navigated away, started a
+      // new session, came back later), there was previously no way to ever
+      // send it — it just sat here forever. This gives the originator a
+      // way back in from the submissions list itself.
+      if (stage === 'clarifying' && isOriginator && artifact.content && artifact.content.summary) {
+        buttons.push({ action: 'reviewSend', label: 'Review & send', modal: 'reviewSend' });
+      }
+
       if (!me.isClient) {
         if (stage === 'pending_approval') {
           var step = artifact.approvalChain[artifact.currentApprovalIndex];
@@ -429,10 +463,15 @@
         }
       }
 
-      // Recovery path: detailed-report generation can fail (rare, but the
-      // schema is large) — if it never landed, whoever can normally act on
-      // this stage can retry it.
-      var canRegenerate = !artifact.detailedReport && ['approved', 'fsd_review'].includes(stage) &&
+      // Recovery path: detailed-report generation can fail or time out
+      // (rare, but the schema is large and a long chat history makes the
+      // call slower) — if it never landed, whoever can normally act on this
+      // requirement can retry it. Mirrors the backend's check: gate 0
+      // clearing is what makes a report apply, not a fixed stage list — so
+      // this also covers a self-origin MD/CEO artifact stuck at
+      // pending_approval (gate 0 cleared, waiting on VP), not just
+      // 'approved'/'fsd_review'.
+      var canRegenerate = !artifact.detailedReport && artifact.currentApprovalIndex >= 1 &&
         (isOriginator || (!me.isClient && artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1));
       if (canRegenerate) {
         buttons.push({ action: 'regenerateFsd', label: 'Regenerate FSD', secondary: true });
@@ -506,6 +545,16 @@
       el.querySelector('[data-view]').addEventListener('click', function () { openViewModal(artifact); });
 
       var actionsEl = el.querySelector('.item-actions');
+
+      if (getVisibleTeamReports(artifact).length) {
+        var splitBtn = document.createElement('button');
+        splitBtn.type = 'button';
+        splitBtn.className = 'btn secondary';
+        splitBtn.textContent = 'View split report';
+        splitBtn.addEventListener('click', function () { openTeamReportModal(artifact); });
+        actionsEl.appendChild(splitBtn);
+      }
+
       actionButtonsFor(artifact).forEach(function (btnDef) {
         var btn = document.createElement('button');
         btn.type = 'button';
@@ -516,6 +565,7 @@
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
           if (btnDef.modal === 'shareToPeer') return openShareForDiscussionModal(artifact, btnDef.peerTierId);
+          if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
           actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
         });
@@ -538,6 +588,8 @@
     var teamworkData = [];
     var sharedPage = 1;
     var sharedData = [];
+    var historyPage = 1;
+    var historyData = [];
 
     function renderPaginatedList(opts) {
       var container = document.getElementById(opts.listId);
@@ -628,6 +680,19 @@
       });
     }
 
+    function renderHistoryList() {
+      renderPaginatedList({
+        listId: 'history-list',
+        paginationId: 'history-pagination',
+        data: historyData,
+        emptyText: "You haven't acted on anything yet.",
+        renderItem: renderArtifactItem,
+        getPage: function () { return historyPage; },
+        setPage: function (p) { historyPage = p; },
+        rerender: renderHistoryList,
+      });
+    }
+
     // --- View / edit modal ---
     function closeModal() {
       document.getElementById('modal-overlay').classList.remove('open');
@@ -685,126 +750,62 @@
       return html;
     }
 
+    // Renders every ```mermaid fenced block marked's output turned into
+    // <pre><code class="language-mermaid"> as an actual diagram — same
+    // renderMermaidInto() used elsewhere, just targeting markdown output
+    // instead of a dedicated container.
+    function renderMermaidBlocksIn(containerEl) {
+      var blocks = containerEl.querySelectorAll('code.language-mermaid');
+      Array.prototype.slice.call(blocks).forEach(function (codeEl, i) {
+        var source = codeEl.textContent;
+        var pre = codeEl.parentElement;
+        var holder = document.createElement('div');
+        holder.id = 'md-mermaid-' + Date.now() + '-' + i;
+        holder.style.overflowX = 'auto';
+        pre.replaceWith(holder);
+        renderMermaidInto(holder.id, source);
+      });
+    }
+
     function openViewModal(artifact) {
       document.getElementById('modal-title').textContent = artifact.title || 'Untitled requirement';
-      var c = artifact.content || {};
       var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage)) + '</span></div>';
       var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
       if (viewWhy) {
         body += '<p class="item-why" style="margin:0;">' + escapeHtml((WHY_PREFIX[viewWhy.action] || '') + viewWhy.comment) + '</p>';
       }
-      body += requirementContentHtml(c);
+
+      // The FSD is rendered as an actual markdown document by default — the
+      // same fsdToMarkdown() output the download button produces, so what's
+      // on screen always matches what gets downloaded.
+      var md = fsdToMarkdown(artifact);
+      var rendered = window.marked ? marked.parse(md) : '<pre style="white-space:pre-wrap;">' + escapeHtml(md) + '</pre>';
+      body += '<div class="md-viewer" id="fsd-md-viewer">' + rendered + '</div>';
 
       if (artifact.detailedReport) {
-        var d = artifact.detailedReport;
-        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
-        body += '<div><div class="modal-section-label" style="color:var(--accent);">Detailed report</div>';
-        body += '<p style="margin:0 0 0.5rem;font-size:0.78rem;color:var(--text-faint);">Generated by Claude Sonnet 5 after the gate-0 approval.</p>';
-        body += '<button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download FSD</button></div>';
-        if (d.conversationSummary) body += '<div><div class="modal-section-label">Conversation summary</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.conversationSummary) + '</p></div>';
-        if (d.objective) body += '<div><div class="modal-section-label">Objective</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.objective) + '</p></div>';
-        if (d.architecture) body += '<div><div class="modal-section-label">Architecture</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(d.architecture) + '</p></div>';
-        if (d.architectureDiagram) {
-          body += '<div><div class="modal-section-label">Architecture diagram</div>' +
-            '<div id="arch-diagram-container" style="overflow-x:auto;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:0.75rem;"><p style="margin:0;font-size:0.8rem;color:var(--text-faint);">Rendering diagram…</p></div></div>';
-        }
-        if (asArray(d.techStack).length) {
-          body += '<div><div class="modal-section-label">Tech stack</div><ul class="modal-list">' +
-            asArray(d.techStack).map(function (t) { return '<li><strong>' + escapeHtml(t.layer) + '</strong> — ' + escapeHtml(t.choice) + ' <span style="color:var(--text-faint);">(' + escapeHtml(t.rationale) + ')</span></li>'; }).join('') +
-            '</ul></div>';
-        }
-        if (asArray(d.userFlow).length) {
-          body += '<div><div class="modal-section-label">User flow</div><ol class="modal-list" style="padding-left:1.15rem;">' +
-            asArray(d.userFlow).map(function (s) { return '<li>' + escapeHtml(s) + '</li>'; }).join('') +
-            '</ol></div>';
-        }
-        if (asArray(d.dataModel).length) {
-          body += '<div><div class="modal-section-label">Data model</div><ul class="modal-list">' +
-            asArray(d.dataModel).map(function (e) { return '<li><strong>' + escapeHtml(e.entity) + '</strong> — ' + escapeHtml(asArray(e.fields).join(', ')) + '<br /><span style="color:var(--text-faint);">' + escapeHtml(e.description) + '</span></li>'; }).join('') +
-            '</ul></div>';
-        }
-        if (d.dbSchemaDiagram) {
-          body += '<div><div class="modal-section-label">Database schema diagram</div>' +
-            '<div id="db-schema-diagram-container" style="overflow-x:auto;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:0.75rem;"><p style="margin:0;font-size:0.8rem;color:var(--text-faint);">Rendering diagram…</p></div></div>';
-        }
-        if (asArray(d.pageBehavior).length) {
-          body += '<div><div class="modal-section-label">Page behavior</div><ul class="modal-list">' +
-            asArray(d.pageBehavior).map(function (p) { return '<li><strong>' + escapeHtml(p.page) + '</strong> — ' + escapeHtml(p.description) + '</li>'; }).join('') +
-            '</ul></div>';
-        }
-        body += listSection('Security design', d.securityDesign);
-        body += listSection('Deployment & operations', d.deploymentAndOperations);
-        if (d.costEstimate && asArray(d.costEstimate.componentCosts).length) {
-          var ce = d.costEstimate;
-          body += '<div><div class="modal-section-label">Cost estimate (₹ INR)</div>' +
-            '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.84rem;">' +
-            '<thead><tr style="text-align:left;border-bottom:1px solid var(--line);">' +
-            '<th style="padding:0.35rem 0.5rem 0.35rem 0;">Component</th><th style="padding:0.35rem 0.5rem;">One-time</th><th style="padding:0.35rem 0.5rem;">Monthly</th><th style="padding:0.35rem 0 0.35rem 0.5rem;">Notes</th>' +
-            '</tr></thead><tbody>' +
-            asArray(ce.componentCosts).map(function (row) {
-              return '<tr style="border-bottom:1px solid var(--line);">' +
-                '<td style="padding:0.35rem 0.5rem 0.35rem 0;"><strong>' + escapeHtml(row.component) + '</strong></td>' +
-                '<td style="padding:0.35rem 0.5rem;">' + escapeHtml(row.oneTimeCostInr) + '</td>' +
-                '<td style="padding:0.35rem 0.5rem;">' + escapeHtml(row.monthlyCostInr) + '</td>' +
-                '<td style="padding:0.35rem 0 0.35rem 0.5rem;color:var(--text-faint);">' + escapeHtml(row.notes) + '</td>' +
-                '</tr>';
-            }).join('') +
-            '<tr><td style="padding:0.45rem 0.5rem 0.35rem 0;"><strong>Total</strong></td>' +
-            '<td style="padding:0.45rem 0.5rem 0.35rem;"><strong>' + escapeHtml(ce.totalOneTimeCostInr) + '</strong></td>' +
-            '<td style="padding:0.45rem 0.5rem 0.35rem;"><strong>' + escapeHtml(ce.totalMonthlyCostInr) + '</strong></td><td></td></tr>' +
-            '</tbody></table></div>' +
-            (ce.notes ? '<p style="margin:0.4rem 0 0;font-size:0.8rem;color:var(--text-faint);">' + escapeHtml(ce.notes) + '</p>' : '') +
-            '</div>';
-        }
-        if (asArray(d.timeline).length) {
-          body += '<div><div class="modal-section-label">Timeline</div><ul class="modal-list">' +
-            asArray(d.timeline).map(function (t) { return '<li><strong>' + escapeHtml(t.phase) + '</strong> (' + escapeHtml(t.duration) + ') — ' + escapeHtml(t.description) + '</li>'; }).join('') +
-            '</ul></div>';
-        }
-        body += listSection('Assumptions', d.assumptions);
-        body += listSection('Open questions (detailed report)', d.openQuestions);
+        body += '<div><button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download FSD</button></div>';
       }
 
-      // Mirrors the backend's hasDiscussionAccess — any internal role who's
-      // the originator, in the gate-0 reviewer pool, an MD/CEO peer, a TL
-      // whose department has a package here, or a previous invitee.
-      var reviewerPoolForDiscussion = artifact.approvalChain[0].approverTiers;
-      var canDiscuss = !me.isClient && (
-        artifact.originator.userId === me.id ||
-        reviewerPoolForDiscussion.indexOf(me.tierId) !== -1 ||
-        (['md', 'ceo'].indexOf(me.tierId) !== -1 && ['md', 'ceo'].indexOf(artifact.originator.tierId) !== -1) ||
-        (artifact.teamReports || []).some(function (t) { return t.team === me.department; }) ||
-        (artifact.discussionRecipients || []).indexOf(me.id) !== -1
-      );
-
-      if (artifact.teamReports && artifact.teamReports.length) {
-        // A TL only ever sees their own department's package here — everyone
-        // else (MD/CEO/VP/client/originator) sees the full breakdown.
-        var visibleTeamReports = (!me.isClient && me.tierId === 'tl' && me.department)
-          ? artifact.teamReports.filter(function (t) { return t.team === me.department; })
-          : artifact.teamReports;
-        body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
-        body += '<div><div class="modal-section-label" style="color:var(--accent);">Team work packages</div>';
-        body += '<p style="margin:0 0 0.5rem;font-size:0.78rem;color:var(--text-faint);">Generated after final approval — ready for team leads.</p>';
-        if (canDiscuss) {
-          body += '<button class="btn secondary" id="share-discussion-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Send for discussion</button>';
-        }
-        body += '</div>';
-        visibleTeamReports.forEach(function (t) {
-          body += '<div><div class="modal-section-label">' + escapeHtml(t.team) + '</div>';
-          body += '<p style="margin:0 0 0.4rem;font-size:0.88rem;">' + escapeHtml(t.objective) + '</p>';
-          body += listSection('Tasks', t.tasks);
-          if (t.relevantDataEntities && t.relevantDataEntities.length) {
-            body += listSection('Relevant data entities', t.relevantDataEntities);
-          }
-          body += '</div>';
-        });
+      // Team-report content is Team Lead-only now (see visibleTeamReportsFor
+      // on the backend) — discussing it is scoped the same way, otherwise
+      // "share for discussion" would be a side channel for MD/CEO/VP/the
+      // originator to pull in content they're no longer sent by the API.
+      var canDiscuss = !me.isClient && me.tierId === 'tl' && (artifact.teamReports || []).length > 0;
+      if (canDiscuss) {
+        body += '<div><button class="btn secondary" id="share-discussion-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Send for discussion</button></div>';
       }
 
-      if (artifact.discussionShares && artifact.discussionShares.length) {
+      // A discussion share is a private note between the two people involved
+      // — anyone else with access to this artifact (a TL whose department
+      // has a package here, VP as part of the reviewer pool, etc.) has no
+      // business seeing it just because they can see the parent document.
+      var visibleDiscussionShares = (artifact.discussionShares || []).filter(function (s) {
+        return s.fromUserId === me.id || s.toUserId === me.id;
+      });
+      if (visibleDiscussionShares.length) {
         body += '<hr style="border:none;border-top:1px solid var(--line);margin:0.2rem 0;" />';
         body += '<div><div class="modal-section-label" style="color:var(--accent);">Discussion</div></div>';
-        artifact.discussionShares.forEach(function (s) {
+        visibleDiscussionShares.forEach(function (s) {
           body += '<div class="item-why" style="margin-top:0;">' +
             '<strong>' + escapeHtml(s.fromName) + '</strong> → <strong>' + escapeHtml(s.toName) + '</strong>' +
             (s.note ? ': ' + escapeHtml(s.note) : '') +
@@ -818,16 +819,80 @@
       document.getElementById('modal-body').innerHTML = body;
       document.getElementById('modal-overlay').classList.add('open');
 
-      if (artifact.detailedReport) {
-        if (artifact.detailedReport.architectureDiagram) renderMermaidInto('arch-diagram-container', artifact.detailedReport.architectureDiagram);
-        if (artifact.detailedReport.dbSchemaDiagram) renderMermaidInto('db-schema-diagram-container', artifact.detailedReport.dbSchemaDiagram);
-      }
+      var mdViewer = document.getElementById('fsd-md-viewer');
+      if (mdViewer) renderMermaidBlocksIn(mdViewer);
 
       var downloadBtn = document.getElementById('download-fsd-btn');
       if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
 
       var shareBtn = document.getElementById('share-discussion-btn');
       if (shareBtn) shareBtn.addEventListener('click', function () { openShareForDiscussionModal(artifact); });
+    }
+
+    // A separate modal for the team split report — kept apart from
+    // openViewModal so the FSD and "what got split off it" are always two
+    // distinct documents, never one merged view.
+    // The backend's regenerateTeamSplit action still authorizes the
+    // originator and gate-0 reviewers too (a recovery path for when the
+    // split fails outright and no TL has a package to see it from) — but
+    // this button only renders inside openTeamReportModal, which is only
+    // reachable via "View split report", which is TL-only post-redaction.
+    // Scoping the button the same way avoids advertising an action that
+    // never actually renders for anyone else.
+    function canRegenerateTeamSplit(artifact) {
+      if (!artifact.detailedReport) return false;
+      return !me.isClient && me.tierId === 'tl' && me.department && (artifact.teamReports || []).some(function (t) { return t.team === me.department; });
+    }
+
+    function openTeamReportModal(artifact) {
+      document.getElementById('modal-title').textContent = (artifact.title || 'Untitled requirement') + ' — Team Work Package';
+      var md = teamReportsToMarkdown(artifact);
+      var rendered = window.marked ? marked.parse(md) : '<pre style="white-space:pre-wrap;">' + escapeHtml(md) + '</pre>';
+      var body = '<div class="md-viewer" id="team-report-md-viewer">' + rendered + '</div>';
+      body += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;">' +
+        '<button class="btn secondary" id="download-team-report-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download split report</button>';
+      if (canRegenerateTeamSplit(artifact)) {
+        body += '<button class="btn secondary" id="regenerate-team-report-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Regenerate split report</button>';
+      }
+      body += '</div>';
+      body += '<div class="error-banner" id="regenerate-team-report-error"></div>';
+
+      document.getElementById('modal-body').innerHTML = body;
+      document.getElementById('modal-overlay').classList.add('open');
+
+      var mdViewer = document.getElementById('team-report-md-viewer');
+      if (mdViewer) renderMermaidBlocksIn(mdViewer);
+
+      var downloadBtn = document.getElementById('download-team-report-btn');
+      if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadTeamReport(artifact); });
+
+      var regenBtn = document.getElementById('regenerate-team-report-btn');
+      if (regenBtn) {
+        regenBtn.addEventListener('click', function () {
+          regenBtn.disabled = true;
+          regenBtn.textContent = 'Regenerating...';
+          var errEl = document.getElementById('regenerate-team-report-error');
+          errEl.classList.remove('visible');
+          fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/regenerateTeamSplit', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          })
+            .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not regenerate');
+              loadArtifacts();
+              openTeamReportModal(result.body.artifact);
+            })
+            .catch(function (err) {
+              regenBtn.disabled = false;
+              regenBtn.textContent = 'Regenerate split report';
+              errEl.textContent = err.message;
+              errEl.classList.add('visible');
+            });
+        });
+      }
     }
 
     // A TL's idea has no fixed second gate — the reviewer sending the FSD
@@ -884,6 +949,7 @@
     function openShareForDiscussionModal(artifact, preferredTierId) {
       document.getElementById('modal-title').textContent = preferredTierId ? 'Send FSD to ' + preferredTierId.toUpperCase() : 'Send for discussion';
       document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading colleagues...</p>';
+      document.getElementById('modal-overlay').classList.add('open');
 
       fetch(window.API_BASE + '/api/auth/colleagues', { credentials: 'include' })
         .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
@@ -938,50 +1004,53 @@
 
     // Builds a plain-text/Markdown export of the requirement + detailed
     // report + team packages, so it can be shared outside the app.
-    function fsdToMarkdown(artifact) {
-      var d = artifact.detailedReport || {};
-      var lines = ['# ' + (artifact.title || 'Untitled requirement'), ''];
+    function mdListSection(lines, label, items, h) {
+      var arr = asArray(items);
+      if (!arr.length) return;
+      lines.push((h || '##') + ' ' + label, '');
+      arr.forEach(function (i) { lines.push('- ' + i); });
+      lines.push('');
+    }
 
-      lines.push('## Summary', '', (artifact.content && artifact.content.summary) || '', '');
+    // Shared by fsdToMarkdown (the main FSD) and teamReportsToMarkdown (each
+    // department's own mini-FSD, same structure scoped to just their slice)
+    // — one rendering path for every FSD-shaped section, so the two never
+    // drift apart. opts.headingLevel nests correctly when this is rendered
+    // under a "## TeamName" heading rather than at the top level.
+    function appendReportSections(lines, d, opts) {
+      opts = opts || {};
+      var h = opts.headingLevel || '##';
+      var h2 = h + '#';
 
-      var section = function (label, items) {
-        var arr = asArray(items);
-        if (!arr.length) return;
-        lines.push('## ' + label, '');
-        arr.forEach(function (i) { lines.push('- ' + i); });
-        lines.push('');
-      };
-
-      if (d.conversationSummary) lines.push('## Conversation Summary', '', d.conversationSummary, '');
-      if (d.objective) lines.push('## Objective', '', d.objective, '');
-      if (d.architecture) lines.push('## Architecture', '', d.architecture, '');
-      if (d.architectureDiagram) lines.push('### Architecture Diagram', '', '```mermaid', d.architectureDiagram, '```', '');
+      if (d.objective) lines.push(h + ' Objective', '', d.objective, '');
+      if (d.architecture) lines.push(h + ' Architecture', '', d.architecture, '');
+      if (d.architectureDiagram) lines.push(h2 + ' Architecture Diagram', '', '```mermaid', d.architectureDiagram, '```', '');
       if (asArray(d.techStack).length) {
-        lines.push('## Tech Stack', '');
+        lines.push(h + ' Tech Stack', '');
         asArray(d.techStack).forEach(function (t) { lines.push('- **' + t.layer + '**: ' + t.choice + ' — ' + t.rationale); });
         lines.push('');
       }
-      if (asArray(d.userFlow).length) {
-        lines.push('## User Flow', '');
+      if (opts.userFlow && asArray(d.userFlow).length) {
+        lines.push(h + ' User Flow', '');
         asArray(d.userFlow).forEach(function (s, i) { lines.push((i + 1) + '. ' + s); });
         lines.push('');
       }
       if (asArray(d.dataModel).length) {
-        lines.push('## Data Model', '');
+        lines.push(h + ' Data Model', '');
         asArray(d.dataModel).forEach(function (e) { lines.push('- **' + e.entity + '** (' + asArray(e.fields).join(', ') + '): ' + e.description); });
         lines.push('');
       }
-      if (d.dbSchemaDiagram) lines.push('### Database Schema Diagram', '', '```mermaid', d.dbSchemaDiagram, '```', '');
+      if (opts.dbSchemaDiagram && d.dbSchemaDiagram) lines.push(h2 + ' Database Schema Diagram', '', '```mermaid', d.dbSchemaDiagram, '```', '');
       if (asArray(d.pageBehavior).length) {
-        lines.push('## Page Behavior', '');
+        lines.push(h + ' Page Behavior', '');
         asArray(d.pageBehavior).forEach(function (p) { lines.push('- **' + p.page + '**: ' + p.description); });
         lines.push('');
       }
-      section('Security Design', d.securityDesign);
-      section('Deployment & Operations', d.deploymentAndOperations);
+      mdListSection(lines, 'Security Design', d.securityDesign, h);
+      if (opts.deployment) mdListSection(lines, 'Deployment & Operations', d.deploymentAndOperations, h);
       if (d.costEstimate && asArray(d.costEstimate.componentCosts).length) {
         var ceMd = d.costEstimate;
-        lines.push('## Cost Estimate (₹ INR)', '');
+        lines.push(h + ' Cost Estimate (₹ INR)', '');
         lines.push('| Component | One-time | Monthly | Notes |', '|---|---|---|---|');
         asArray(ceMd.componentCosts).forEach(function (row) {
           lines.push('| ' + row.component + ' | ' + row.oneTimeCostInr + ' | ' + row.monthlyCostInr + ' | ' + row.notes + ' |');
@@ -990,37 +1059,122 @@
         lines.push('');
         if (ceMd.notes) lines.push('*' + ceMd.notes + '*', '');
       }
-      if (asArray(d.timeline).length) {
-        lines.push('## Timeline', '');
+      if (opts.timeline && asArray(d.timeline).length) {
+        lines.push(h + ' Timeline', '');
         asArray(d.timeline).forEach(function (t) { lines.push('- **' + t.phase + '** (' + t.duration + '): ' + t.description); });
         lines.push('');
       }
-      section('Assumptions', d.assumptions);
-      section('Open Questions', d.openQuestions);
-
-      if (artifact.teamReports && artifact.teamReports.length) {
-        lines.push('## Team Work Packages', '');
-        artifact.teamReports.forEach(function (t) {
-          lines.push('### ' + t.team, '', t.objective, '');
-          asArray(t.tasks).forEach(function (task) { lines.push('- ' + task); });
+      if (opts.plan) {
+        if (asArray(d.plan).length) {
+          lines.push(h + ' Implementation Plan', '');
+          asArray(d.plan).forEach(function (phase, i) {
+            lines.push('**' + (i + 1) + '. ' + phase.phase + '**', '');
+            if (phase.description) lines.push(phase.description, '');
+            asArray(phase.tasks).forEach(function (task) { lines.push('- ' + task); });
+            lines.push('');
+          });
+        } else if (asArray(d.tasks).length) {
+          // Older artifacts generated before the phased-plan schema.
+          lines.push(h + ' Tasks', '');
+          asArray(d.tasks).forEach(function (task) { lines.push('- ' + task); });
           lines.push('');
-        });
+        }
+        mdListSection(lines, 'Dependencies', d.dependencies, h);
       }
+      mdListSection(lines, opts.openQuestionsLabel || 'Open Questions', d.openQuestions, h);
+      mdListSection(lines, 'Assumptions', d.assumptions, h);
+    }
 
+    function fsdToMarkdown(artifact) {
+      var d = artifact.detailedReport || {};
+      var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
+      var lines = ['# ' + (artifact.title || 'Untitled requirement'), ''];
+
+      lines.push('## Summary', '', (typeof artifact.content === 'string' ? artifact.content : c.summary) || '', '');
+      mdListSection(lines, 'In Scope', c.inScope);
+      mdListSection(lines, 'Out of Scope', c.outOfScope);
+      mdListSection(lines, 'Functional Requirements', c.functionalRequirements);
+      mdListSection(lines, 'Non-Functional Requirements', c.nonFunctionalRequirements);
+      if (asArray(c.recommendedModels).length) {
+        lines.push('## Recommended Models', '');
+        asArray(c.recommendedModels).forEach(function (m) { lines.push('- **' + m.model + '**: ' + m.purpose + ' — ' + m.rationale); });
+        lines.push('');
+      }
+      if (asArray(c.recommendedSecurityTools).length) {
+        lines.push('## Security Tools', '');
+        asArray(c.recommendedSecurityTools).forEach(function (t) { lines.push('- **' + t.tool + '** (' + t.category + '): ' + t.rationale); });
+        lines.push('');
+      }
+      if (c.preferredCodeGenModel) lines.push('## Preferred Code-Gen Model', '', c.preferredCodeGenModel, '');
+      mdListSection(lines, 'Open Questions (Initial Requirement)', c.openQuestions);
+
+      if (d.conversationSummary) lines.push('## Conversation Summary', '', d.conversationSummary, '');
+      appendReportSections(lines, d, {
+        userFlow: true,
+        dbSchemaDiagram: true,
+        deployment: true,
+        timeline: true,
+        openQuestionsLabel: 'Open Questions (Detailed Report)',
+      });
+
+      // Team work packages are a separate document (see teamReportsToMarkdown)
+      // — the FSD is the FSD, not the FSD-plus-whatever-got-split-off-it.
       return lines.join('\n');
     }
 
-    function downloadFsd(artifact) {
-      var md = fsdToMarkdown(artifact);
+    // The backend (visibleTeamReportsFor in artifact.routes.js) now only ever
+    // sends a TL their own department's package — everyone else gets an
+    // empty teamReports array over the wire. This mirrors that scoping
+    // client-side too, as defense in depth rather than trusting the payload
+    // shape blindly.
+    function getVisibleTeamReports(artifact) {
+      return (me && !me.isClient && me.tierId === 'tl' && me.department)
+        ? (artifact.teamReports || []).filter(function (t) { return t.team === me.department; })
+        : [];
+    }
+
+    // The team split report is its own document, separate from the FSD —
+    // each department's entry is a mini-FSD in the same structure as the
+    // main one (via appendReportSections), scoped to just their slice —
+    // never merged into fsdToMarkdown's output.
+    function teamReportsToMarkdown(artifact) {
+      var lines = ['# ' + (artifact.title || 'Untitled requirement') + ' — Team Work Packages', ''];
+      var visibleTeamReports = getVisibleTeamReports(artifact);
+      visibleTeamReports.forEach(function (t) {
+        lines.push('## ' + t.team, '');
+        appendReportSections(lines, t, { plan: true, headingLevel: '###' });
+        if (!asArray(t.dataModel).length && asArray(t.relevantDataEntities).length) {
+          // Older artifacts generated before the dataModel schema — fall back to the plain entity-name list.
+          lines.push('### Relevant Data Entities', '');
+          asArray(t.relevantDataEntities).forEach(function (e) { lines.push('- ' + e); });
+          lines.push('');
+        }
+      });
+      return lines.join('\n');
+    }
+
+    function downloadMarkdown(md, filename) {
       var blob = new Blob([md], { type: 'text/markdown' });
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = (artifact.title || 'requirement').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-fsd.md';
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    function slugTitle(artifact) {
+      return (artifact.title || 'requirement').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
+
+    function downloadFsd(artifact) {
+      downloadMarkdown(fsdToMarkdown(artifact), slugTitle(artifact) + '-fsd.md');
+    }
+
+    function downloadTeamReport(artifact) {
+      downloadMarkdown(teamReportsToMarkdown(artifact), slugTitle(artifact) + '-team-report.md');
     }
 
     // opts.mode: 'resubmit' (default) POSTs to /resubmit — used when a
@@ -1286,7 +1440,7 @@
       document.getElementById('comment-input').focus();
     }
 
-    // These actions can trigger a Claude Sonnet 5 call (detailed report or
+    // These actions can trigger a DeepSeek V3.2 call (detailed report or
     // team split generation) that's observed taking anywhere from ~30s to
     // over 2 minutes — with no feedback, that reads as a frozen page. Each
     // gets a rough estimated duration to drive a progress bar (capped short
@@ -1294,7 +1448,7 @@
     var SLOW_ACTIONS = {
       approve: { ms: 60000, label: 'AI is working — generating the detailed report or team split…' },
       giveFinalFsdApproval: { ms: 45000, label: 'AI is working — generating the team split…' },
-      regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report with Claude Sonnet 5…' },
+      regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report…' },
     };
 
     // Blocks the periodic/focus auto-refresh (see setInterval below) while
@@ -1404,6 +1558,22 @@
           if (teamwork.indexOf(a) !== -1) return false;
           return true;
         }) : [];
+        // Anything I acted on at some point (approved a gate, gave final
+        // FSD sign-off, etc.) but that's since moved past my queue entirely
+        // — not pending on me, not mine, not a department match, not a
+        // discussion share. Without this bucket the artifact still reaches
+        // my browser (the backend keeps history-based visibility so I don't
+        // lose it once the chain moves on) but had nowhere to render: an
+        // approver who cleared their gate on something that later finished
+        // would see it vanish from every list the moment it left "Awaiting
+        // your approval," even though they're the one who approved it.
+        var reviewed = !me.isClient ? artifacts.filter(function (a) {
+          if (a.originator.userId === me.id) return false;
+          if (awaiting.indexOf(a) !== -1) return false;
+          if (teamwork.indexOf(a) !== -1) return false;
+          if (shared.indexOf(a) !== -1) return false;
+          return (a.history || []).some(function (h) { return h.actorId === me.id; });
+        }) : [];
 
         mineData = mine.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
         renderMineList();
@@ -1416,6 +1586,9 @@
 
         sharedData = shared.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
         renderSharedList();
+
+        historyData = reviewed.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
+        renderHistoryList();
 
         var badge = document.getElementById('approvals-badge');
         if (approvalData.length > 0) {
@@ -1444,10 +1617,20 @@
             sharedBadge.style.display = 'none';
           }
         }
+
+        var historyTab = document.getElementById('tab-history');
+        var historyBadge = document.getElementById('history-badge');
+        if (!me.isClient) {
+          historyTab.style.display = '';
+          // Deliberately no badge count here — unlike Approvals/Team Work/
+          // Shared, nothing in History is waiting on an action, so a badge
+          // would read as "N things to do" when there's nothing to do.
+          historyBadge.style.display = 'none';
+        }
       });
     }
 
-    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared'];
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history'];
     function switchTab(tabName) {
       TAB_NAMES.forEach(function (name) {
         document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
@@ -1466,7 +1649,6 @@
       var kicker = document.getElementById('page-kicker');
       var heading = document.getElementById('page-heading');
       var sub = document.getElementById('page-sub');
-      var govNote = document.getElementById('gov-note');
 
       // Light theme applies to everyone now, internal and client alike —
       // only the copy/content differs by role.
@@ -1476,13 +1658,11 @@
         kicker.textContent = 'Client requirement';
         heading.textContent = 'Turn your ideas into reality.';
         sub.textContent = "Whatever you're picturing, we'll help you build it.";
-        govNote.textContent = 'Client submissions clear an MD or CEO gate, then a VP gate, before work begins.';
         document.getElementById('tab-approvals').style.display = 'none';
       } else {
         kicker.textContent = TIER_LABELS[me.tierId] + ' · ' + me.tierId.toUpperCase() + (me.department ? ' (' + me.department + ')' : '');
         heading.textContent = 'Welcome back, ' + me.name.split(' ')[0] + '.';
-        sub.textContent = 'Describe what you need — it routes to the right gate automatically.';
-        govNote.textContent = 'Every submission is gated. Approvals route per the hierarchy config, not just "one tier up."';
+        sub.textContent = 'Describe what you need — it routes to the right approver automatically.';
         if (me.tierId === 'tl') {
           document.getElementById('tab-teamwork').style.display = '';
           document.getElementById('teamwork-subtitle').textContent = me.department
@@ -1508,8 +1688,8 @@
     // else already acted on this" errors — periodic refresh plus refresh on
     // returning to the tab, since that's the moment a stale view is most
     // likely to actually get acted on. Skipped while a slow action (detailed
-    // report / team split generation) is in flight — a Sonnet 5 call often
-    // runs well past 15s, and a mid-flight refresh would wipe out the
+    // report / team split generation) is in flight — a detailed-report call
+    // often runs well past 15s, and a mid-flight refresh would wipe out the
     // progress bar and "Working…" state even though the request is still
     // running server-side.
     setInterval(function () { if (me && activeSlowActionCount === 0) loadArtifacts(); }, 15000);
@@ -1602,7 +1782,7 @@
             '<button class="btn secondary" id="review-edit-btn" type="button">Edit</button>' +
           '</div>' +
           '<div class="progress-bar-wrap" id="review-progress-wrap">' +
-            '<div class="progress-bar-label"><span id="review-progress-text">Generating the detailed report with Claude Sonnet 5…</span><span id="review-progress-pct">0%</span></div>' +
+            '<div class="progress-bar-label"><span id="review-progress-text">Generating the detailed report…</span><span id="review-progress-pct">0%</span></div>' +
             '<div class="progress-bar-track"><div class="progress-bar-fill" id="review-progress-fill"></div></div>' +
           '</div>' +
           '<p class="chat-summary-note" id="review-note"></p>';
@@ -1630,12 +1810,24 @@
           btn.textContent = 'Sending...';
 
           // Submitting runs the whole pipeline inline — self-approval, then
-          // the Sonnet 5 detailed report, which alone takes over a minute.
+          // the detailed report generation, which alone can take over a minute.
           // A bare "Sending..." button looks hung that long, so estimate
-          // progress against the observed ~75-90s typical duration — capped
-          // short of 100% since we don't actually know when it'll finish —
-          // and jump to 100% only once the response actually lands.
-          var ESTIMATED_MS = 82500;
+          // progress against the observed ~75-90s typical duration for a
+          // normal ~12-message chat history — capped short of 100% since we
+          // don't actually know when it'll finish — and jump to 100% only
+          // once the response actually lands. An unusually long guided-intake
+          // conversation sends a much bigger prompt and takes proportionally
+          // longer, so scale the estimate by how long this one actually was
+          // rather than always assuming the typical case — otherwise the bar
+          // sits stuck at 96% for minutes on a long conversation and reads
+          // as frozen.
+          var TYPICAL_CHAT_TURNS = 12;
+          var chatTurns = (artifact.chatHistory || []).length || TYPICAL_CHAT_TURNS;
+          var ESTIMATED_MS = 82500 * Math.max(1, chatTurns / TYPICAL_CHAT_TURNS);
+          if (chatTurns > TYPICAL_CHAT_TURNS * 2) {
+            var progressTextEl = document.getElementById('review-progress-text');
+            if (progressTextEl) progressTextEl.textContent = 'Generating the detailed report… this was a long conversation, so it may take several minutes.';
+          }
           var startedAt = new Date().getTime();
           progressWrap.classList.add('visible');
           var tick = setInterval(function () {
@@ -1658,6 +1850,8 @@
               progressFill.style.width = '100%';
               progressPct.textContent = '100%';
               if (!result.ok) throw new Error(result.body.error || 'Could not send requirement');
+              if (result.body.detailedReportError) showToast('Sent, but the detailed report failed to generate: ' + result.body.detailedReportError + ' — use "Regenerate FSD" from Submissions to retry.', true);
+              if (result.body.teamSplitError) showToast('Sent, but the team split failed to generate: ' + result.body.teamSplitError, true);
               var sentMsg = 'Sent — routed to ' + fmtChain(result.body.artifact) + '. Track it under "Submissions."';
               note.textContent = sentMsg;
               note.classList.add('visible');
@@ -1715,9 +1909,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text }),
       })
-        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+        .then(function (res) { return res.json().then(function (body) { return { status: res.status, ok: res.ok, body: body }; }); })
         .then(function (result) {
-          if (!result.ok) throw new Error(result.body.error || 'Something went wrong');
+          if (!result.ok) {
+            var err = new Error(result.body.error || 'Something went wrong');
+            err.status = result.status;
+            throw err;
+          }
           if (result.body.reviewReady) {
             chatDone = true;
             addChatBubble('assistant', "Here's a summary of what I've captured. Review it below and send it when you're ready.");
@@ -1731,9 +1929,18 @@
           }
         })
         .catch(function (err) {
-          showIntakeError(err.message);
-          input.disabled = false;
-          sendBtn.disabled = false;
+          // 404/403 mean the session itself is gone (deleted, or someone
+          // else's) — retrying against it will just 404 forever, so recover
+          // straight to a fresh session instead of leaving the composer
+          // stuck re-enabled against a dead id.
+          if (err.status === 404 || err.status === 403) {
+            resetIntakeWidget();
+            showIntakeError('That session ended unexpectedly — start a new one below.');
+          } else {
+            showIntakeError(err.message);
+            input.disabled = false;
+            sendBtn.disabled = false;
+          }
         });
     }
 

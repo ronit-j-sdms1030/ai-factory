@@ -29,16 +29,6 @@ const approvalStepSchema = new Schema(
   { _id: false }
 );
 
-const teamReportSchema = new Schema(
-  {
-    team: String,
-    objective: String,
-    tasks: [String],
-    relevantDataEntities: [String],
-  },
-  { _id: false }
-);
-
 const chatMessageSchema = new Schema(
   {
     role: { type: String, enum: ['user', 'assistant'], required: true },
@@ -94,8 +84,13 @@ const artifactSchema = new Schema(
     // change in plain language and the AI applies it.
     fsdChatHistory: [chatMessageSchema],
     // Generated once the approval chain is fully cleared — the detailed
-    // report split into per-discipline work packages for team leads.
-    teamReports: [teamReportSchema],
+    // report split into per-discipline mini-FSDs for team leads. Mixed
+    // (like detailedReport above) rather than a strict sub-schema: a
+    // strict schema silently drops any field the LLM returns that isn't
+    // explicitly declared here, which is exactly what happened when the
+    // phased-plan format was added — `plan`/`dependencies` were generated
+    // correctly but stripped on save because the schema didn't know them.
+    teamReports: [Schema.Types.Mixed],
     teamReportsGeneratedAt: Date,
     // Any internal role with access can share this report with another
     // internal colleague for discussion, even if the recipient has no

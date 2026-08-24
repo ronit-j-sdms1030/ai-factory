@@ -107,9 +107,30 @@ async function maybeGenerateDetailedReportAndSplit(artifact, stepBeingActedOn) {
   return { detailedReportError, teamSplitError };
 }
 
-function respondWithArtifact(res, artifact, errors) {
+// Department task breakdowns are Team Lead material — the requester and
+// every approver above them (MD/CEO/VP) already had their say at the FSD
+// stage; the split is what a TL executes against, not something the
+// originator or reviewer chain needs to read. This used to be a frontend-only
+// filter (getVisibleTeamReports in app.html) — meaning the full array was
+// sent to every viewer over the wire regardless of role, and only the UI
+// chose not to render it. Anyone who opened the network tab, or called the
+// API directly, could already read every department's internal package.
+// Redacting here closes that: the data itself never leaves the server for
+// anyone who isn't the right TL.
+function visibleTeamReportsFor(artifact, actor) {
+  if (!actor || actor.isClient || actor.tierId !== 'tl' || !actor.department) return [];
+  return (artifact.teamReports || []).filter((t) => t.team === actor.department);
+}
+
+function redactArtifactForActor(artifact, actor) {
+  const obj = typeof artifact.toObject === 'function' ? artifact.toObject() : artifact;
+  return Object.assign({}, obj, { teamReports: visibleTeamReportsFor(artifact, actor) });
+}
+
+function respondWithArtifact(res, artifact, actor, errors) {
   const nonEmpty = Object.fromEntries(Object.entries(errors || {}).filter(([, v]) => v));
-  res.json(Object.keys(nonEmpty).length ? Object.assign({ artifact }, nonEmpty) : { artifact });
+  const payload = redactArtifactForActor(artifact, actor);
+  res.json(Object.keys(nonEmpty).length ? Object.assign({ artifact: payload }, nonEmpty) : { artifact: payload });
 }
 
 // After a 'submit' transition lands on pending_approval, MD/CEO's own idea
@@ -171,7 +192,7 @@ router.post('/', requireAuth, async (req, res) => {
 
   const errors = await submitAndMaybeSelfApprove(artifact, actor);
   res.status(201);
-  respondWithArtifact(res, artifact, errors);
+  respondWithArtifact(res, artifact, actor, errors);
 });
 
 // Mine, plus (for internal users) anything currently waiting on my tier —
@@ -206,7 +227,7 @@ router.get('/', requireAuth, async (req, res) => {
       };
 
   const artifacts = await Artifact.find(query).sort({ updatedAt: -1 });
-  res.json({ artifacts });
+  res.json({ artifacts: artifacts.map((a) => redactArtifactForActor(a, actor)) });
 });
 
 // Guided intake chat — creates a draft artifact in the 'clarifying' stage and
@@ -286,7 +307,7 @@ router.post('/chat/:id/message', requireAuth, async (req, res) => {
       content: "Here's a summary of what I've captured. Review it below and send it when you're ready.",
     });
     await artifact.save();
-    return res.json({ reviewReady: true, artifact });
+    return res.json({ reviewReady: true, artifact: redactArtifactForActor(artifact, actor) });
   }
 
   artifact.chatHistory.push({ role: 'assistant', content: turn.text });
@@ -342,17 +363,18 @@ router.post('/:id/fsdChat', requireAuth, async (req, res) => {
   artifact.fsdChatHistory.push({ role: 'assistant', content: changeSummary });
 
   await artifact.save();
-  res.json({ reply: changeSummary, artifact });
+  res.json({ reply: changeSummary, artifact: redactArtifactForActor(artifact, actor) });
 });
 
-// Any internal role who already has visibility on this report can share it
-// with any other internal colleague for discussion, even if that colleague
-// wouldn't otherwise have access (e.g. a different department's TL, or a
-// PM who was never in the reviewer pool).
+// This exists specifically to discuss team-report content, which is now
+// Team Lead-only material (see visibleTeamReportsFor) — so both ends of the
+// share have to be a TL, not just "any internal colleague," or this would
+// hand non-TL roles a side channel into content they're no longer sent by
+// GET / or any other route.
 router.post('/:id/shareForDiscussion', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  if (actor.isClient) {
-    return res.status(403).json({ error: 'Only internal roles can share a report for discussion' });
+  if (actor.isClient || actor.tierId !== 'tl') {
+    return res.status(403).json({ error: 'Only Team Leads can share a team report for discussion' });
   }
 
   const { toUserId, note } = req.body || {};
@@ -368,8 +390,8 @@ router.post('/:id/shareForDiscussion', requireAuth, async (req, res) => {
   }
 
   const toUser = await User.findById(toUserId);
-  if (!toUser || toUser.isClient) {
-    return res.status(400).json({ error: 'Recipient must be an internal colleague' });
+  if (!toUser || toUser.isClient || toUser.tierId !== 'tl') {
+    return res.status(400).json({ error: 'Recipient must be a Team Lead' });
   }
   if (toUser._id.toString() === actor.id) {
     return res.status(400).json({ error: 'Cannot share a report with yourself' });
@@ -391,7 +413,7 @@ router.post('/:id/shareForDiscussion', requireAuth, async (req, res) => {
   });
 
   await artifact.save();
-  res.json({ artifact });
+  res.json({ artifact: redactArtifactForActor(artifact, actor) });
 });
 
 router.post('/:id/:action', requireAuth, async (req, res) => {
@@ -409,6 +431,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     'approveFsd',
     'giveFinalFsdApproval',
     'regenerateFsd',
+    'regenerateTeamSplit',
   ];
   if (!KNOWN_ACTIONS.includes(action)) {
     return res.status(400).json({ error: 'Unknown action' });
@@ -445,7 +468,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     }
 
     const errors = await submitAndMaybeSelfApprove(artifact, actor);
-    return respondWithArtifact(res, artifact, errors);
+    return respondWithArtifact(res, artifact, actor, errors);
   }
 
   // Resubmit: the originator edits a requirement that was sent back for
@@ -474,7 +497,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     }
 
     const errors = await submitAndMaybeSelfApprove(artifact, actor);
-    return respondWithArtifact(res, artifact, errors);
+    return respondWithArtifact(res, artifact, actor, errors);
   }
 
   // Accept changes: the originator confirms the reviewer's proposed edit,
@@ -486,7 +509,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Approve FSD: the originator signs off on the detailed report.
@@ -497,7 +520,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Regenerate FSD: recovery path for when generation failed after approval
@@ -508,8 +531,13 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     if (artifact.detailedReport) {
       return res.status(400).json({ error: 'A detailed report already exists for this requirement' });
     }
-    if (!['approved', 'fsd_review'].includes(artifact.currentStage)) {
-      return res.status(400).json({ error: 'This requirement is not in a state where a detailed report applies' });
+    // Gate 0 clearing is what makes a report apply — checking the approval
+    // index rather than a fixed stage list means this also covers a
+    // self-origin MD/CEO artifact stuck at pending_approval (gate 0 cleared,
+    // waiting on VP) after a slow/failed generation attempt, not just
+    // 'approved'/'fsd_review'.
+    if (artifact.currentApprovalIndex < 1) {
+      return res.status(400).json({ error: 'This requirement has not cleared its first approval gate yet' });
     }
     const isOriginator = artifact.originator.userId === actor.id;
     const isReviewer = !actor.isClient && artifact.approvalChain[0].approverTiers.includes(actor.tierId);
@@ -530,7 +558,37 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     }
 
     const teamSplitError = await maybeGenerateTeamSplit(artifact);
-    return respondWithArtifact(res, artifact, { teamSplitError });
+    return respondWithArtifact(res, artifact, actor, { teamSplitError });
+  }
+
+  // Regenerate team split: lets anyone with a stake in this requirement
+  // re-run the department split — e.g. to pick up a schema/prompt
+  // improvement (like the phased-plan format) on a requirement that was
+  // split before that change shipped. Overwrites the existing packages.
+  if (action === 'regenerateTeamSplit') {
+    if (artifact.currentStage !== 'approved' || !artifact.detailedReport) {
+      return res.status(400).json({ error: 'Team packages can only be generated once this requirement is fully approved with a detailed report' });
+    }
+    const isOriginator = artifact.originator.userId === actor.id;
+    const isReviewer = !actor.isClient && artifact.approvalChain[0].approverTiers.includes(actor.tierId);
+    const isInvolvedTl = !actor.isClient && actor.tierId === 'tl' && actor.department &&
+      (artifact.teamReports || []).some((t) => t.team === actor.department);
+    if (!isOriginator && !isReviewer && !isInvolvedTl) {
+      return res.status(403).json({ error: 'You are not authorized to regenerate this team split' });
+    }
+
+    try {
+      const split = await runTeamSplit({
+        originatorLabel: originatorLabelFor({ isClient: !artifact.originator.tierId }, artifact.originator.tierId),
+        detailedReport: artifact.detailedReport,
+      });
+      artifact.teamReports = split.teamReports;
+      artifact.teamReportsGeneratedAt = new Date();
+      await artifact.save();
+    } catch (err) {
+      return res.status(502).json({ error: err.message });
+    }
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   if (actor.isClient) {
@@ -562,7 +620,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
       'fsd_review'
     );
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Propose changes: the gate-0 approver (MD/CEO) edits the summary
@@ -580,7 +638,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     }
 
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Edit FSD: MD/CEO tweaks the generated detailed report before sending it
@@ -600,7 +658,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     artifact.detailedReport = Object.assign({}, artifact.detailedReport, detailedReport);
     pushHistory(artifact, { userId: actor.id, tierId: actor.tierId }, 'editFsd', 'Edited the detailed report', artifact.currentStage);
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Send FSD to originator: the reviewer pool is done reviewing/editing,
@@ -623,7 +681,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
     await artifact.save();
-    return res.json({ artifact });
+    return res.json({ artifact: redactArtifactForActor(artifact, actor) });
   }
 
   // Give final FSD approval: the reviewer pool's last signoff. For client
@@ -640,7 +698,8 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
     await artifact.save();
 
     const teamSplitError = await maybeGenerateTeamSplit(artifact);
-    return res.json(teamSplitError ? { artifact, teamSplitError } : { artifact });
+    const payload = redactArtifactForActor(artifact, actor);
+    return res.json(teamSplitError ? { artifact: payload, teamSplitError } : { artifact: payload });
   }
 
   const stepBeingActedOn = action === 'approve' ? artifact.approvalChain[artifact.currentApprovalIndex] : null;
@@ -657,7 +716,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
   // for chains without one, on full approval), without letting a
   // generation failure undo the approval that already saved above.
   const errors = action === 'approve' ? await maybeGenerateDetailedReportAndSplit(artifact, stepBeingActedOn) : {};
-  respondWithArtifact(res, artifact, errors);
+  respondWithArtifact(res, artifact, actor, errors);
 });
 
 module.exports = router;
