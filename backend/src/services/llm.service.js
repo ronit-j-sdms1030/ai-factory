@@ -748,8 +748,118 @@ const DEFAULT_CODE_GEN_MODEL = 'deepseek/deepseek-v3.2:nitro';
 // Returns { files: [{ path: string, content: string }] }
 // The model produces one JSON object listing every file to generate, then we
 // run individual file-generation passes so the caller can stream progress.
-async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
+// Only the department that actually owns the product's UI gets the extra
+// sandbox-ready frontend + database files below — QA/AI/DevOps/Sales &
+// Marketing keep generating exactly whatever their own scope calls for.
+const FRONTEND_OWNING_DEPARTMENT = 'Development';
+
+// A plain Vite/webpack React app can't run in the static-preview sandbox
+// (browsers can't execute raw .tsx, and there's no build step there by
+// design — see securityScanner.service.js's "no execution" stance, which
+// extends to the sandbox too). React loaded from a CDN with Babel Standalone
+// transforming JSX live, in one self-contained file, sidesteps that
+// entirely: zero build step, real React, runs directly in any browser —
+// including inside the sandboxed iframe the UAT preview already uses.
+// otherDepartments: [{ team, objective }, ...] for every OTHER department
+// on this same requirement — so the one sandbox file can demonstrate the
+// whole project's planned features (an AI recommendation panel, a DevOps
+// status widget, etc.), not just this department's own slice. Everything
+// still stays mocked/simulated in this one file — this does not mean
+// pulling in or executing any other department's actual generated code.
+function buildFrontendSandboxInstructions(otherDepartments) {
+  const otherSection = (otherDepartments && otherDepartments.length)
+    ? '\n\nThis is a full-project prototype, not just this department\'s own slice — the other departments on this same requirement are building:\n' +
+      otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '')).join('\n') +
+      '\nRepresent each of these in the UI too, as a real (if simplified) screen or section with realistic mock data/behavior standing in for that department\'s feature (e.g. an AI department building recommendations → a "Recommended for you" panel with plausible mock results; a DevOps department building monitoring → a small system-status widget). Do not just list their names — actually build a working, clickable mock of each.'
+    : '';
+
+  return (
+    'This department owns the product\'s UI, so the file plan MUST also include exactly these two additional files:\n' +
+    '1. "frontend/index.html" — a SELF-CONTAINED React demo of the ACTUAL product UI for this requirement (real screens/components implied by the Data Model and Architecture below — not a generic placeholder), built with React 18 + ReactDOM loaded from the unpkg CDN, with JSX transformed in-browser via Babel Standalone (also from CDN) — NOT a Vite/webpack/Next.js setup, since this file must run directly in a plain browser with zero build step. ' +
+    'Structure: <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>, <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>, <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>, then exactly ONE inline <script type="text/babel"> tag containing the ENTIRE app — every component, hook, and mock data, all in this one file. Do not reference any separate .js/.jsx file from this HTML; nothing outside this one script tag. ' +
+    'The app must make NO real network requests — instead of fetching a backend, define an in-memory mock dataset directly in this same script (matching the Data Model below) and use React state/hooks to read and update it, so the whole thing is fully self-contained and works with the file opened directly, no server required.' +
+    otherSection + '\n' +
+    '2. A real database schema file appropriate to this stack (e.g. "database/schema.sql" for a relational database, or an equivalent schema/model definition file for the chosen database) — the actual DDL/schema for the Data Model below, as a genuine deliverable. This file is NOT executed by the sandbox preview — it\'s real code for whoever provisions the actual database.'
+  );
+}
+
+const FRONTEND_COVERAGE_CHECK_TOOL = {
+  type: 'function',
+  function: {
+    name: 'report_frontend_coverage',
+    description: 'Report which of the given other departments have NO real, working mock UI section yet in the given frontend/index.html.',
+    parameters: {
+      type: 'object',
+      properties: {
+        missingDepartments: {
+          type: 'array',
+          description: 'Team names (exactly as given) with no genuine clickable mock section in this file yet — a passing mention in text does not count. Empty if every department is represented.',
+          items: { type: 'string' },
+        },
+      },
+      required: ['missingDepartments'],
+    },
+  },
+};
+
+const FRONTEND_COVERAGE_FIX_TOOL = {
+  type: 'function',
+  function: {
+    name: 'patch_frontend_coverage',
+    description: 'Return the complete, revised frontend/index.html with working mock sections added for the missing departments.',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'The COMPLETE revised file content — the whole file, still one self-contained React+Babel+CDN HTML file, not a diff or snippet.' },
+      },
+      required: ['content'],
+    },
+  },
+};
+
+// The plan/per-file prompts already ask for this, but — like the security
+// auto-fix pass below — compliance isn't reliable: the model sometimes
+// builds the other departments' features as separate, never-loaded
+// component files instead of folding them into the one file the sandbox
+// actually runs. This checks the ACTUAL generated file and patches in
+// whatever got left out, the same verify-then-fix shape as scanAndAutoFix.
+async function checkFrontendCoverage({ html, otherDepartments }) {
+  const deptList = otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '')).join('\n');
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are reviewing a generated UAT sandbox file for a multi-department product. Determine which of the listed OTHER departments do NOT yet have a real, working mock UI section in this file (a genuine clickable panel/screen with plausible mock data — not just a mention in text or a comment). ' +
+        'Call report_frontend_coverage exactly once.',
+    },
+    { role: 'user', content: 'Other departments to check for:\n' + deptList + '\n\nfrontend/index.html:\n```html\n' + html + '\n```' },
+  ];
+  return callForcedTool({ model: REPORT_MODEL, messages, tool: FRONTEND_COVERAGE_CHECK_TOOL, maxTokens: 500, timeoutMs: 60000 });
+}
+
+async function patchFrontendCoverage({ html, otherDepartments, missingDepartments }) {
+  const missingDetail = otherDepartments
+    .filter((d) => missingDepartments.includes(d.team))
+    .map((d) => '- ' + d.team + ': ' + (d.objective || ''))
+    .join('\n');
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are extending a self-contained React+Babel+CDN sandbox demo (frontend/index.html) for a multi-department product. ' +
+        'Add a real, working, clickable mock UI section for EACH of the missing departments below — realistic mock data/behavior standing in for that department\'s feature (e.g. an AI department building recommendations → a "Recommended for you" panel with plausible mock results; a DevOps department building monitoring → a small system-status widget) — while preserving every existing section and behavior exactly as-is. ' +
+        'The result must remain ONE self-contained file: React 18 + ReactDOM + Babel Standalone from the unpkg CDN, one inline <script type="text/babel"> tag, no separate .js/.jsx file references, no real network requests — everything in-memory mock data. ' +
+        'Call patch_frontend_coverage exactly once with the complete revised file.',
+    },
+    { role: 'user', content: 'Missing departments to add:\n' + missingDetail + '\n\nCurrent frontend/index.html:\n```html\n' + html + '\n```' },
+  ];
+  return callForcedTool({ model: REPORT_MODEL, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
+}
+
+async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDepartments }) {
   const chosenModel = CODE_GEN_MODELS[model] ? model : DEFAULT_CODE_GEN_MODEL;
+  const isFrontendOwner = teamReport.team === FRONTEND_OWNING_DEPARTMENT;
+  const frontendSandboxInstructions = isFrontendOwner ? buildFrontendSandboxInstructions(otherDepartments) : '';
 
   // Step 1 — Ask the model to plan out the file tree
   const planMessages = [
@@ -762,6 +872,7 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
         'First, output a JSON object listing every file you will generate. ' +
         'Format: { "files": [ { "path": "relative/path/to/file.ext", "description": "one-line purpose" }, ... ] } ' +
         'Include ALL files: package.json, config, source files, tests, Dockerfile, README.md, etc. ' +
+        (isFrontendOwner ? frontendSandboxInstructions + ' ' : '') +
         'Output ONLY valid JSON — no markdown fences, no commentary before or after.',
     },
     {
@@ -810,6 +921,11 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
     const fileSpec = files[i];
     if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'generating' });
 
+    // This call sees only this one file's own prompt — it never sees the
+    // planning step's instructions — so the CDN/Babel/mock-data spec has
+    // to be repeated in full here too, specifically for this file.
+    const isSandboxEntryFile = isFrontendOwner && fileSpec.path === 'frontend/index.html';
+
     const fileMessages = [
       {
         role: 'system',
@@ -817,7 +933,8 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
           'You are an expert software engineer. Generate ONLY the complete, production-ready source code ' +
           'for the file specified below. Output ONLY the raw file content — no markdown fences, ' +
           'no explanations, no commentary. The output must be valid, runnable code exactly as it ' +
-          'would appear saved to disk.',
+          'would appear saved to disk.' +
+          (isSandboxEntryFile ? '\n\n' + frontendSandboxInstructions : ''),
       },
       {
         role: 'user',
@@ -836,8 +953,12 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
     let content = '';
     try {
       const fileResponse = await client.chat.completions.create(
-        { model: chosenModel, messages: fileMessages, max_tokens: 4000 },
-        { timeout: 90000, maxRetries: 0 }
+        // The sandbox entry file has to fit an entire React app (every
+        // component, every hook, the mock dataset) in one script block —
+        // the usual 4000-token budget runs out mid-file for anything but
+        // a trivial screen.
+        { model: chosenModel, messages: fileMessages, max_tokens: isSandboxEntryFile ? 12000 : 4000 },
+        { timeout: isSandboxEntryFile ? 120000 : 90000, maxRetries: 0 }
       );
       content = ((fileResponse.choices[0].message && fileResponse.choices[0].message.content) || '').trim();
       // Strip any accidental markdown fences
@@ -848,6 +969,38 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
 
     generated.push({ path: fileSpec.path, description: fileSpec.description || '', content });
     if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'done' });
+  }
+
+  // Verify the sandbox entry file actually represents every other
+  // department, and patch in whatever it left out — see
+  // checkFrontendCoverage/patchFrontendCoverage above for why this can't
+  // just be a stronger prompt.
+  if (isFrontendOwner && otherDepartments && otherDepartments.length) {
+    const entry = generated.find((f) => f.path === 'frontend/index.html');
+    if (entry && entry.content) {
+      const MAX_COVERAGE_ROUNDS = 2;
+      let previousMissingCount = Infinity;
+      for (let round = 1; round <= MAX_COVERAGE_ROUNDS; round++) {
+        let coverage;
+        try {
+          coverage = await checkFrontendCoverage({ html: entry.content, otherDepartments });
+        } catch (err) {
+          if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-error', message: err.message });
+          break;
+        }
+        const missing = coverage.missingDepartments || [];
+        if (!missing.length || missing.length >= previousMissingCount) break;
+        previousMissingCount = missing.length;
+        if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-fix', missing, round });
+        try {
+          const patch = await patchFrontendCoverage({ html: entry.content, otherDepartments, missingDepartments: missing });
+          if (patch && patch.content) entry.content = patch.content;
+        } catch (err) {
+          if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-error', message: err.message });
+          break;
+        }
+      }
+    }
   }
 
   return { files: generated };
@@ -969,7 +1122,12 @@ async function runSecurityAutoFix({ department, files, findings }) {
     },
     { role: 'user', content: 'Findings to fix:\n' + findingsText + '\n\nFiles:\n' + context },
   ];
-  const result = await callForcedTool({ model: REPORT_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 6000, timeoutMs: 60000 });
+  // Every flagged file's COMPLETE content has to fit in the response, not
+  // just a diff — with findings spread across several real files (a
+  // Dockerfile plus multiple Python modules, say), 6000 tokens routinely
+  // wasn't enough room, so the model would silently return only one file
+  // and the rest of the findings would look like the fix "didn't work."
+  const result = await callForcedTool({ model: REPORT_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
   return result.files || [];
 }
 

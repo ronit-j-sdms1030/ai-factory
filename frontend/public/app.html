@@ -10,7 +10,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <style>
-  #shell { display: flex; min-height: 100vh; }
+  /* Fixed to the viewport height so the sidebar stays in place and only
+     #main scrolls — previously min-height let the whole shell grow with
+     the page's content, so the sidebar (and its Log out button) scrolled
+     away with everything else instead of staying put. */
+  #shell { display: flex; height: 100vh; }
 
   #sidebar {
     width: 260px; flex-shrink: 0;
@@ -18,6 +22,7 @@
     border-right: 1px solid var(--line);
     padding: 1.4rem 1.1rem;
     display: flex; flex-direction: column; gap: 1.6rem;
+    height: 100vh; overflow-y: auto;
   }
   .who { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.9rem 0.2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
   .who strong { font-size: 0.94rem; }
@@ -205,6 +210,17 @@
   .codegen-finding { font-size: 0.78rem; color: var(--text-soft); margin-top: 0.35rem; padding-left: 0.6rem; border-left: 2px solid var(--line-strong); }
   .codegen-finding .sev { font-weight: 700; text-transform: uppercase; font-size: 0.64rem; margin-right: 0.35rem; color: var(--text-faint); }
   .codegen-stage-note { font-size: 0.8rem; color: var(--text-soft); margin: 0.5rem 0; }
+  .codegen-dept-details { border-top: 1px solid var(--line); }
+  .codegen-dept-details:first-of-type { border-top: none; }
+  .codegen-dept-details summary {
+    list-style: none; cursor: pointer; padding: 0.9rem 0; display: flex; align-items: center; gap: 0.6rem;
+    font-weight: 600; font-size: 0.9rem; color: var(--text);
+  }
+  .codegen-dept-details summary::-webkit-details-marker { display: none; }
+  .codegen-dept-details summary::before { content: '▸'; color: var(--text-faint); font-size: 0.75rem; transition: transform 120ms; }
+  .codegen-dept-details[open] summary::before { transform: rotate(90deg); }
+  .codegen-dept-details summary .codegen-summary-verdict { font-weight: 500; font-size: 0.78rem; text-transform: none; letter-spacing: 0; }
+  .codegen-dept-details-body { padding: 0 0 1rem; }
 
   #logout-btn { width: 100%; }
   #loading-note, #auth-gate { text-align: center; padding: 4rem 1rem; color: var(--text-soft); }
@@ -1028,51 +1044,62 @@
 
       var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
       var hasCicd = entry.modules.some(function (m) { return m.ciAdded; });
+      // Project-wide sandbox: only once every department is TL-approved AND
+      // has passed self-testing — and only meaningful if some department
+      // actually produced a frontend to show.
+      var allSelfTested = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview && m.codeReview.verdict === 'pass'; });
+      var sandboxModule = entry.modules.find(function (m) { return m.hasFrontend; });
 
       var footer = allDone
         ? '<div class="codegen-cicd-footer">' +
             '<button class="btn secondary" type="button" data-run-cicd style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
               (hasCicd ? 'Re-run CI/CD' : 'Run CI/CD') +
             '</button>' +
+            (allSelfTested && sandboxModule
+              ? '<button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(sandboxModule.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View Sandbox</button>'
+              : '') +
             '<span class="error-banner" data-cicd-error></span>' +
           '</div>'
         : '';
 
       // Per-department stage panel — security review, TL-approval gate,
-      // self-testing gate, UAT sandbox — in that pipeline order. Nothing
-      // shows until CI/CD has actually run for that module.
+      // self-testing gate — in that pipeline order, collapsed behind a
+      // <details> so the page isn't a wall of findings for every module at
+      // once. Nothing shows until CI/CD has actually run for that module.
       var stagesHtml = entry.modules.map(function (m) {
         if (!m.security) return '';
         var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
+        var verdictClass = m.security.verdict === 'pass' ? 'pass' : 'needs_fixes';
+        var verdictLabel = m.security.verdict === 'pass' ? 'Pass' : 'Needs fixes';
 
-        var html = '<div class="codegen-dept-reviews">' +
-          '<span class="codegen-module-dept">' + escapeHtml(m.department) + '</span>' +
-          renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube');
+        var body = renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube');
 
         if (m.tlApproved) {
-          html += '<p class="codegen-stage-note">✓ Approved by ' + escapeHtml(m.tlApprovedBy || 'TL') + ' · ' + new Date(m.tlApprovedAt).toLocaleString() + '</p>';
+          body += '<p class="codegen-stage-note">✓ Approved by ' + escapeHtml(m.tlApprovedBy || 'TL') + ' · ' + new Date(m.tlApprovedAt).toLocaleString() + '</p>';
         } else if (isOwnDept) {
-          html += '<button class="btn secondary" type="button" data-approve data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Approve for self-testing</button>' +
+          body += '<button class="btn secondary" type="button" data-approve data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Approve for self-testing</button>' +
             '<span class="error-banner" data-approve-error="' + escapeAttr(m.codeGenId) + '"></span>';
         } else {
-          html += '<p class="codegen-stage-note">Awaiting ' + escapeHtml(m.department) + ' TL approval before self-testing.</p>';
+          body += '<p class="codegen-stage-note">Awaiting ' + escapeHtml(m.department) + ' TL approval before self-testing.</p>';
         }
 
         if (m.tlApproved) {
           if (m.codeReview) {
-            html += renderReviewBlock('Self AI testing', m.codeReview, 'GPT-4o mini');
+            body += renderReviewBlock('Self AI testing', m.codeReview, 'GPT-4o mini');
           } else if (isOwnDept) {
-            html += '<button class="btn secondary" type="button" data-self-test data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Begin self AI testing</button>' +
+            body += '<button class="btn secondary" type="button" data-self-test data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Begin self AI testing</button>' +
               '<span class="error-banner" data-self-test-error="' + escapeAttr(m.codeGenId) + '"></span>';
           }
         }
 
-        if (m.codeReview && m.hasFrontend) {
-          html += '<div style="margin-top:0.6rem;"><button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View UAT sandbox</button></div>';
+        if (m.tlApproved && m.codeReview && m.hasFrontend) {
+          body += '<div style="margin-top:0.6rem;"><button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View UAT sandbox</button></div>';
         }
 
-        html += '</div>';
-        return html;
+        return '<details class="codegen-dept-details">' +
+          '<summary>' + escapeHtml(m.department) + ' <span class="codegen-summary-verdict codegen-verdict ' + verdictClass + '">' + verdictLabel + '</span></summary>' +
+          '<div class="codegen-dept-details-body">' + body + '</div>' +
+          '</details>';
       }).join('');
 
       el.innerHTML =
@@ -1163,40 +1190,48 @@
 
       el.querySelectorAll('[data-uat]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          openUatSandboxModal(btn.dataset.codegenId);
+          openUatSandboxWindow(btn.dataset.codegenId);
         });
       });
 
       return el;
     }
 
-    function openUatSandboxModal(codeGenId) {
-      document.getElementById('modal-title').textContent = 'UAT Sandbox — static preview';
-      document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading preview…</p>';
-      document.getElementById('modal-overlay').classList.add('open');
+    // Opens a real separate browser window/tab (so anyone — not just the
+    // person who clicked — can be handed the same link to try it too),
+    // while keeping the actual preview inside a sandboxed iframe so it's
+    // still just a static markup preview: no allow-same-origin, no
+    // allow-forms, no top-navigation — an isolated, opaque origin that
+    // can't reach this app or any real backend.
+    // window.open() is called FIRST, synchronously inside the click
+    // handler — calling it only after the fetch resolves gets treated as
+    // a popup and blocked by most browsers.
+    function openUatSandboxWindow(codeGenId) {
+      var win = window.open('', '_blank');
+      if (win) {
+        win.document.write('<!doctype html><title>UAT Sandbox</title><body style="font-family:sans-serif;padding:2rem;color:#666;">Loading preview…</body>');
+      }
 
       fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/preview', { credentials: 'include' })
         .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
         .then(function (result) {
+          if (!win) return; // popup was blocked — nothing more we can do
           if (!result.ok) throw new Error(result.body.error || 'Could not load preview');
-          var body = document.getElementById('modal-body');
-          body.innerHTML = '';
-          var iframe = document.createElement('iframe');
-          // No allow-same-origin, no allow-forms, no top-navigation — an
-          // isolated, opaque-origin sandbox. This is a static markup
-          // preview, not a wired-up app; nothing here can reach the parent
-          // page or any real backend.
+
+          win.document.open();
+          win.document.write(
+            '<!doctype html><html><head><title>UAT Sandbox — ' + escapeHtml(result.body.entryPath) + '</title>' +
+            '<style>html,body{margin:0;height:100%;} iframe{width:100%;height:100%;border:none;display:block;}</style>' +
+            '</head><body></body></html>'
+          );
+          win.document.close();
+          var iframe = win.document.createElement('iframe');
           iframe.setAttribute('sandbox', 'allow-scripts');
-          iframe.style.cssText = 'width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff;';
           iframe.srcdoc = result.body.html;
-          body.appendChild(iframe);
-          var note = document.createElement('p');
-          note.style.cssText = 'font-size:0.76rem;color:var(--text-faint);margin:0.5rem 0 0;';
-          note.textContent = 'Static preview of ' + result.body.entryPath + ' — sandboxed, no backend wiring.';
-          body.appendChild(note);
+          win.document.body.appendChild(iframe);
         })
         .catch(function (err) {
-          document.getElementById('modal-body').innerHTML = '<p class="error-banner visible">' + escapeHtml(err.message) + '</p>';
+          if (win) win.document.body.innerHTML = '<p style="font-family:sans-serif;padding:2rem;color:#c0392b;">' + escapeHtml(err.message) + '</p>';
         });
     }
 

@@ -136,6 +136,53 @@ async function getJobsForArtifact(artifactId) {
   return latestByDept;
 }
 
+// Shared by the automatic post-generation scan (/start) and the manual
+// CI/CD-stage re-scan (/run-cicd) — a security scan that finds something
+// always gets one auto-fix pass and a re-scan to confirm, in both places.
+// Previously only the first scan had this; a finding introduced by the
+// CI/CD file itself (or anything else the CI/CD stage touches) sat
+// unfixed forever because /run-cicd only ever reported, never fixed.
+// A single fix-and-rescan pass isn't reliable — the same findings, sent to
+// the same fix call twice, can come back with 3 files fixed one time and 1
+// file fixed the next (real model non-determinism, not a bug in the
+// prompt). So this loops: keep fixing and re-scanning as long as the
+// finding count is actually going down, capped so a genuinely stuck case
+// doesn't burn calls forever.
+const MAX_AUTO_FIX_ROUNDS = 3;
+
+async function scanAndAutoFix(job) {
+  job.log.push({ ts: Date.now(), msg: 'Running security scan…' });
+  await persistJob(job);
+
+  let security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+  let previousCount = Infinity;
+
+  for (let round = 1; round <= MAX_AUTO_FIX_ROUNDS && security.verdict === 'needs_fixes' && security.findings.length && security.findings.length < previousCount; round++) {
+    previousCount = security.findings.length;
+    job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying fixes (round ${round})…` });
+    await persistJob(job);
+
+    const fixedFiles = await runSecurityAutoFix({ department: job.department, files: job.files, findings: security.findings });
+    if (!fixedFiles.length) break; // nothing came back — no point re-scanning the same state again
+
+    for (const fixed of fixedFiles) {
+      const existing = job.files.find((f) => f.path === fixed.path);
+      if (existing) existing.content = fixed.content;
+    }
+    job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-scanning…` });
+    await persistJob(job);
+    security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+  }
+
+  job.security = security;
+  job.reviewedAt = Date.now();
+  job.log.push({
+    ts: Date.now(),
+    msg: security.verdict === 'pass' ? '✓ Security scan passed.' : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
+  });
+  return security;
+}
+
 // ─── Allowed model whitelist ───────────────────────────────────────────────────
 const ALLOWED_MODELS = new Set(Object.keys(CODE_GEN_MODELS));
 
@@ -164,6 +211,13 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
   if (!teamReport) {
     return res.status(403).json({ error: 'No team work package found for your department' });
   }
+
+  // Only meaningful for the frontend-owning department's own generation —
+  // lets its sandbox demo represent the whole project's planned features
+  // (mocked), not just this department's own slice.
+  const otherDepartments = (artifact.teamReports || [])
+    .filter((t) => t.team !== actor.department)
+    .map((t) => ({ team: t.team, objective: t.objective }));
 
   // Locked once a job exists and hasn't errored — starting a second job
   // over a generating/done one would silently orphan it (nothing else in
@@ -213,7 +267,8 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
         teamReport: teamReport.toObject ? teamReport.toObject() : teamReport,
         artifact: { title: artifact.title },
         model,
-        onFileProgress: ({ index, total, path: filePath, status }) => {
+        otherDepartments,
+        onFileProgress: ({ index, total, path: filePath, status, missing, message }) => {
           job.totalFiles = total;
           if (status === 'generating') {
             // Add a pending slot so the file tree shows it immediately
@@ -230,6 +285,10 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
             // mid-generation should lose at most the one file in flight,
             // not everything generated so far.
             persistJob(job);
+          } else if (status === 'coverage-fix') {
+            job.log.push({ ts: Date.now(), msg: `Sandbox demo is missing ${missing.join(', ')} — adding mock section(s)…` });
+          } else if (status === 'coverage-error') {
+            job.log.push({ ts: Date.now(), msg: `Could not verify cross-department coverage: ${message}` });
           }
         },
       }).then(async (result) => {
@@ -250,35 +309,10 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
 
         // Auto security scan — runs the moment this module's own code is
         // ready, not gated behind every other department finishing (that's
-        // what the manual "Run CI/CD & tests" project-wide step is for).
-        // If it finds something, attempt one fix pass and re-scan to
-        // confirm, rather than just reporting and stopping there.
+        // what the manual "Run CI/CD" project-wide step is for). Finds +
+        // fixes + re-scans via the shared helper (also used by /run-cicd).
         try {
-          job.log.push({ ts: Date.now(), msg: 'Running automatic security scan…' });
-          await persistJob(job);
-
-          let security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
-          if (security.verdict === 'needs_fixes' && security.findings.length) {
-            job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying fixes…` });
-            await persistJob(job);
-
-            const fixedFiles = await runSecurityAutoFix({ department: job.department, files: job.files, findings: security.findings });
-            for (const fixed of fixedFiles) {
-              const existing = job.files.find((f) => f.path === fixed.path);
-              if (existing) existing.content = fixed.content;
-            }
-            if (fixedFiles.length) {
-              job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-scanning…` });
-              await persistJob(job);
-              security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
-            }
-          }
-          job.security = security;
-          job.reviewedAt = Date.now();
-          job.log.push({
-            ts: Date.now(),
-            msg: security.verdict === 'pass' ? '✓ Security scan passed.' : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
-          });
+          await scanAndAutoFix(job);
         } catch (err) {
           job.log.push({ ts: Date.now(), msg: `Security scan failed: ${err.message}` });
         }
@@ -471,9 +505,7 @@ router.post('/:artifactId/run-cicd', requireAuth, async (req, res) => {
     job.ciAdded = true;
 
     try {
-      const security = await runSecurityScan({ department, artifactId: job.artifactId, files: job.files });
-      job.security = security;
-      job.reviewedAt = Date.now();
+      const security = await scanAndAutoFix(job);
       codeGenJobs.set(job.codeGenId, job);
       await persistJob(job);
       return { department, ciAdded, security };
@@ -497,8 +529,11 @@ router.post('/:codeGenId/approve', requireAuth, async (req, res) => {
   if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
     return res.status(403).json({ error: 'Only this department\'s own Team Lead can approve this module' });
   }
-  if (!job.ciAdded || !job.security) {
+  if (!job.ciAdded) {
     return res.status(400).json({ error: 'Run CI/CD for this module before approving it' });
+  }
+  if (!job.security) {
+    return res.status(400).json({ error: 'The CI/CD security scan is still running for this module — wait for it to finish before approving' });
   }
 
   job.tlApproved = true;
@@ -572,6 +607,11 @@ function resolveRelative(basePath, ref) {
 function buildStaticPreview(entryFile, files) {
   const byPath = new Map(files.map((f) => [f.path, f]));
   let html = entryFile.content;
+  // Inlining raw TypeScript/JSX as if it were plain JS doesn't error loudly
+  // — the browser just throws a silent syntax error in the console and the
+  // page renders blank (e.g. an empty <div id="root">). Detect this instead
+  // of producing that mystery-blank-page experience.
+  let unsupportedScript = null;
 
   html = html.replace(/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']+)["'][^>]*>/gi, (match, href) => {
     const resolved = resolveRelative(entryFile.path, href);
@@ -581,11 +621,16 @@ function buildStaticPreview(entryFile, files) {
 
   html = html.replace(/<script\b([^>]*)\ssrc=["']([^"']+)["']([^>]*)><\/script>/gi, (match, before, src) => {
     const resolved = resolveRelative(entryFile.path, src);
-    const jsFile = resolved && byPath.get(resolved);
+    if (!resolved) return match; // external/remote — leave alone
+    if (/\.(ts|tsx|jsx|vue|svelte)$/i.test(resolved)) {
+      unsupportedScript = resolved;
+      return match;
+    }
+    const jsFile = byPath.get(resolved);
     return jsFile ? '<script>\n' + jsFile.content + '\n</script>' : match;
   });
 
-  return html;
+  return { html, unsupportedScript };
 }
 
 // ─── GET /api/codegen/:codeGenId/preview ──────────────────────────────────────
@@ -599,7 +644,14 @@ router.get('/:codeGenId/preview', requireAuth, async (req, res) => {
   const entry = findFrontendEntry(job.files);
   if (!entry) return res.status(400).json({ error: 'No frontend (.html) file found in this module' });
 
-  res.json({ html: buildStaticPreview(entry, job.files), entryPath: entry.path });
+  const { html, unsupportedScript } = buildStaticPreview(entry, job.files);
+  if (unsupportedScript) {
+    return res.status(400).json({
+      error: `This frontend's entry point loads ${unsupportedScript}, which needs a real TypeScript/JSX build step — a static preview can only run plain HTML/CSS/JS, so it can't render this without actually building the app.`,
+    });
+  }
+
+  res.json({ html, entryPath: entry.path });
 });
 
 // ─── GET /api/codegen/by-artifact/:artifactId ─────────────────────────────────
