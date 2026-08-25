@@ -56,8 +56,20 @@
     border: 1px solid var(--accent); color: var(--accent); background: transparent;
   }
   .item-badge.muted { border-color: var(--line); color: var(--text-faint); }
-  .item-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
-  .item-actions .btn { padding: 0.45rem 0.75rem; font-size: 0.8rem; }
+  .item-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+  /* :root.theme-client .btn (theme-client.css) outweighs a plain
+     .item-actions .btn override on specificity alone, which is why these
+     were rendering at the big pill-button size/shadow meant for primary
+     CTAs — matching that selector's specificity here to actually win. */
+  :root.theme-client .item-actions .btn,
+  .item-actions .btn {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border-radius: 6px;
+    box-shadow: none;
+  }
+  :root.theme-client .item-actions .btn:hover { box-shadow: none; }
 
   .pagination { display: flex; align-items: center; justify-content: center; gap: 0.8rem; margin-top: 1.1rem; }
   .pagination button {
@@ -167,6 +179,33 @@
   @keyframes progress-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
   .progress-bar-label { font-size: 0.78rem; color: var(--text-faint); display: flex; justify-content: space-between; }
 
+  .codegen-status-card .item-title { margin-bottom: 0.6rem; }
+  .codegen-module-row {
+    display: grid; grid-template-columns: 9rem 6.5rem 1fr 3rem auto;
+    align-items: center; gap: 0.75rem; padding: 0.55rem 0;
+    border-top: 1px solid var(--line);
+  }
+  .codegen-module-row:first-child { border-top: none; }
+  .codegen-module-dept { font-weight: 600; font-size: 0.86rem; color: var(--text); }
+  .codegen-module-status { font-size: 0.74rem; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
+  .codegen-module-status.not_started { color: var(--text-faint); }
+  .codegen-module-status.generating { color: var(--accent); }
+  .codegen-module-status.done { color: #3fae6a; }
+  .codegen-module-status.error { color: #d0554a; }
+  .codegen-module-pct { font-size: 0.78rem; color: var(--text-faint); text-align: right; font-variant-numeric: tabular-nums; }
+  .codegen-cicd-footer { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--line); }
+  .codegen-dept-reviews { padding: 0.9rem 0; border-top: 1px solid var(--line); }
+  .codegen-dept-reviews:first-of-type { border-top: none; }
+  .codegen-dept-reviews .codegen-module-dept { display: block; margin-bottom: 0.4rem; }
+  .codegen-review-block { margin-top: 0.5rem; padding: 0.6rem 0.75rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+  .codegen-review-block h5 { margin: 0 0 0.35rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); font-family: var(--font-mono); font-weight: 600; }
+  .codegen-verdict { font-size: 0.8rem; font-weight: 700; }
+  .codegen-verdict.pass { color: #3fae6a; }
+  .codegen-verdict.needs_fixes { color: #d0554a; }
+  .codegen-finding { font-size: 0.78rem; color: var(--text-soft); margin-top: 0.35rem; padding-left: 0.6rem; border-left: 2px solid var(--line-strong); }
+  .codegen-finding .sev { font-weight: 700; text-transform: uppercase; font-size: 0.64rem; margin-right: 0.35rem; color: var(--text-faint); }
+  .codegen-stage-note { font-size: 0.8rem; color: var(--text-soft); margin: 0.5rem 0; }
+
   #logout-btn { width: 100%; }
   #loading-note, #auth-gate { text-align: center; padding: 4rem 1rem; color: var(--text-soft); }
 
@@ -184,15 +223,11 @@
   .codegen-file-preview { display: flex; flex-direction: column; gap: 0.25rem; max-height: 180px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; padding: 0.6rem 0.7rem; background: var(--bg); }
   .codegen-file-preview-item { display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-soft); }
   .codegen-file-preview-item .fi-icon { font-size: 0.7rem; opacity: 0.6; flex-shrink: 0; }
-  .codegen-model-selector { display: flex; flex-direction: column; gap: 0.5rem; }
-  .codegen-model-pill-row { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-  .codegen-model-pill {
-    background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 999px;
-    padding: 0.3rem 0.75rem; font-size: 0.78rem; font-weight: 500; color: var(--text-soft);
-    cursor: pointer; transition: background 120ms, color 120ms, border-color 120ms;
+  .codegen-model-select {
+    background: var(--bg); border: 1px solid var(--line-strong); color: var(--text);
+    border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.88rem; font-family: inherit;
+    width: 100%; cursor: pointer;
   }
-  .codegen-model-pill:hover { background: var(--surface); color: var(--text); }
-  .codegen-model-pill.selected { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .codegen-meta-row { display: flex; align-items: center; gap: 1rem; font-size: 0.82rem; color: var(--text-soft); }
   .codegen-meta-row strong { color: var(--text); }
 
@@ -266,6 +301,12 @@
   }
   .ide-tab:hover { color: #c0c0c4; }
   .ide-tab.active { color: #d4d4d8; border-bottom-color: #f2761f; }
+  .ide-tab-close {
+    display: flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 4px; font-size: 0.8rem;
+    color: #6b6c72; flex-shrink: 0;
+  }
+  .ide-tab-close:hover { background: rgba(255,255,255,0.12); color: #d4d4d8; }
   .ide-code-area { flex: 1; overflow: auto; padding: 1rem 1.2rem; }
   .ide-code-area pre {
     margin: 0; font-size: 0.8rem; line-height: 1.65; white-space: pre; tab-size: 2;
@@ -323,6 +364,7 @@
         <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Discussions<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-history" type="button" data-tab="history" style="display:none;">History<span class="tab-badge" id="history-badge" style="display:none;"></span></button>
+        <button class="side-nav-btn" id="tab-codegen" type="button" data-tab="codegen" style="display:none;">Code Generation</button>
       </nav>
 
       <div class="who">
@@ -405,6 +447,15 @@
             <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Requirements you acted on at some point — approved, rejected, or reviewed — that have since moved past your queue. Read-only.</p>
             <div class="list" id="history-list"></div>
             <div class="pagination" id="history-pagination"></div>
+          </div>
+        </div>
+
+        <div class="tab-view" id="view-codegen" style="display:none;">
+          <div class="card">
+            <h2>Code generation status</h2>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Every department's build progress across your approved requirements — open any module in the IDE to browse its generated code.</p>
+            <div class="list" id="codegen-status-list"></div>
+            <div class="pagination" id="codegen-status-pagination"></div>
           </div>
         </div>
       </div>
@@ -667,9 +718,35 @@
         buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
-      // Code generation — available to the TL whose department package is ready
+      // Code generation — available to the TL whose department package is
+      // ready. Once a job already exists, lock this behind reopening that
+      // same job's IDE instead of the start-new-job modal — otherwise
+      // closing the IDE (which only hides it client-side; the job keeps
+      // running/exists server-side) and clicking Generate Code again would
+      // silently kick off a second job, orphaning whatever was already
+      // generated. codegenStatusData isn't populated until the async
+      // by-artifact fetch resolves, so this correctly falls through to the
+      // normal "start" button on the very first render.
       if (assignedTeamPackage && stage === 'approved') {
-        buttons.push({ action: 'codeGen', label: '⚡ Generate Code', modal: 'codeGen' });
+        var codegenEntry = findCodegenModuleStatus(artifact._id, me.department);
+        if (codegenEntry && codegenEntry.status !== 'not_started') {
+          if (codegenEntry.status === 'error') {
+            // Nothing worth protecting from an errored attempt — route
+            // through the normal start flow so it can genuinely retry.
+            buttons.push({ action: 'codeGen', label: 'Retry code generation', modal: 'codeGen' });
+          } else {
+            var cgLabel = codegenEntry.status === 'done'
+              ? 'View generated code'
+              : 'View progress (' + codegenEntry.progressPct + '%)';
+            buttons.push({
+              action: 'codeGenResume', label: cgLabel, modal: 'codeGenResume',
+              secondary: codegenEntry.status !== 'generating',
+              codeGenId: codegenEntry.codeGenId, modelLabel: codegenEntry.modelLabel,
+            });
+          }
+        } else {
+          buttons.push({ action: 'codeGen', label: 'Generate Code', modal: 'codeGen' });
+        }
       }
 
       return buttons;
@@ -756,6 +833,9 @@
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
           if (btnDef.modal === 'codeGen') return openCodeGenOverviewModal(artifact);
+          // Reopens the SAME job's IDE (generating or done) instead of
+          // starting a new one — see findCodegenModuleStatus above for why.
+          if (btnDef.modal === 'codeGenResume') return openCodeGenIdePanel(artifact, btnDef.codeGenId, btnDef.modelLabel, me.department);
           actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
         });
 
@@ -780,6 +860,8 @@
     var sharedData = [];
     var historyPage = 1;
     var historyData = [];
+    var codegenStatusPage = 1;
+    var codegenStatusData = [];
 
     function renderPaginatedList(opts) {
       var container = document.getElementById(opts.listId);
@@ -895,6 +977,277 @@
         setPage: function (p) { historyPage = p; },
         rerender: renderHistoryList,
       });
+    }
+
+    var CODEGEN_STATUS_LABELS = { not_started: 'Not started', generating: 'Generating', done: 'Done', error: 'Error' };
+
+    // One card per artifact, one row per department module — the status
+    // list's item shape is different enough from every other tab (multiple
+    // sub-rows instead of one action-button set) that it gets its own
+    // renderer rather than reusing renderArtifactItem.
+    function renderReviewBlock(label, review, toolLabel) {
+      if (!review) return '';
+      var verdictClass = review.verdict === 'pass' ? 'pass' : 'needs_fixes';
+      var verdictLabel = review.verdict === 'pass' ? 'Pass' : 'Needs fixes';
+      var findingsHtml = (review.findings && review.findings.length)
+        ? review.findings.map(function (f) {
+            var tag = f.tool || f.category;
+            return '<div class="codegen-finding"><span class="sev">' + escapeHtml(f.severity) + '</span>' +
+              (tag ? '<strong>' + escapeHtml(tag) + '</strong> — ' : '') +
+              escapeHtml(f.file) + ': ' + escapeHtml(f.issue) + '</div>';
+          }).join('')
+        : '<div class="codegen-finding" style="border-color:transparent;color:var(--text-faint);font-style:italic;">No issues found.</div>';
+      return '<div class="codegen-review-block">' +
+        '<h5>' + escapeHtml(label) + (toolLabel ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">— ' + escapeHtml(toolLabel) + '</span>' : '') + '</h5>' +
+        '<div class="codegen-verdict ' + verdictClass + '">' + verdictLabel + '</div>' +
+        '<p style="margin:0.3rem 0 0;font-size:0.8rem;color:var(--text-soft);">' + escapeHtml(review.summary || '') + '</p>' +
+        findingsHtml +
+        '</div>';
+    }
+
+    function renderCodegenStatusItem(entry) {
+      var artifact = entry.artifact;
+      var originatorLabel = artifact.originator.tierId ? TIER_LABELS[artifact.originator.tierId] : 'Client';
+      var el = document.createElement('div');
+      el.className = 'item codegen-status-card';
+
+      var rows = entry.modules.map(function (m) {
+        var label = CODEGEN_STATUS_LABELS[m.status] || m.status;
+        var pct = m.progressPct || 0;
+        var canView = !!m.codeGenId;
+        return '<div class="codegen-module-row">' +
+          '<span class="codegen-module-dept">' + escapeHtml(m.department) + '</span>' +
+          '<span class="codegen-module-status ' + escapeAttr(m.status) + '">' + escapeHtml(label) + '</span>' +
+          '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + pct + '%;"></div></div>' +
+          '<span class="codegen-module-pct">' + pct + '%</span>' +
+          (canView
+            ? '<button class="btn secondary" type="button" data-view-ide data-codegen-id="' + escapeAttr(m.codeGenId) + '" data-model-label="' + escapeAttr(m.modelLabel || '') + '" data-department="' + escapeAttr(m.department) + '" style="padding:0.35rem 0.65rem;font-size:0.78rem;">View in IDE</button>'
+            : '<span></span>') +
+          '</div>';
+      }).join('');
+
+      var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
+      var hasCicd = entry.modules.some(function (m) { return m.ciAdded; });
+
+      var footer = allDone
+        ? '<div class="codegen-cicd-footer">' +
+            '<button class="btn secondary" type="button" data-run-cicd style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
+              (hasCicd ? 'Re-run CI/CD' : 'Run CI/CD') +
+            '</button>' +
+            '<span class="error-banner" data-cicd-error></span>' +
+          '</div>'
+        : '';
+
+      // Per-department stage panel — security review, TL-approval gate,
+      // self-testing gate, UAT sandbox — in that pipeline order. Nothing
+      // shows until CI/CD has actually run for that module.
+      var stagesHtml = entry.modules.map(function (m) {
+        if (!m.security) return '';
+        var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
+
+        var html = '<div class="codegen-dept-reviews">' +
+          '<span class="codegen-module-dept">' + escapeHtml(m.department) + '</span>' +
+          renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube');
+
+        if (m.tlApproved) {
+          html += '<p class="codegen-stage-note">✓ Approved by ' + escapeHtml(m.tlApprovedBy || 'TL') + ' · ' + new Date(m.tlApprovedAt).toLocaleString() + '</p>';
+        } else if (isOwnDept) {
+          html += '<button class="btn secondary" type="button" data-approve data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Approve for self-testing</button>' +
+            '<span class="error-banner" data-approve-error="' + escapeAttr(m.codeGenId) + '"></span>';
+        } else {
+          html += '<p class="codegen-stage-note">Awaiting ' + escapeHtml(m.department) + ' TL approval before self-testing.</p>';
+        }
+
+        if (m.tlApproved) {
+          if (m.codeReview) {
+            html += renderReviewBlock('Self AI testing', m.codeReview, 'GPT-4o mini');
+          } else if (isOwnDept) {
+            html += '<button class="btn secondary" type="button" data-self-test data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Begin self AI testing</button>' +
+              '<span class="error-banner" data-self-test-error="' + escapeAttr(m.codeGenId) + '"></span>';
+          }
+        }
+
+        if (m.codeReview && m.hasFrontend) {
+          html += '<div style="margin-top:0.6rem;"><button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View UAT sandbox</button></div>';
+        }
+
+        html += '</div>';
+        return html;
+      }).join('');
+
+      el.innerHTML =
+        '<div class="item-top">' +
+          '<div>' +
+            '<div class="item-title"></div>' +
+            '<div class="item-meta"></div>' +
+          '</div>' +
+        '</div>' +
+        rows +
+        footer +
+        stagesHtml;
+
+      el.querySelector('.item-title').textContent = artifact.title;
+      el.querySelector('.item-meta').textContent = originatorLabel + ' · ' + new Date(artifact.createdAt).toLocaleString();
+
+      el.querySelectorAll('[data-view-ide]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openCodeGenIdePanel(artifact, btn.dataset.codegenId, btn.dataset.modelLabel, btn.dataset.department);
+        });
+      });
+
+      var runBtn = el.querySelector('[data-run-cicd]');
+      if (runBtn) {
+        runBtn.addEventListener('click', function () {
+          runBtn.disabled = true;
+          runBtn.textContent = 'Running…';
+          var errEl = el.querySelector('[data-cicd-error]');
+          errEl.classList.remove('visible');
+          errEl.textContent = '';
+          fetch(window.API_BASE + '/api/codegen/' + artifact._id + '/run-cicd', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not run CI/CD');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              runBtn.disabled = false;
+              runBtn.textContent = hasCicd ? 'Re-run CI/CD' : 'Run CI/CD';
+              errEl.textContent = err.message;
+              errEl.classList.add('visible');
+            });
+        });
+      }
+
+      el.querySelectorAll('[data-approve]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'Approving…';
+          var errEl = el.querySelector('[data-approve-error="' + btn.dataset.codegenId + '"]');
+          fetch(window.API_BASE + '/api/codegen/' + btn.dataset.codegenId + '/approve', { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not approve');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = 'Approve for self-testing';
+              if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
+            });
+        });
+      });
+
+      el.querySelectorAll('[data-self-test]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'Testing…';
+          var errEl = el.querySelector('[data-self-test-error="' + btn.dataset.codegenId + '"]');
+          fetch(window.API_BASE + '/api/codegen/' + btn.dataset.codegenId + '/self-test', { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not run self-testing');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = 'Begin self AI testing';
+              if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
+            });
+        });
+      });
+
+      el.querySelectorAll('[data-uat]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openUatSandboxModal(btn.dataset.codegenId);
+        });
+      });
+
+      return el;
+    }
+
+    function openUatSandboxModal(codeGenId) {
+      document.getElementById('modal-title').textContent = 'UAT Sandbox — static preview';
+      document.getElementById('modal-body').innerHTML = '<p style="font-size:0.86rem;color:var(--text-faint);margin:0;">Loading preview…</p>';
+      document.getElementById('modal-overlay').classList.add('open');
+
+      fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/preview', { credentials: 'include' })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Could not load preview');
+          var body = document.getElementById('modal-body');
+          body.innerHTML = '';
+          var iframe = document.createElement('iframe');
+          // No allow-same-origin, no allow-forms, no top-navigation — an
+          // isolated, opaque-origin sandbox. This is a static markup
+          // preview, not a wired-up app; nothing here can reach the parent
+          // page or any real backend.
+          iframe.setAttribute('sandbox', 'allow-scripts');
+          iframe.style.cssText = 'width:100%;height:60vh;border:1px solid var(--line);border-radius:8px;background:#fff;';
+          iframe.srcdoc = result.body.html;
+          body.appendChild(iframe);
+          var note = document.createElement('p');
+          note.style.cssText = 'font-size:0.76rem;color:var(--text-faint);margin:0.5rem 0 0;';
+          note.textContent = 'Static preview of ' + result.body.entryPath + ' — sandboxed, no backend wiring.';
+          body.appendChild(note);
+        })
+        .catch(function (err) {
+          document.getElementById('modal-body').innerHTML = '<p class="error-banner visible">' + escapeHtml(err.message) + '</p>';
+        });
+    }
+
+    function renderCodegenStatusList() {
+      renderPaginatedList({
+        listId: 'codegen-status-list',
+        paginationId: 'codegen-status-pagination',
+        data: codegenStatusData,
+        emptyText: 'No approved requirements with team packages yet.',
+        renderItem: renderCodegenStatusItem,
+        getPage: function () { return codegenStatusPage; },
+        setPage: function (p) { codegenStatusPage = p; },
+        rerender: renderCodegenStatusList,
+      });
+    }
+
+    // Only meaningful for VP/TL — fetches per-department code-gen progress
+    // for every approved, team-split artifact already in this user's list.
+    function loadCodegenStatusList(artifacts) {
+      if (me.isClient || (me.tierId !== 'vp' && me.tierId !== 'tl')) return;
+      var candidates = artifacts.filter(function (a) { return a.currentStage === 'approved' && a.teamReportsGeneratedAt; });
+      if (!candidates.length) {
+        codegenStatusData = [];
+        renderCodegenStatusList();
+        return;
+      }
+      Promise.all(candidates.map(function (artifact) {
+        return fetch(window.API_BASE + '/api/codegen/by-artifact/' + artifact._id, { credentials: 'include' })
+          .then(function (res) { return res.ok ? res.json() : { modules: [] }; })
+          .then(function (data) { return { artifact: artifact, modules: data.modules || [] }; })
+          .catch(function () { return { artifact: artifact, modules: [] }; });
+      })).then(function (entries) {
+        codegenStatusData = entries.filter(function (e) { return e.modules.length; })
+          .sort(function (a, b) { return new Date(b.artifact.updatedAt) - new Date(a.artifact.updatedAt); });
+        renderCodegenStatusList();
+        // A TL's own "Generate Code" button depends on whether a job already
+        // exists for their department — re-render Team Work now that this
+        // just-arrived data can answer that (see findCodegenModuleStatus).
+        if (me.tierId === 'tl') renderTeamworkList();
+      });
+    }
+
+    // Looks up this artifact+department's current code-gen job (if any) from
+    // the status data loadCodegenStatusList just fetched. Used to stop the
+    // "Generate Code" button from silently starting a second job over an
+    // existing one — closing the IDE only hides it client-side, it doesn't
+    // touch the job running on the server.
+    function findCodegenModuleStatus(artifactId, department) {
+      var entry = codegenStatusData.find(function (e) { return e.artifact._id === artifactId; });
+      if (!entry) return null;
+      return entry.modules.find(function (m) { return m.department === department; }) || null;
     }
 
     // --- View / edit modal ---
@@ -1928,6 +2281,8 @@
         historyData = reviewed.slice().sort(function (a, b) { return new Date(b.updatedAt) - new Date(a.updatedAt); });
         renderHistoryList();
 
+        loadCodegenStatusList(artifacts);
+
         var badge = document.getElementById('approvals-badge');
         if (approvalData.length > 0) {
           badge.textContent = String(approvalData.length);
@@ -1968,7 +2323,7 @@
       });
     }
 
-    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history'];
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history', 'codegen'];
     function switchTab(tabName) {
       TAB_NAMES.forEach(function (name) {
         document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
@@ -2006,6 +2361,9 @@
           document.getElementById('teamwork-subtitle').textContent = me.department
             ? 'Read-only — ' + me.department + " team's work, broken out from fully-approved requirements."
             : 'Read-only — department-specific work broken out from fully-approved requirements.';
+        }
+        if (me.tierId === 'vp' || me.tierId === 'tl') {
+          document.getElementById('tab-codegen').style.display = '';
         }
       }
 
@@ -2363,7 +2721,7 @@
     var codeGenModels = null;  // loaded once from /api/codegen/models
 
     function openCodeGenOverviewModal(artifact) {
-      document.getElementById('modal-title').textContent = '⚡ Auto Code Generation';
+      document.getElementById('modal-title').textContent = 'Auto Code Generation';
 
       var teamReport = (artifact.teamReports || []).find(function (t) { return t.team === me.department; });
       if (!teamReport) {
@@ -2420,10 +2778,10 @@
         if (!noPreference) {
           // Fuzzy-match the free-text preference to one of our model IDs
           var prefLower = reqPref.toLowerCase();
-          if (/gemini/i.test(prefLower))                    reqMatchedModel = 'google/gemini-flash-2.0';
+          if (/gemini/i.test(prefLower))                    reqMatchedModel = 'google/gemini-2.5-flash';
           else if (/gpt.?4o.?mini|gpt.?mini/i.test(prefLower)) reqMatchedModel = 'openai/gpt-4o-mini';
           else if (/gpt.?4o|gpt4o|openai/i.test(prefLower))    reqMatchedModel = 'openai/gpt-4o';
-          else if (/claude|anthropic|sonnet|haiku/i.test(prefLower)) reqMatchedModel = 'anthropic/claude-sonnet-4-5';
+          else if (/claude|anthropic|sonnet|haiku/i.test(prefLower)) reqMatchedModel = 'anthropic/claude-sonnet-4.5';
           else if (/deepseek/i.test(prefLower))             reqMatchedModel = 'deepseek/deepseek-v3.2:nitro';
         }
 
@@ -2437,14 +2795,19 @@
             escapeHtml(f.path) + ' <span style="color:var(--text-faint);font-size:0.7rem;">— ' + escapeHtml(f.desc) + '</span></div>';
         }).join('');
 
-        var modelPills = models.map(function (m) {
-          var isSelected = m.id === codeGenSelectedModel;
-          var isReqMatch = m.id === reqMatchedModel;
-          var badge = isReqMatch
-            ? ' <span style="font-size:0.62rem;background:rgba(76,175,125,0.18);color:#4caf7d;border:1px solid rgba(76,175,125,0.35);border-radius:999px;padding:0.1rem 0.45rem;">from requirement</span>'
-            : (m.isDefault ? ' <span style="font-size:0.65rem;opacity:0.55;">default</span>' : '');
-          return '<button type="button" class="codegen-model-pill' + (isSelected ? ' selected' : '') +
-            '" data-model-id="' + escapeAttr(m.id) + '">' + escapeHtml(m.label) + badge + '</button>';
+        var modelOptions = models.map(function (m) {
+          var label = m.label;
+          if (m.id === reqMatchedModel) label += ' — matches requirement preference';
+          return '<option value="' + escapeAttr(m.id) + '"' + (m.id === codeGenSelectedModel ? ' selected' : '') + '>' +
+            escapeHtml(label) + '</option>';
+        }).join('');
+
+        // Security tools preview — the real tools that actually run, not
+        // necessarily whatever was named earlier in the requirement (that
+        // list is a recommendation to the client, not a commitment about
+        // which scanner runs against the generated code).
+        var securityToolsHtml = ['Semgrep OSS — SAST + secrets scanning', 'SonarQube Community Edition — code-quality & security analysis'].map(function (label) {
+          return '<div class="codegen-file-preview-item"><span class="fi-icon">🛡</span>' + escapeHtml(label) + '</div>';
         }).join('');
 
         // Preference note shown in Details
@@ -2465,7 +2828,12 @@
           '<div class="codegen-overview-section">' +
             '<h4>Model — plug &amp; play</h4>' +
             '<p style="margin:0 0 0.5rem;font-size:0.82rem;color:var(--text-soft);">Select the AI model that writes the code:</p>' +
-            '<div class="codegen-model-pill-row" id="model-pill-row">' + modelPills + '</div>' +
+            '<select class="codegen-model-select" id="model-select">' + modelOptions + '</select>' +
+          '</div>' +
+          '<div class="codegen-overview-section">' +
+            '<h4>Security checks</h4>' +
+            '<p style="margin:0 0 0.5rem;font-size:0.82rem;color:var(--text-soft);">Runs automatically once generation finishes — any issue found is fixed and re-checked before this shows as done:</p>' +
+            '<div class="codegen-file-preview">' + securityToolsHtml + '</div>' +
           '</div>' +
           '<div class="codegen-overview-section">' +
             '<h4>Details</h4>' +
@@ -2485,14 +2853,9 @@
 
         document.getElementById('modal-body').innerHTML = body;
 
-        // Model pill selection
-        document.getElementById('model-pill-row').addEventListener('click', function (e) {
-          var pill = e.target.closest('.codegen-model-pill');
-          if (!pill) return;
-          codeGenSelectedModel = pill.dataset.modelId;
-          document.querySelectorAll('.codegen-model-pill').forEach(function (p) {
-            p.classList.toggle('selected', p.dataset.modelId === codeGenSelectedModel);
-          });
+        // Model dropdown selection
+        document.getElementById('model-select').addEventListener('change', function (e) {
+          codeGenSelectedModel = e.target.value;
         });
 
         // Approve button — start job then open IDE
@@ -2543,14 +2906,14 @@
       ideOpenTabs = [];
     }
 
-    function openCodeGenIdePanel(artifact, codeGenId, modelLabel) {
+    function openCodeGenIdePanel(artifact, codeGenId, modelLabel, department) {
       // Reset state
       ideActiveFile = null;
       ideAllFiles = {};
       ideOpenTabs = [];
 
       var overlay = document.getElementById('ide-overlay');
-      document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (me.department || 'Code') + ' module';
+      document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module';
       document.getElementById('ide-model-badge').textContent = modelLabel;
       document.getElementById('ide-timer').textContent = '0:00';
       document.getElementById('ide-progress-fill').style.width = '0%';
@@ -2626,10 +2989,49 @@
         ideOpenTabs.forEach(function (path) {
           var tab = document.createElement('div');
           tab.className = 'ide-tab' + (path === ideActiveFile ? ' active' : '');
-          tab.textContent = path.split('/').pop() + ' · ' + extLabel(path);
-          tab.addEventListener('click', function () { selectFile(path); });
+
+          var label = document.createElement('span');
+          label.textContent = path.split('/').pop() + ' · ' + extLabel(path);
+          label.addEventListener('click', function () { selectFile(path); });
+          tab.appendChild(label);
+
+          var closeBtn = document.createElement('span');
+          closeBtn.className = 'ide-tab-close';
+          closeBtn.textContent = '×';
+          closeBtn.title = 'Close';
+          closeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            closeTab(path);
+          });
+          tab.appendChild(closeBtn);
+
           bar.appendChild(tab);
         });
+      }
+
+      // Closes just this tab — the generated file itself is untouched, this
+      // only affects which tabs are open in the viewer. Falls back to an
+      // adjacent open tab, or an empty-state placeholder if none are left.
+      function closeTab(path) {
+        var idx = ideOpenTabs.indexOf(path);
+        if (idx === -1) return;
+        ideOpenTabs.splice(idx, 1);
+
+        if (ideActiveFile !== path) {
+          renderTabs();
+          return;
+        }
+
+        var next = ideOpenTabs[idx] || ideOpenTabs[idx - 1];
+        if (next) {
+          selectFile(next);
+        } else {
+          ideActiveFile = null;
+          renderTabs();
+          renderTree(Object.values(ideAllFiles));
+          document.getElementById('ide-code-area').innerHTML =
+            '<div class="ide-placeholder"><span class="ide-placeholder-icon">📄</span><span>Select a file to view</span></div>';
+        }
       }
 
       // ── Select / display a file ──
@@ -2645,26 +3047,36 @@
         renderTree(Object.values(ideAllFiles));
 
         var codeArea = document.getElementById('ide-code-area');
-        if (!fileData.content && !fileData.done) {
+        if (!fileData.done) {
           codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Generating…</span></div>';
-        } else if (!fileData.content) {
+          return;
+        }
+
+        // A done file's content is never included in the /status poll (kept
+        // out to keep that payload small) — it has to be fetched on demand,
+        // the first time this file is actually opened. Checking needsFetch
+        // before falling back to "empty" matters: content starts out as ''
+        // (falsy) for every file, done or not, so testing content first
+        // would call every never-yet-opened file empty without ever having
+        // tried to fetch it.
+        if (fileData.needsFetch) {
+          fileData.needsFetch = false;
+          codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Loading…</span></div>';
+          fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file?path=' + encodeURIComponent(path), { credentials: 'include' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (ideAllFiles[path]) {
+                ideAllFiles[path].content = d.content;
+                if (path === ideActiveFile) displayFileContent(path, d.content);
+              }
+            });
+          return;
+        }
+
+        if (!fileData.content) {
           codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">📄</span><span>Empty file</span></div>';
         } else {
-          // Fetch full content if we don't have it yet
-          if (fileData.needsFetch) {
-            fileData.needsFetch = false;
-            fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file?path=' + encodeURIComponent(path), { credentials: 'include' })
-              .then(function (r) { return r.json(); })
-              .then(function (d) {
-                if (ideAllFiles[path]) {
-                  ideAllFiles[path].content = d.content;
-                  if (path === ideActiveFile) displayFileContent(path, d.content);
-                }
-              });
-            codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Loading…</span></div>';
-          } else {
-            displayFileContent(path, fileData.content);
-          }
+          displayFileContent(path, fileData.content);
         }
       }
 

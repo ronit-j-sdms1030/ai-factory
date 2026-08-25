@@ -736,10 +736,10 @@ async function runTeamReportChatEdit({ department, report, message }) {
 // Models available for the TL's plug-and-play model selector.
 const CODE_GEN_MODELS = {
   'deepseek/deepseek-v3.2:nitro': 'DeepSeek V3.2 (default)',
-  'anthropic/claude-sonnet-4-5': 'Claude Sonnet 4.5',
+  'anthropic/claude-sonnet-4.5': 'Claude Sonnet 4.5',
   'openai/gpt-4o': 'GPT-4o',
   'openai/gpt-4o-mini': 'GPT-4o Mini',
-  'google/gemini-flash-2.0': 'Gemini 2.0 Flash',
+  'google/gemini-2.5-flash': 'Gemini 2.5 Flash',
 };
 
 const DEFAULT_CODE_GEN_MODEL = 'deepseek/deepseek-v3.2:nitro';
@@ -853,5 +853,128 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
   return { files: generated };
 }
 
-module.exports = { runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit, runTeamReportChatEdit, runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL };
+// ─── Post-generation: code review (security is real Semgrep + SonarQube now
+// — see securityScanner.service.js — not an LLM guess) ────────────────────────
+// A read-only review pass over already-generated code — no dependency
+// installation, no code execution, so a generated codebase can never
+// actually run on this server.
+
+const CODE_REVIEW_TOOL = {
+  type: 'function',
+  function: {
+    name: 'report_code_review',
+    description: 'Report a code-quality review of a generated codebase — bugs, missing pieces, inconsistencies between files, anything that would fail at build or runtime.',
+    parameters: {
+      type: 'object',
+      properties: {
+        verdict: { type: 'string', enum: ['pass', 'needs_fixes'] },
+        summary: { type: 'string', description: 'One or two sentences on the overall code quality/completeness.' },
+        findings: {
+          type: 'array',
+          description: 'Leave empty if the code genuinely looks correct and complete — do not invent a finding to fill this out.',
+          items: {
+            type: 'object',
+            properties: {
+              file: { type: 'string', description: 'The actual file this finding is in.' },
+              issue: { type: 'string', description: 'What is wrong, concretely.' },
+              severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+            },
+            required: ['file', 'issue', 'severity'],
+          },
+        },
+      },
+      required: ['verdict', 'summary', 'findings'],
+    },
+  },
+};
+
+// Bounds how much generated code gets sent to a review call — a full
+// codebase can easily blow past a reasonable token budget. Notes when
+// files were left out rather than silently truncating without saying so.
+function buildFilesContext(files, maxChars) {
+  const parts = [];
+  let used = 0;
+  let omitted = 0;
+  for (const f of files) {
+    if (!f.content) continue;
+    const chunk = '### ' + f.path + '\n```\n' + f.content + '\n```\n\n';
+    if (used + chunk.length > maxChars) { omitted++; continue; }
+    parts.push(chunk);
+    used += chunk.length;
+  }
+  if (omitted) parts.push('(' + omitted + ' additional file(s) omitted from this review for length.)');
+  return parts.join('');
+}
+
+async function runCodeReview({ department, files }) {
+  const context = buildFilesContext(files, 40000);
+  const messages = [
+    {
+      role: 'system',
+      content:
+        `You are a senior engineer inside Stark Digital's AI Software Factory, reviewing the ${department} department's generated codebase below for bugs, missing pieces, and inconsistencies between files — the kind of thing that would fail at build or runtime. ` +
+        'Call report_code_review exactly once. Be concrete: name the real file. Do not invent a finding just to have something to report — an empty findings list is the correct, honest result when the code is actually fine.',
+    },
+    { role: 'user', content: context || 'No file content available to review.' },
+  ];
+  return callForcedTool({ model: REPORT_MODEL, messages, tool: CODE_REVIEW_TOOL, maxTokens: 2000, timeoutMs: 60000 });
+}
+
+const SECURITY_FIX_TOOL = {
+  type: 'function',
+  function: {
+    name: 'apply_security_fixes',
+    description: 'Return corrected, complete file contents that resolve the given security findings.',
+    parameters: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          description: 'One entry per file that needed a change to resolve a finding — omit any file that was already fine.',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'Must exactly match one of the file paths given.' },
+              content: { type: 'string', description: 'The COMPLETE corrected file content — the whole file, not a diff or snippet.' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      required: ['files'],
+    },
+  },
+};
+
+// Runs automatically right after a module's code finishes generating, only
+// when the security review that follows it actually found something —
+// rewrites just the flagged files to resolve the specific findings, leaving
+// everything else about them untouched. Still no code execution: this is
+// the AI editing text based on the AI's own prior read of that text.
+async function runSecurityAutoFix({ department, files, findings }) {
+  const flaggedPaths = [...new Set(findings.map((f) => f.file))];
+  const relevantFiles = files.filter((f) => flaggedPaths.includes(f.path) && f.content);
+  if (!relevantFiles.length) return [];
+
+  const context = relevantFiles.map((f) => '### ' + f.path + '\n```\n' + f.content + '\n```').join('\n\n');
+  const findingsText = findings.map((f) => `- [${f.severity}] ${f.file}: ${f.issue}`).join('\n');
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        `You are a security engineer inside Stark Digital's AI Software Factory, fixing flagged issues in the ${department} department's generated codebase. ` +
+        'Rewrite ONLY what is necessary to resolve each finding below — preserve every file\'s existing structure, style, and unrelated logic exactly as-is. ' +
+        'Call apply_security_fixes exactly once with the complete corrected content of every file that needed a change.',
+    },
+    { role: 'user', content: 'Findings to fix:\n' + findingsText + '\n\nFiles:\n' + context },
+  ];
+  const result = await callForcedTool({ model: REPORT_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 6000, timeoutMs: 60000 });
+  return result.files || [];
+}
+
+module.exports = {
+  runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit, runTeamReportChatEdit,
+  runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL, runCodeReview, runSecurityAutoFix,
+};
 
