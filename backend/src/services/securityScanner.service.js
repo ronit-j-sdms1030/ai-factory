@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile);
 const SEMGREP_BIN = path.join(__dirname, '..', '..', '.semgrep-venv', 'bin', 'semgrep');
 const SONARQUBE_URL = process.env.SONARQUBE_URL || 'http://localhost:9000';
 const SONARQUBE_TOKEN = process.env.SONARQUBE_TOKEN;
+const SONAR_COMPOSE_DIR = path.join(__dirname, '..', '..', 'security-tools');
 
 async function writeFilesToTempDir(files) {
   const dir = path.join(os.tmpdir(), 'ai-factory-scan-' + randomUUID());
@@ -85,6 +86,87 @@ function sonarComponentPath(component) {
   // project key prefix so the UI shows a plain, familiar file path.
   const idx = component.indexOf(':');
   return idx === -1 ? component : component.slice(idx + 1);
+}
+
+// Every department's scan runs this — and /run-cicd kicks all of them off
+// at once via Promise.all. Each invocation is its own Docker container
+// running a JVM plus an embedded Node.js runtime; on a modest dev machine,
+// several of those at once starve each other badly enough to blow past the
+// timeout below and fail outright (confirmed: 5 at once were all still
+// stuck deploying their embedded runtime after 2+ minutes, when one alone
+// takes ~45s end to end). Queueing keeps at most one running at a time —
+// slower in wall-clock time, but it actually finishes instead of failing.
+let sonarQueue = Promise.resolve();
+function queueSonarScan(args) {
+  if (!SONARQUBE_TOKEN) return Promise.resolve([]); // no local instance configured — don't even try to start one
+
+  const run = sonarQueue.then(async () => {
+    await ensureSonarUp();
+    try {
+      return await runSonarScan(args);
+    } finally {
+      scheduleSonarShutdown();
+    }
+  });
+  sonarQueue = run.catch(() => {});
+  return run;
+}
+
+// SonarQube's own server (not just the per-scan scanner-cli container) is
+// itself a JVM that idles at ~2GB resident — real cost on a modest dev
+// machine to carry 24/7 for something only used when someone clicks
+// "Run CI/CD". Started on demand instead, and stopped again once nothing's
+// used it for a while (SONAR_IDLE_SHUTDOWN_MS) rather than immediately
+// after every single scan — /run-cicd scans several departments back to
+// back through the queue above, and tearing it down between each one would
+// mean paying its ~30-60s cold boot that many times over in one CI/CD run.
+const SONAR_IDLE_SHUTDOWN_MS = 30000;
+let sonarUpPromise = null;
+let sonarShutdownTimer = null;
+
+async function ensureSonarUp() {
+  if (sonarShutdownTimer) {
+    clearTimeout(sonarShutdownTimer);
+    sonarShutdownTimer = null;
+  }
+  if (sonarUpPromise) return sonarUpPromise;
+
+  sonarUpPromise = (async () => {
+    await execFileAsync('docker', ['compose', 'up', '-d'], { cwd: SONAR_COMPOSE_DIR, timeout: 60000 });
+    // The container reporting "up" doesn't mean the JVM inside has
+    // finished booting — poll SonarQube's own health endpoint instead of
+    // guessing at a fixed delay.
+    for (let i = 0; i < 40; i++) {
+      try {
+        const res = await fetch(SONARQUBE_URL + '/api/system/status');
+        const data = await res.json();
+        if (data.status === 'UP') return;
+      } catch (err) {
+        // Not accepting connections yet — keep polling.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    throw new Error('SonarQube did not become ready after starting it');
+  })();
+
+  try {
+    await sonarUpPromise;
+  } catch (err) {
+    sonarUpPromise = null; // let the next call retry instead of reusing a failed attempt forever
+    throw err;
+  }
+}
+
+function scheduleSonarShutdown() {
+  if (sonarShutdownTimer) clearTimeout(sonarShutdownTimer);
+  sonarShutdownTimer = setTimeout(() => {
+    sonarShutdownTimer = null;
+    sonarUpPromise = null;
+    execFileAsync('docker', ['compose', 'stop'], { cwd: SONAR_COMPOSE_DIR, timeout: 60000 }).catch((err) => {
+      console.error('[security-scan] failed to stop sonarqube after idling:', err.message);
+    });
+  }, SONAR_IDLE_SHUTDOWN_MS);
+  if (sonarShutdownTimer.unref) sonarShutdownTimer.unref();
 }
 
 async function runSonarScan({ dir, projectKey }) {
@@ -160,7 +242,7 @@ async function runSecurityScan({ department, artifactId, files }) {
   try {
     const [semgrepFindings, sonarFindings] = await Promise.all([
       runSemgrepScan(dir).catch((err) => { console.error('[security-scan] semgrep failed:', err.message); return null; }),
-      runSonarScan({ dir, projectKey }).catch((err) => { console.error('[security-scan] sonarqube failed:', err.message); return null; }),
+      queueSonarScan({ dir, projectKey }).catch((err) => { console.error('[security-scan] sonarqube failed:', err.message); return null; }),
     ]);
 
     const toolsRun = ['Semgrep'];
@@ -177,8 +259,13 @@ async function runSecurityScan({ department, artifactId, files }) {
       : `No issues found by ${toolsRun.join(' + ')}.`;
     if (failedTools.length) summary += ` (${failedTools.join(', ')} failed to run — see server logs.)`;
 
+    // A tool that failed to run found nothing to report — that's not the
+    // same as it having verified the code is clean. Reporting "pass" here
+    // would tell a TL this is safe to approve when it was never actually
+    // checked; treat an incomplete scan the same as a failed one so it
+    // can't be mistaken for a real clean result.
     return {
-      verdict: findings.length ? 'needs_fixes' : 'pass',
+      verdict: (findings.length || failedTools.length) ? 'needs_fixes' : 'pass',
       summary,
       findings,
     };

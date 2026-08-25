@@ -207,6 +207,7 @@
   .codegen-verdict { font-size: 0.8rem; font-weight: 700; }
   .codegen-verdict.pass { color: #3fae6a; }
   .codegen-verdict.needs_fixes { color: #d0554a; }
+  .codegen-verdict.flagged { color: #c98a1f; }
   .codegen-finding { font-size: 0.78rem; color: var(--text-soft); margin-top: 0.35rem; padding-left: 0.6rem; border-left: 2px solid var(--line-strong); }
   .codegen-finding .sev { font-weight: 700; text-transform: uppercase; font-size: 0.64rem; margin-right: 0.35rem; color: var(--text-faint); }
   .codegen-stage-note { font-size: 0.8rem; color: var(--text-soft); margin: 0.5rem 0; }
@@ -1003,8 +1004,14 @@
     // renderer rather than reusing renderArtifactItem.
     function renderReviewBlock(label, review, toolLabel) {
       if (!review) return '';
-      var verdictClass = review.verdict === 'pass' ? 'pass' : 'needs_fixes';
-      var verdictLabel = review.verdict === 'pass' ? 'Pass' : 'Needs fixes';
+      // "exhausted" = auto-fix genuinely retried and plateaued (see
+      // scanAndAutoFix) — some findings (e.g. a SonarQube security hotspot)
+      // aren't something a rewrite reliably eliminates. Shown distinctly
+      // from a plain "Needs fixes" (which implies re-running might still
+      // help) rather than as a false "Pass" — the findings stay listed
+      // either way, this only changes how the verdict itself reads.
+      var verdictClass = review.verdict === 'pass' ? 'pass' : review.exhausted ? 'flagged' : 'needs_fixes';
+      var verdictLabel = review.verdict === 'pass' ? 'Pass' : review.exhausted ? 'Flagged — manual review' : 'Needs fixes';
       var findingsHtml = (review.findings && review.findings.length)
         ? review.findings.map(function (f) {
             var tag = f.tool || f.category;
@@ -1045,9 +1052,13 @@
       var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
       var hasCicd = entry.modules.some(function (m) { return m.ciAdded; });
       // Project-wide sandbox: only once every department is TL-approved AND
-      // has passed self-testing — and only meaningful if some department
-      // actually produced a frontend to show.
-      var allSelfTested = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview && m.codeReview.verdict === 'pass'; });
+      // self-testing has actually been run — its outcome doesn't have to be
+      // a clean pass (self-testing has no auto-fix loop behind it the way
+      // security review does, so requiring a literal pass here could block
+      // the demo forever on a subjective AI code-quality nitpick; a human
+      // already had to explicitly approve to get this far). Only meaningful
+      // if some department actually produced a frontend to show.
+      var allSelfTested = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview; });
       var sandboxModule = entry.modules.find(function (m) { return m.hasFrontend; });
 
       var footer = allDone
@@ -1069,8 +1080,8 @@
       var stagesHtml = entry.modules.map(function (m) {
         if (!m.security) return '';
         var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
-        var verdictClass = m.security.verdict === 'pass' ? 'pass' : 'needs_fixes';
-        var verdictLabel = m.security.verdict === 'pass' ? 'Pass' : 'Needs fixes';
+        var verdictClass = m.security.verdict === 'pass' ? 'pass' : m.security.exhausted ? 'flagged' : 'needs_fixes';
+        var verdictLabel = m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
 
         var body = renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube');
 

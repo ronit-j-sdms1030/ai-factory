@@ -138,27 +138,40 @@ async function getJobsForArtifact(artifactId) {
 
 // Shared by the automatic post-generation scan (/start) and the manual
 // CI/CD-stage re-scan (/run-cicd) — a security scan that finds something
-// always gets one auto-fix pass and a re-scan to confirm, in both places.
+// always gets an auto-fix pass and a re-scan to confirm, in both places.
 // Previously only the first scan had this; a finding introduced by the
 // CI/CD file itself (or anything else the CI/CD stage touches) sat
 // unfixed forever because /run-cicd only ever reported, never fixed.
 // A single fix-and-rescan pass isn't reliable — the same findings, sent to
 // the same fix call twice, can come back with 3 files fixed one time and 1
 // file fixed the next (real model non-determinism, not a bug in the
-// prompt). So this loops: keep fixing and re-scanning as long as the
-// finding count is actually going down, capped so a genuinely stuck case
-// doesn't burn calls forever.
-const MAX_AUTO_FIX_ROUNDS = 3;
+// prompt) — and a round can just as easily make things WORSE (fix one
+// finding, introduce or re-trigger another) as better. So this tracks the
+// best (fewest-findings) state seen across rounds and always retries from
+// that baseline rather than compounding on top of a regression, and keeps
+// trying for a couple of rounds past a stall before giving up — genuinely
+// more persistent than "stop at the first round that doesn't improve."
+const MAX_AUTO_FIX_ROUNDS = 6;
+const MAX_STALLED_ROUNDS = 2; // consecutive non-improving attempts (from the best baseline) before calling it exhausted
+
+function snapshotFileContents(files) {
+  return new Map(files.map((f) => [f.path, f.content]));
+}
+function restoreFileContents(files, snapshot) {
+  for (const f of files) {
+    if (snapshot.has(f.path)) f.content = snapshot.get(f.path);
+  }
+}
 
 async function scanAndAutoFix(job) {
   job.log.push({ ts: Date.now(), msg: 'Running security scan…' });
   await persistJob(job);
 
   let security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
-  let previousCount = Infinity;
+  let best = { security, files: snapshotFileContents(job.files) };
+  let stalledRounds = 0;
 
-  for (let round = 1; round <= MAX_AUTO_FIX_ROUNDS && security.verdict === 'needs_fixes' && security.findings.length && security.findings.length < previousCount; round++) {
-    previousCount = security.findings.length;
+  for (let round = 1; round <= MAX_AUTO_FIX_ROUNDS && security.verdict === 'needs_fixes' && security.findings.length; round++) {
     job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying fixes (round ${round})…` });
     await persistJob(job);
 
@@ -172,13 +185,47 @@ async function scanAndAutoFix(job) {
     job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-scanning…` });
     await persistJob(job);
     security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+
+    if (security.findings.length < best.security.findings.length) {
+      best = { security, files: snapshotFileContents(job.files) };
+      stalledRounds = 0;
+    } else {
+      stalledRounds++;
+      // This attempt didn't beat the best seen so far — retry the next
+      // round from that best baseline instead of building further on a
+      // regression, so a bad round can never leave the code worse off
+      // than an earlier good one.
+      restoreFileContents(job.files, best.files);
+      security = best.security;
+      if (stalledRounds >= MAX_STALLED_ROUNDS) break;
+    }
+  }
+
+  security = best.security;
+  restoreFileContents(job.files, best.files);
+
+  // Auto-fix genuinely tried and plateaued — some findings (a SonarQube
+  // security hotspot flagging any `COPY . .` in a Dockerfile, for
+  // instance) are inherently a "have a human look at this" flag, not a
+  // defect a rewrite reliably eliminates. Marking it exhausted (rather
+  // than silently leaving it as a plain "needs_fixes" that implies
+  // clicking re-run again will help) is what the UI uses to show these as
+  // flagged for manual review instead of a bare failing gate — the
+  // findings themselves stay fully visible either way; this never claims
+  // a pass that isn't real.
+  if (security.verdict === 'needs_fixes' && security.findings.length) {
+    security.exhausted = true;
   }
 
   job.security = security;
   job.reviewedAt = Date.now();
   job.log.push({
     ts: Date.now(),
-    msg: security.verdict === 'pass' ? '✓ Security scan passed.' : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
+    msg: security.verdict === 'pass'
+      ? '✓ Security scan passed.'
+      : security.exhausted
+        ? `⚠ Auto-fix plateaued after repeated attempts — ${security.findings.length} issue(s) flagged for manual review.`
+        : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
   });
   return security;
 }
