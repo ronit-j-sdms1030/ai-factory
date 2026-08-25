@@ -7,6 +7,8 @@ const connectDB = require('./db/connect');
 const { seedDemoUsers } = require('./seed');
 const authRoutes = require('./routes/auth.routes');
 const artifactRoutes = require('./routes/artifact.routes');
+const codegenRoutes = require('./routes/codegen.routes');
+
 
 const app = express();
 
@@ -25,6 +27,8 @@ app.use(
 
 app.use('/api/auth', authRoutes);
 app.use('/api/artifacts', artifactRoutes);
+app.use('/api/codegen', codegenRoutes);
+
 app.get('/', (req, res) => res.json({ ok: true, service: 'ai-software-factory backend', frontend: FRONTEND_ORIGIN }));
 
 const PORT = process.env.PORT || 4000;

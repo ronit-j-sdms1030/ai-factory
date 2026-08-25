@@ -731,4 +731,127 @@ async function runTeamReportChatEdit({ department, report, message }) {
   });
 }
 
-module.exports = { runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit, runTeamReportChatEdit };
+// ─── Code Generation ──────────────────────────────────────────────────────────
+
+// Models available for the TL's plug-and-play model selector.
+const CODE_GEN_MODELS = {
+  'deepseek/deepseek-v3.2:nitro': 'DeepSeek V3.2 (default)',
+  'anthropic/claude-sonnet-4-5': 'Claude Sonnet 4.5',
+  'openai/gpt-4o': 'GPT-4o',
+  'openai/gpt-4o-mini': 'GPT-4o Mini',
+  'google/gemini-flash-2.0': 'Gemini 2.0 Flash',
+};
+
+const DEFAULT_CODE_GEN_MODEL = 'deepseek/deepseek-v3.2:nitro';
+
+// Generates production-ready code for a team work package.
+// Returns { files: [{ path: string, content: string }] }
+// The model produces one JSON object listing every file to generate, then we
+// run individual file-generation passes so the caller can stream progress.
+async function runCodeGen({ teamReport, artifact, model, onFileProgress }) {
+  const chosenModel = CODE_GEN_MODELS[model] ? model : DEFAULT_CODE_GEN_MODEL;
+
+  // Step 1 — Ask the model to plan out the file tree
+  const planMessages = [
+    {
+      role: 'system',
+      content:
+        'You are an expert software engineer inside Stark Digital\'s AI Software Factory. ' +
+        'You are given a team work package (department-scoped requirements, tech stack, plan, data model). ' +
+        'Your task is to produce a complete, production-ready codebase for this package. ' +
+        'First, output a JSON object listing every file you will generate. ' +
+        'Format: { "files": [ { "path": "relative/path/to/file.ext", "description": "one-line purpose" }, ... ] } ' +
+        'Include ALL files: package.json, config, source files, tests, Dockerfile, README.md, etc. ' +
+        'Output ONLY valid JSON — no markdown fences, no commentary before or after.',
+    },
+    {
+      role: 'user',
+      content:
+        '## Project: ' + (artifact.title || 'Untitled') + '\n\n' +
+        '## Objective\n' + (teamReport.objective || '') + '\n\n' +
+        '## Architecture\n' + (teamReport.architecture || '') + '\n\n' +
+        '## Tech Stack\n' + JSON.stringify(teamReport.techStack || [], null, 2) + '\n\n' +
+        '## Data Model\n' + JSON.stringify(teamReport.dataModel || [], null, 2) + '\n\n' +
+        '## Implementation Plan\n' + JSON.stringify(teamReport.plan || [], null, 2) + '\n\n' +
+        '## Dependencies\n' + JSON.stringify(teamReport.dependencies || [], null, 2) + '\n\n' +
+        '## Security Design\n' + JSON.stringify(teamReport.securityDesign || [], null, 2) + '\n\n' +
+        'List every file you will generate as the JSON object described.',
+    },
+  ];
+
+  let filePlan;
+  const planResponse = await client.chat.completions.create(
+    { model: chosenModel, messages: planMessages, max_tokens: 3000 },
+    { timeout: 60000, maxRetries: 0 }
+  );
+
+  const planRaw = ((planResponse.choices[0].message && planResponse.choices[0].message.content) || '').trim();
+  // Strip markdown fences if present
+  const jsonStr = planRaw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+  try {
+    filePlan = JSON.parse(jsonStr);
+  } catch (err) {
+    // Fallback: construct a sensible default plan from tech stack
+    filePlan = {
+      files: [
+        { path: 'README.md', description: 'Project overview' },
+        { path: 'package.json', description: 'Node.js project manifest' },
+        { path: 'src/index.js', description: 'Application entry point' },
+        { path: 'src/config.js', description: 'Environment configuration' },
+      ],
+    };
+  }
+
+  const files = Array.isArray(filePlan.files) ? filePlan.files : [];
+
+  // Step 2 — Generate each file individually
+  const generated = [];
+  for (let i = 0; i < files.length; i++) {
+    const fileSpec = files[i];
+    if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'generating' });
+
+    const fileMessages = [
+      {
+        role: 'system',
+        content:
+          'You are an expert software engineer. Generate ONLY the complete, production-ready source code ' +
+          'for the file specified below. Output ONLY the raw file content — no markdown fences, ' +
+          'no explanations, no commentary. The output must be valid, runnable code exactly as it ' +
+          'would appear saved to disk.',
+      },
+      {
+        role: 'user',
+        content:
+          '## Project: ' + (artifact.title || 'Untitled') + '\n' +
+          '## Tech Stack: ' + (teamReport.techStack || []).map((t) => t.choice).join(', ') + '\n\n' +
+          '## File to generate\n' +
+          'Path: ' + fileSpec.path + '\n' +
+          'Purpose: ' + (fileSpec.description || '') + '\n\n' +
+          '## Context (data model)\n' + JSON.stringify(teamReport.dataModel || [], null, 2) + '\n\n' +
+          '## Context (architecture)\n' + (teamReport.architecture || '') + '\n\n' +
+          'Generate the complete contents of this file now:',
+      },
+    ];
+
+    let content = '';
+    try {
+      const fileResponse = await client.chat.completions.create(
+        { model: chosenModel, messages: fileMessages, max_tokens: 4000 },
+        { timeout: 90000, maxRetries: 0 }
+      );
+      content = ((fileResponse.choices[0].message && fileResponse.choices[0].message.content) || '').trim();
+      // Strip any accidental markdown fences
+      content = content.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+    } catch (err) {
+      content = '// Generation failed for this file: ' + err.message;
+    }
+
+    generated.push({ path: fileSpec.path, description: fileSpec.description || '', content });
+    if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'done' });
+  }
+
+  return { files: generated };
+}
+
+module.exports = { runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit, runTeamReportChatEdit, runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL };
+
