@@ -5,6 +5,7 @@ const CodeGenJob = require('../models/codeGenJob.model');
 const { requireAuth } = require('../middleware/auth.middleware');
 const { runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL, runCodeReview, runSecurityAutoFix } = require('../services/llm.service');
 const { runSecurityScan } = require('../services/securityScanner.service');
+const { runPipeline } = require('../services/pipelineRunner.service');
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ const router = express.Router();
 // status: 'generating' | 'done' | 'error'
 
 const codeGenJobs = new Map();
+const activeSecurityFixes = new Set();
 
 // A job stuck at 'generating' in Mongo when this module loads means the
 // process that was actually running its generation loop is gone — nothing
@@ -70,11 +72,13 @@ async function persistJob(job) {
         security: job.security,
         reviewedAt: job.reviewedAt,
         ciAdded: job.ciAdded,
+        ciExecution: job.ciExecution,
         tlApproved: job.tlApproved,
         tlApprovedAt: job.tlApprovedAt,
         tlApprovedBy: job.tlApprovedBy,
         codeReview: job.codeReview,
         codeReviewedAt: job.codeReviewedAt,
+        testExecution: job.testExecution,
       },
       { upsert: true }
     );
@@ -101,11 +105,13 @@ function docToJob(doc) {
     security: doc.security || null,
     reviewedAt: doc.reviewedAt || null,
     ciAdded: !!doc.ciAdded,
+    ciExecution: doc.ciExecution || null,
     tlApproved: !!doc.tlApproved,
     tlApprovedAt: doc.tlApprovedAt || null,
     tlApprovedBy: doc.tlApprovedBy || null,
     codeReview: doc.codeReview || null,
     codeReviewedAt: doc.codeReviewedAt || null,
+    testExecution: doc.testExecution || null,
   };
 }
 
@@ -163,7 +169,50 @@ function restoreFileContents(files, snapshot) {
   }
 }
 
+// Deterministic remediation for recurring, mechanically provable findings.
+// These do not benefit from an LLM retry: imports have one canonical form,
+// and a generated Dockerfile can use an explicit allow-list instead of a
+// recursive build-context copy.
+function applyDeterministicSecurityFixes(job) {
+  let changed = 0;
+  for (const file of job.files) {
+    if (!file.content) continue;
+    if (/\.m?js$/i.test(file.path)) {
+      const fixed = file.content
+        .replace(/require\((['"])fs\1\)/g, "require('node:fs')")
+        .replace(/require\((['"])path\1\)/g, "require('node:path')");
+      if (fixed !== file.content) { file.content = fixed; changed++; }
+    }
+  }
+
+  const dockerfile = job.files.find((file) => file.path === 'Dockerfile');
+  const packageFile = job.files.find((file) => file.path === 'package.json');
+  if (dockerfile && packageFile) {
+    const copyable = job.files
+      .filter((file) => file.path !== 'Dockerfile' && file.path !== '.env.example' && file.path !== '.dockerignore' && file.content)
+      .map((file) => file.path.replace(/\\/g, '/'));
+    const lines = [
+      'FROM node:20-alpine',
+      'RUN mkdir -p /app && chown node:node /app',
+      'USER node',
+      'WORKDIR /app',
+      ...copyable.map((filePath) => `COPY --chown=node:node ["${filePath}", "./${filePath}"]`),
+      'RUN npm install --ignore-scripts --no-audit --no-fund',
+      'CMD ["npm", "test"]',
+      '',
+    ];
+    const fixed = lines.join('\n');
+    if (fixed !== dockerfile.content) { dockerfile.content = fixed; changed++; }
+  }
+  return changed;
+}
+
 async function scanAndAutoFix(job) {
+  const deterministicChanges = applyDeterministicSecurityFixes(job);
+  if (deterministicChanges) {
+    job.log.push({ ts: Date.now(), msg: `Applied deterministic security hardening to ${deterministicChanges} file(s).` });
+    await persistJob(job);
+  }
   job.log.push({ ts: Date.now(), msg: 'Running security scan…' });
   await persistJob(job);
 
@@ -182,6 +231,10 @@ async function scanAndAutoFix(job) {
       const existing = job.files.find((f) => f.path === fixed.path);
       if (existing) existing.content = fixed.content;
     }
+    // AI rewrites can reintroduce mechanically identifiable issues. Reapply
+    // the deterministic rules before every rescan so the verified baseline
+    // cannot regress between repair rounds.
+    applyDeterministicSecurityFixes(job);
     job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-scanning…` });
     await persistJob(job);
     security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
@@ -227,6 +280,17 @@ async function scanAndAutoFix(job) {
         ? `⚠ Auto-fix plateaued after repeated attempts — ${security.findings.length} issue(s) flagged for manual review.`
         : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
   });
+  return security;
+}
+
+async function scanOnly(job) {
+  job.log.push({ ts: Date.now(), msg: 'Running first security scan with Semgrep + SonarQube…' });
+  await persistJob(job);
+  const security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+  job.security = security;
+  job.reviewedAt = Date.now();
+  job.log.push({ ts: Date.now(), msg: security.verdict === 'pass' ? '✓ Security scan passed.' : `⚠ Security scan found ${security.findings.length} issue(s). TL action required.` });
+  await persistJob(job);
   return security;
 }
 
@@ -296,11 +360,13 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
     security: null,
     reviewedAt: null,
     ciAdded: false,
+    ciExecution: null,
     tlApproved: false,
     tlApprovedAt: null,
     tlApprovedBy: null,
     codeReview: null,
     codeReviewedAt: null,
+    testExecution: null,
   };
   codeGenJobs.set(codeGenId, job);
   await persistJob(job);
@@ -359,7 +425,7 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
         // what the manual "Run CI/CD" project-wide step is for). Finds +
         // fixes + re-scans via the shared helper (also used by /run-cicd).
         try {
-          await scanAndAutoFix(job);
+          await scanOnly(job);
         } catch (err) {
           job.log.push({ ts: Date.now(), msg: `Security scan failed: ${err.message}` });
         }
@@ -393,11 +459,14 @@ router.get('/:codeGenId/status', requireAuth, async (req, res) => {
     security: job.security || null,
     reviewedAt: job.reviewedAt || null,
     ciAdded: !!job.ciAdded,
+    ciExecution: job.ciExecution || null,
     tlApproved: !!job.tlApproved,
     tlApprovedAt: job.tlApprovedAt || null,
     tlApprovedBy: job.tlApprovedBy || null,
     codeReview: job.codeReview || null,
     codeReviewedAt: job.codeReviewedAt || null,
+    testExecution: job.testExecution || null,
+    securityFixRunning: activeSecurityFixes.has(job.codeGenId),
   });
 });
 
@@ -412,6 +481,26 @@ router.get('/:codeGenId/file', requireAuth, async (req, res) => {
   if (!file) return res.status(404).json({ error: 'File not found in this job' });
 
   res.json({ path: file.path, content: file.content, done: file.done });
+});
+
+// Manual IDE editing is restricted to the module's owning TL.
+router.put('/:codeGenId/file', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  const job = await getJob(req.params.codeGenId);
+  if (!job) return res.status(404).json({ error: 'Code gen job not found' });
+  if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
+    return res.status(403).json({ error: 'Only this department’s Team Lead can edit these files' });
+  }
+  const file = job.files.find((item) => item.path === req.body?.path);
+  if (!file) return res.status(404).json({ error: 'File not found in this job' });
+  if (typeof req.body?.content !== 'string') return res.status(400).json({ error: 'content must be a string' });
+  file.content = req.body.content;
+  job.security = null;
+  job.ciExecution = null;
+  job.tlApproved = false;
+  job.log.push({ ts: Date.now(), msg: `Manual IDE edit saved: ${file.path}. Security re-scan required.` });
+  await persistJob(job);
+  res.json({ path: file.path, saved: true });
 });
 
 // ─── GET /api/codegen/:codeGenId/download ─────────────────────────────────────
@@ -552,16 +641,80 @@ router.post('/:artifactId/run-cicd', requireAuth, async (req, res) => {
     job.ciAdded = true;
 
     try {
-      const security = await scanAndAutoFix(job);
+      const security = await scanOnly(job);
+      job.log.push({ ts: Date.now(), msg: 'Executing CI build and validation checks…' });
+      job.ciExecution = await runPipeline({ files: job.files, phase: 'ci' });
+      job.log.push({ ts: Date.now(), msg: job.ciExecution.verdict === 'pass' ? '✓ CI execution passed.' : '⚠ CI execution failed — inspect the recorded command output.' });
       codeGenJobs.set(job.codeGenId, job);
       await persistJob(job);
-      return { department, ciAdded, security };
+      return { department, ciAdded, security, ciExecution: job.ciExecution };
     } catch (err) {
       return { department, ciAdded, error: err.message };
     }
   }));
 
   res.json({ results });
+});
+
+// Module-level retry used by the department row's "Re-run CI/CD" action.
+// This avoids making one TL wait for every unrelated department scan.
+router.post('/:codeGenId/rerun-cicd', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  const job = await getJob(req.params.codeGenId);
+  if (!job) return res.status(404).json({ error: 'Code gen job not found' });
+  if (actor.isClient || (actor.tierId === 'tl' && actor.department !== job.department)) {
+    return res.status(403).json({ error: 'Only this department’s Team Lead or an authorized reviewer can rerun this module' });
+  }
+  if (job.status !== 'done') return res.status(400).json({ error: 'Code generation must finish before CI/CD can run' });
+
+  const ciPath = '.github/workflows/ci.yml';
+  if (!job.files.find((file) => file.path === ciPath)) {
+    job.files.push({ path: ciPath, description: 'CI/CD pipeline', content: buildCiWorkflow(job.department, detectStackKind(job.files)), done: true });
+  }
+  job.ciAdded = true;
+  job.log.push({ ts: Date.now(), msg: 'Re-running CI/CD for this module…' });
+  await persistJob(job);
+
+  try {
+    const security = await scanOnly(job);
+    job.log.push({ ts: Date.now(), msg: 'Executing CI build and validation checks…' });
+    job.ciExecution = await runPipeline({ files: job.files, phase: 'ci' });
+    job.log.push({ ts: Date.now(), msg: job.ciExecution.verdict === 'pass' ? '✓ CI execution passed.' : '⚠ CI execution failed — inspect the recorded command output.' });
+    codeGenJobs.set(job.codeGenId, job);
+    await persistJob(job);
+    res.json({ department: job.department, security, ciExecution: job.ciExecution });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// Explicit TL-controlled AI repair. The initial scan never modifies code;
+// this endpoint is only called after the TL chooses "Fix with AI".
+router.post('/:codeGenId/fix-security-ai', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  const job = await getJob(req.params.codeGenId);
+  if (!job) return res.status(404).json({ error: 'Code gen job not found' });
+  if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
+    return res.status(403).json({ error: 'Only this department’s Team Lead can apply AI fixes' });
+  }
+  if (!job.security || job.security.verdict === 'pass') {
+    return res.status(400).json({ error: 'Run a scan with findings before requesting an AI fix' });
+  }
+  if (activeSecurityFixes.has(job.codeGenId)) {
+    return res.status(409).json({ error: 'An AI security fix is already running for this module' });
+  }
+  activeSecurityFixes.add(job.codeGenId);
+  try {
+    job.log.push({ ts: Date.now(), msg: 'TL requested AI-assisted security fixes…' });
+    const security = await scanAndAutoFix(job);
+    job.ciExecution = await runPipeline({ files: job.files, phase: 'ci' });
+    await persistJob(job);
+    res.json({ security, ciExecution: job.ciExecution });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  } finally {
+    activeSecurityFixes.delete(job.codeGenId);
+  }
 });
 
 // ─── POST /api/codegen/:codeGenId/approve ─────────────────────────────────────
@@ -581,6 +734,12 @@ router.post('/:codeGenId/approve', requireAuth, async (req, res) => {
   }
   if (!job.security) {
     return res.status(400).json({ error: 'The CI/CD security scan is still running for this module — wait for it to finish before approving' });
+  }
+  if (job.security.verdict !== 'pass') {
+    return res.status(400).json({ error: 'Security scanning must pass before this module can be approved' });
+  }
+  if (!job.ciExecution || job.ciExecution.verdict !== 'pass') {
+    return res.status(400).json({ error: 'The executable CI checks must pass before this module can be approved' });
   }
 
   job.tlApproved = true;
@@ -608,6 +767,12 @@ router.post('/:codeGenId/self-test', requireAuth, async (req, res) => {
   }
 
   try {
+    job.testExecution = await runPipeline({ files: job.files, phase: 'test' });
+    if (job.testExecution.verdict !== 'pass') {
+      job.log.push({ ts: Date.now(), msg: '⚠ Real test execution failed.' });
+      await persistJob(job);
+      return res.status(422).json({ error: 'Real project tests failed', testExecution: job.testExecution });
+    }
     const codeReview = await runCodeReview({ department: job.department, files: job.files });
     job.codeReview = codeReview;
     job.codeReviewedAt = Date.now();
@@ -617,7 +782,7 @@ router.post('/:codeGenId/self-test', requireAuth, async (req, res) => {
     });
     codeGenJobs.set(job.codeGenId, job);
     await persistJob(job);
-    res.json({ codeReview });
+    res.json({ testExecution: job.testExecution, codeReview });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
@@ -684,9 +849,7 @@ function buildStaticPreview(entryFile, files) {
 router.get('/:codeGenId/preview', requireAuth, async (req, res) => {
   const job = await getJob(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
-  if (!job.codeReview) {
-    return res.status(400).json({ error: 'Run self AI testing for this module before opening the UAT sandbox' });
-  }
+  if (job.status !== 'done') return res.status(400).json({ error: 'Code generation must finish before opening the demo sandbox' });
 
   const entry = findFrontendEntry(job.files);
   if (!entry) return res.status(400).json({ error: 'No frontend (.html) file found in this module' });
@@ -699,6 +862,23 @@ router.get('/:codeGenId/preview', requireAuth, async (req, res) => {
   }
 
   res.json({ html, entryPath: entry.path });
+});
+
+// A directly runnable, authenticated UAT deployment of the generated HTML
+// artifact. It remains strongly sandboxed and cannot call the factory API,
+// read cookies, submit forms, or navigate its opener.
+router.get('/:codeGenId/uat', requireAuth, async (req, res) => {
+  const job = await getJob(req.params.codeGenId);
+  if (!job) return res.status(404).send('Code gen job not found');
+  if (job.status !== 'done') return res.status(400).send('Code generation must finish before opening the demo sandbox');
+  const entry = findFrontendEntry(job.files);
+  if (!entry) return res.status(400).send('No generated HTML entry point is available');
+  const { html, unsupportedScript } = buildStaticPreview(entry, job.files);
+  if (unsupportedScript) return res.status(400).send(`A build is required for ${unsupportedScript}; no deployable browser artifact was generated.`);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'unsafe-inline' https:; img-src data: https:; font-src https:; connect-src 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(html);
 });
 
 // ─── GET /api/codegen/by-artifact/:artifactId ─────────────────────────────────
@@ -740,11 +920,14 @@ router.get('/by-artifact/:artifactId', requireAuth, async (req, res) => {
       security: job.security || null,
       reviewedAt: job.reviewedAt || null,
       ciAdded: !!job.ciAdded,
+      ciExecution: job.ciExecution || null,
       tlApproved: !!job.tlApproved,
       tlApprovedAt: job.tlApprovedAt || null,
       tlApprovedBy: job.tlApprovedBy || null,
       codeReview: job.codeReview || null,
       codeReviewedAt: job.codeReviewedAt || null,
+      testExecution: job.testExecution || null,
+      securityFixRunning: activeSecurityFixes.has(job.codeGenId),
       hasFrontend: job.status === 'done' && !!findFrontendEntry(job.files),
     };
   });

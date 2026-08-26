@@ -40,6 +40,7 @@ const codeGenJobSchema = new Schema({
   // CI/CD stage — file added + a final security pass over it too (a CI
   // workflow file can itself have findings, e.g. an unpinned Action ref).
   ciAdded: Boolean,
+  ciExecution: Schema.Types.Mixed,
   // Gate: the owning TL signs off on the security + CI/CD result before
   // self-testing is allowed to run.
   tlApproved: Boolean,
@@ -49,6 +50,7 @@ const codeGenJobSchema = new Schema({
   // behind the TL-approval gate as its own explicit stage.
   codeReview: Schema.Types.Mixed,
   codeReviewedAt: Number,
+  testExecution: Schema.Types.Mixed,
 });
 
 module.exports = mongoose.model('CodeGenJob', codeGenJobSchema);
