@@ -497,6 +497,8 @@
       <span class="ide-topbar-title" id="ide-title">Code Generation</span>
       <span class="ide-model-badge" id="ide-model-badge">—</span>
       <span class="ide-timer" id="ide-timer">0:00</span>
+      <button class="btn secondary" id="ide-save-btn" type="button" style="display:none;">Save file</button>
+      <button class="btn secondary" id="ide-demo-btn" type="button">▶ UI Demo</button>
       <button class="btn secondary" id="ide-download-btn" type="button" disabled>⬇ Download All</button>
       <button class="btn secondary" id="ide-close-btn" type="button">✕ Close</button>
     </div>
@@ -1028,6 +1030,18 @@
         '</div>';
     }
 
+    function renderExecutionBlock(label, execution) {
+      if (!execution) return '';
+      var passed = execution.verdict === 'pass';
+      var checks = (execution.checks || []).map(function (check) {
+        var output = check.stderr || check.stdout || 'Completed without output.';
+        return '<details class="codegen-finding"><summary>' + (check.passed ? '✓ ' : '✕ ') + escapeHtml(check.command) + '</summary>' +
+          '<pre style="white-space:pre-wrap;max-height:180px;overflow:auto;">' + escapeHtml(output) + '</pre></details>';
+      }).join('');
+      return '<div class="codegen-review-block"><h5>' + escapeHtml(label) + ' — real command execution</h5>' +
+        '<div class="codegen-verdict ' + (passed ? 'pass' : 'needs_fixes') + '">' + (passed ? 'Pass' : 'Failed') + '</div>' + checks + '</div>';
+    }
+
     function renderCodegenStatusItem(entry) {
       var artifact = entry.artifact;
       var originatorLabel = artifact.originator.tierId ? TIER_LABELS[artifact.originator.tierId] : 'Client';
@@ -1081,21 +1095,35 @@
         if (!m.security) return '';
         var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
         var verdictClass = m.security.verdict === 'pass' ? 'pass' : m.security.exhausted ? 'flagged' : 'needs_fixes';
-        var verdictLabel = m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
+        var verdictLabel = m.securityFixRunning ? 'Fixing…' : m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
 
-        var body = renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube');
+        var body = m.securityFixRunning
+          ? '<div class="codegen-stage-note">AI repair is running. Semgrep, SonarQube, and CI will replace the previous result when complete; the old Docker error below is intentionally hidden.</div>'
+          : renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube') + renderExecutionBlock('CI build and validation', m.ciExecution);
+        if (isOwnDept && !m.securityFixRunning && (m.security.verdict !== 'pass' || !m.ciExecution || m.ciExecution.verdict !== 'pass')) {
+          body += '<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:0.6rem;">' +
+            '<button class="btn" type="button" data-fix-ai data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Fix with AI</button>' +
+            '<button class="btn secondary" type="button" data-manual-edit data-codegen-id="' + escapeAttr(m.codeGenId) + '" data-model-label="' + escapeAttr(m.modelLabel || '') + '" data-department="' + escapeAttr(m.department) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Fix manually in IDE</button>' +
+            '<button class="btn secondary" type="button" data-rerun-module data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Re-run scan &amp; CI</button>' +
+            (m.hasFrontend ? '<button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">▶ UI Demo</button>' : '') +
+            '</div>' +
+            '<span class="error-banner" data-rerun-error="' + escapeAttr(m.codeGenId) + '"></span>';
+        }
 
         if (m.tlApproved) {
           body += '<p class="codegen-stage-note">✓ Approved by ' + escapeHtml(m.tlApprovedBy || 'TL') + ' · ' + new Date(m.tlApprovedAt).toLocaleString() + '</p>';
-        } else if (isOwnDept) {
+        } else if (isOwnDept && m.security.verdict === 'pass' && m.ciExecution && m.ciExecution.verdict === 'pass') {
           body += '<button class="btn secondary" type="button" data-approve data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Approve for self-testing</button>' +
             '<span class="error-banner" data-approve-error="' + escapeAttr(m.codeGenId) + '"></span>';
+        } else if (isOwnDept) {
+          body += '<p class="codegen-stage-note">Fix the findings and obtain passing security + CI results before approval.</p>';
         } else {
           body += '<p class="codegen-stage-note">Awaiting ' + escapeHtml(m.department) + ' TL approval before self-testing.</p>';
         }
 
         if (m.tlApproved) {
           if (m.codeReview) {
+            body += renderExecutionBlock('Project test suite', m.testExecution);
             body += renderReviewBlock('Self AI testing', m.codeReview, 'GPT-4o mini');
           } else if (isOwnDept) {
             body += '<button class="btn secondary" type="button" data-self-test data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Begin self AI testing</button>' +
@@ -1173,10 +1201,51 @@
               loadArtifacts();
             })
             .catch(function (err) {
+              loadArtifacts();
               btn.disabled = false;
               btn.textContent = 'Approve for self-testing';
               if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
             });
+        });
+      });
+
+      el.querySelectorAll('[data-rerun-module]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'Running…';
+          var errEl = el.querySelector('[data-rerun-error="' + btn.dataset.codegenId + '"]');
+          fetch(window.API_BASE + '/api/codegen/' + btn.dataset.codegenId + '/rerun-cicd', {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}'
+          })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not rerun this module');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = 'Re-run this module';
+              errEl.textContent = err.message;
+              errEl.classList.add('visible');
+            });
+        });
+      });
+
+      el.querySelectorAll('[data-manual-edit]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          openCodeGenIdePanel(artifact, btn.dataset.codegenId, btn.dataset.modelLabel, btn.dataset.department);
+        });
+      });
+
+      el.querySelectorAll('[data-fix-ai]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'AI fixing & re-scanning…';
+          fetch(window.API_BASE + '/api/codegen/' + btn.dataset.codegenId + '/fix-security-ai', {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}'
+          }).then(function (r) { return r.json().then(function (b) { return { ok:r.ok, body:b }; }); })
+            .then(function (result) { if (!result.ok) throw new Error(result.body.error || 'AI fix failed'); loadArtifacts(); })
+            .catch(function (err) { btn.disabled = false; btn.textContent = 'Fix with AI'; alert(err.message); });
         });
       });
 
@@ -1218,32 +1287,7 @@
     // handler — calling it only after the fetch resolves gets treated as
     // a popup and blocked by most browsers.
     function openUatSandboxWindow(codeGenId) {
-      var win = window.open('', '_blank');
-      if (win) {
-        win.document.write('<!doctype html><title>UAT Sandbox</title><body style="font-family:sans-serif;padding:2rem;color:#666;">Loading preview…</body>');
-      }
-
-      fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/preview', { credentials: 'include' })
-        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
-        .then(function (result) {
-          if (!win) return; // popup was blocked — nothing more we can do
-          if (!result.ok) throw new Error(result.body.error || 'Could not load preview');
-
-          win.document.open();
-          win.document.write(
-            '<!doctype html><html><head><title>UAT Sandbox — ' + escapeHtml(result.body.entryPath) + '</title>' +
-            '<style>html,body{margin:0;height:100%;} iframe{width:100%;height:100%;border:none;display:block;}</style>' +
-            '</head><body></body></html>'
-          );
-          win.document.close();
-          var iframe = win.document.createElement('iframe');
-          iframe.setAttribute('sandbox', 'allow-scripts');
-          iframe.srcdoc = result.body.html;
-          win.document.body.appendChild(iframe);
-        })
-        .catch(function (err) {
-          if (win) win.document.body.innerHTML = '<p style="font-family:sans-serif;padding:2rem;color:#c0392b;">' + escapeHtml(err.message) + '</p>';
-        });
+      window.open(window.API_BASE + '/api/codegen/' + codeGenId + '/uat', '_blank', 'noopener');
     }
 
     function renderCodegenStatusList() {
@@ -2942,6 +2986,8 @@
     var ideActiveFile = null;
     var ideAllFiles = {};   // path → { content, done }
     var ideOpenTabs = [];   // ordered list of open tab paths
+    var ideCanEdit = false;
+    var ideCurrentCodeGenId = null;
 
     function closeIdePanel() {
       if (idePollingInterval) { clearInterval(idePollingInterval); idePollingInterval = null; }
@@ -2957,6 +3003,10 @@
       ideActiveFile = null;
       ideAllFiles = {};
       ideOpenTabs = [];
+      ideCurrentCodeGenId = codeGenId;
+      ideCanEdit = !me.isClient && me.tierId === 'tl' && me.department === (department || me.department);
+      document.getElementById('ide-save-btn').style.display = ideCanEdit ? '' : 'none';
+      document.getElementById('ide-save-btn').disabled = true;
 
       var overlay = document.getElementById('ide-overlay');
       document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module';
@@ -3128,6 +3178,11 @@
 
       function displayFileContent(path, content) {
         var codeArea = document.getElementById('ide-code-area');
+        if (ideCanEdit) {
+          codeArea.innerHTML = '<textarea id="ide-edit-textarea" spellcheck="false" style="width:100%;height:100%;min-height:420px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:0.82rem/1.55 var(--font-mono);">' + escapeHtml(content || '') + '</textarea>';
+          document.getElementById('ide-save-btn').disabled = false;
+          return;
+        }
         var highlighted = highlightCode(content || '', path);
         codeArea.innerHTML = '<pre>' + highlighted + '</pre>';
       }
@@ -3209,6 +3264,27 @@
       // ── Download All ──
       document.getElementById('ide-download-btn').onclick = function () {
         window.location.href = window.API_BASE + '/api/codegen/' + codeGenId + '/download';
+      };
+      document.getElementById('ide-demo-btn').onclick = function () {
+        openUatSandboxWindow(codeGenId);
+      };
+      document.getElementById('ide-save-btn').onclick = function () {
+        var editor = document.getElementById('ide-edit-textarea');
+        if (!editor || !ideActiveFile) return;
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file', {
+          method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: ideActiveFile, content: editor.value })
+        }).then(function (r) { return r.json().then(function (b) { return { ok:r.ok, body:b }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not save file');
+            ideAllFiles[ideActiveFile].content = editor.value;
+            btn.textContent = 'Saved';
+            logLine('✓ Saved ' + ideActiveFile + '. Re-run security before approval.', 'done');
+            setTimeout(function () { btn.textContent = 'Save file'; btn.disabled = false; }, 1200);
+          }).catch(function (err) { btn.textContent = 'Save file'; btn.disabled = false; logLine('Save error: ' + err.message, 'error'); });
       };
     }
 

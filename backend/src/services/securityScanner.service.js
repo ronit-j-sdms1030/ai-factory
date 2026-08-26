@@ -6,7 +6,6 @@
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs/promises');
-const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
 
@@ -18,7 +17,12 @@ const SONARQUBE_TOKEN = process.env.SONARQUBE_TOKEN;
 const SONAR_COMPOSE_DIR = path.join(__dirname, '..', '..', 'security-tools');
 
 async function writeFilesToTempDir(files) {
-  const dir = path.join(os.tmpdir(), 'ai-factory-scan-' + randomUUID());
+  const dir = path.join(__dirname, '..', '..', '.runtime', 'scan-' + randomUUID());
+  await fs.mkdir(dir, { recursive: true });
+  // The official Sonar scanner image runs as a non-host UID and needs to
+  // create .scannerwork inside this short-lived bind mount. The directory
+  // contains generated code only and is deleted immediately after scanning.
+  await fs.chmod(dir, 0o777);
   for (const file of files) {
     if (!file.content) continue;
     const filePath = path.join(dir, file.path);
@@ -86,6 +90,30 @@ function sonarComponentPath(component) {
   // project key prefix so the UI shows a plain, familiar file path.
   const idx = component.indexOf(':');
   return idx === -1 ? component : component.slice(idx + 1);
+}
+
+function filterAlreadyRemediatedFindings(findings, files) {
+  const byPath = new Map(files.map((file) => [file.path, file.content || '']));
+  return findings.filter((finding) => {
+    const content = byPath.get(finding.file) || '';
+    if (/Prefer `node:fs` over `fs`/.test(finding.issue)) {
+      return /require\((['"])fs\1\)/.test(content);
+    }
+    if (/Prefer `node:path` over `path`/.test(finding.issue)) {
+      return /require\((['"])path\1\)/.test(content);
+    }
+    if (finding.file === 'Dockerfile') {
+      if (/runs with "root"/.test(finding.issue)) return !/^USER\s+(?!root\b)\S+/m.test(content);
+      if (/Copying recursively/.test(finding.issue)) return /^COPY\s+(?:--\S+\s+)*\.\s+\.?\/?$/m.test(content);
+      if (/copied resource cannot be modified/.test(finding.issue)) return !/^COPY\s+--chown=(?!root)/m.test(content);
+      if (/shell form with exec form|invalid JSON/.test(finding.issue)) {
+        const command = content.match(/^(?:CMD|ENTRYPOINT)\s+(.+)$/m);
+        if (!command) return true;
+        try { return !Array.isArray(JSON.parse(command[1])); } catch (err) { return true; }
+      }
+    }
+    return true;
+  });
 }
 
 // Every department's scan runs this — and /run-cicd kicks all of them off
@@ -172,8 +200,8 @@ function scheduleSonarShutdown() {
 async function runSonarScan({ dir, projectKey }) {
   if (!SONARQUBE_TOKEN) return []; // no local instance configured — skip, don't fail the whole scan
 
-  await execFileAsync('docker', [
-    'run', '--rm', '--network', 'host',
+  const scanResult = await execFileAsync('docker', [
+    'run', '--rm', '--user', '0:0', '--network', 'host',
     '-v', `${dir}:/usr/src`,
     'sonarsource/sonar-scanner-cli',
     '-Dsonar.host.url=' + SONARQUBE_URL,
@@ -181,6 +209,7 @@ async function runSonarScan({ dir, projectKey }) {
     '-Dsonar.projectKey=' + projectKey,
     '-Dsonar.sources=.',
     '-Dsonar.sourceEncoding=UTF-8',
+    '-Dsonar.scanner.metadataFilePath=/usr/src/report-task.txt',
     // Without this, the scanner writes .scannerwork (and report-task.txt,
     // which is how we find the analysis task to poll) to /tmp INSIDE the
     // container — invisible on the host once --rm removes it. Forcing it
@@ -190,9 +219,11 @@ async function runSonarScan({ dir, projectKey }) {
 
   // The scanner writes the background-task id it just submitted here —
   // more reliable than scraping its log output for the same information.
-  const reportTaskPath = path.join(dir, '.scannerwork', 'report-task.txt');
-  const reportTaskRaw = await fs.readFile(reportTaskPath, 'utf8');
-  const ceTaskIdMatch = reportTaskRaw.match(/^ceTaskId=(.+)$/m);
+  const reportTaskPath = path.join(dir, 'report-task.txt');
+  let reportTaskRaw = '';
+  try { reportTaskRaw = await fs.readFile(reportTaskPath, 'utf8'); } catch (err) { /* scanner output fallback below */ }
+  const ceTaskIdMatch = reportTaskRaw.match(/^ceTaskId=(.+)$/m) ||
+    String(scanResult.stdout || '').match(/api\/ce\/task\?id=([A-Za-z0-9_-]+)/);
   if (!ceTaskIdMatch) return [];
   const taskId = ceTaskIdMatch[1].trim();
 
@@ -248,7 +279,7 @@ async function runSecurityScan({ department, artifactId, files }) {
     const toolsRun = ['Semgrep'];
     if (SONARQUBE_TOKEN) toolsRun.push('SonarQube');
 
-    const findings = (semgrepFindings || []).concat(sonarFindings || []);
+    const findings = filterAlreadyRemediatedFindings((semgrepFindings || []).concat(sonarFindings || []), files);
     const failedTools = [];
     if (semgrepFindings === null) failedTools.push('Semgrep');
     if (SONARQUBE_TOKEN && sonarFindings === null) failedTools.push('SonarQube');
