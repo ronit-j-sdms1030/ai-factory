@@ -324,23 +324,114 @@
     color: #6b6c72; flex-shrink: 0;
   }
   .ide-tab-close:hover { background: rgba(255,255,255,0.12); color: #d4d4d8; }
-  .ide-code-area { flex: 1; overflow: auto; padding: 1rem 1.2rem; }
-  .ide-code-area pre {
-    margin: 0; font-size: 0.8rem; line-height: 1.65; white-space: pre; tab-size: 2;
+  .ide-code-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .ide-editor-container {
+    display: flex; flex: 1; min-height: 0; overflow: hidden; background: #0b0c0e; position: relative;
+  }
+  .ide-gutter {
+    width: 52px; flex-shrink: 0; background: #111214; border-right: 1px solid rgba(255,255,255,0.07);
+    user-select: none; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65;
+    color: #4a4a52; text-align: right; padding: 0.8rem 0.4rem 0.8rem 0.2rem; overflow: hidden;
+  }
+  .ide-gutter-line { display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; height: 1.65em; }
+  .ide-gutter-marker { font-size: 0.55rem; line-height: 1; cursor: pointer; }
+  .ide-gutter-marker.high { color: #e2685a; }
+  .ide-gutter-marker.med { color: #f2761f; }
+
+  .ide-code-scroll {
+    flex: 1; overflow: auto; position: relative; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65;
+    padding: 0.8rem 1rem;
+  }
+  .ide-code-scroll pre {
+    margin: 0; font-size: 0.78rem; line-height: 1.65; white-space: pre; tab-size: 2;
     color: #cdd6f4; font-family: var(--font-mono);
   }
+  .ide-line-row {
+    display: block; min-height: 1.65em; white-space: pre; border-left: 3px solid transparent;
+    padding-left: 0.4rem; transition: background 150ms ease;
+  }
+  .ide-line-row.has-error-high { background: rgba(226,104,90,0.18); border-left-color: #e2685a; }
+  .ide-line-row.has-error-med { background: rgba(242,118,31,0.18); border-left-color: #f2761f; }
+  .ide-line-row.flash-highlight { animation: line-flash 1.5s ease; }
+  @keyframes line-flash { 0% { background: rgba(242,118,31,0.5); } 100% { background: transparent; } }
+
+  .ide-textarea-editor {
+    width: 100%; height: 100%; min-height: 100%; background: transparent; color: #cdd6f4;
+    border: none; outline: none; resize: none; padding: 0.8rem 1rem;
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65;
+    tab-size: 2; white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  }
+
   .ide-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 0.6rem; color: #4a4a52; font-size: 0.84rem; }
   .ide-placeholder .ide-placeholder-icon { font-size: 2rem; }
 
+  /* Issues drawer */
+  .ide-issues-drawer {
+    flex-shrink: 0; max-height: 140px; background: #131418; border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .ide-issues-drawer.collapsed { max-height: 30px; }
+  .ide-issues-head {
+    display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0.8rem;
+    background: #18191f; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.74rem; font-weight: 600;
+    color: #c0c0c4; cursor: pointer; user-select: none;
+  }
+  .ide-issues-list { overflow-y: auto; padding: 0.4rem 0.8rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .ide-issue-card {
+    display: flex; align-items: flex-start; gap: 0.55rem; padding: 0.35rem 0.55rem;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 5px;
+    font-size: 0.73rem; cursor: pointer; transition: background 120ms ease, border-color 120ms ease;
+  }
+  .ide-issue-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); }
+  .ide-issue-card.sev-high { border-left: 3px solid #e2685a; }
+  .ide-issue-card.sev-med { border-left: 3px solid #f2761f; }
+  .ide-issue-tool-tag {
+    font-size: 0.64rem; padding: 0.1rem 0.35rem; border-radius: 3px; background: rgba(255,255,255,0.08);
+    color: #e0e0e4; font-weight: 600; flex-shrink: 0;
+  }
+  .ide-issue-line-tag {
+    font-size: 0.66rem; font-family: var(--font-mono); color: var(--accent); flex-shrink: 0; font-weight: 700;
+  }
+
   /* Log panel at bottom */
   .ide-log {
-    flex-shrink: 0; height: 110px; overflow-y: auto;
+    flex-shrink: 0; height: 100px; overflow-y: auto;
     background: #0b0c0e; border-top: 1px solid rgba(255,255,255,0.07);
-    padding: 0.5rem 1rem;
+    padding: 0.45rem 0.9rem;
   }
   .ide-log-line { font-size: 0.7rem; color: #6b6c72; line-height: 1.5; white-space: pre-wrap; }
   .ide-log-line.done { color: #4caf7d; }
   .ide-log-line.error { color: #e2685a; }
+
+  /* 3-Stage Security Pipeline & IDE Highlights */
+  .codegen-stages-grid { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0 0.5rem; }
+  .codegen-stage-pill {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.35rem 0.7rem; border-radius: 6px; font-size: 0.76rem;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+  }
+  .codegen-stage-pill.pass { border-color: rgba(76,175,125,0.3); background: rgba(76,175,125,0.07); color: #4caf7d; }
+  .codegen-stage-pill.fail { border-color: rgba(226,104,90,0.3); background: rgba(226,104,90,0.07); color: #e2685a; }
+  .codegen-stage-pill.skipped { color: var(--text-faint); border-color: var(--line); }
+  .codegen-stage-pill strong { color: var(--text); }
+  .codegen-stage-badge { font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.45rem; border-radius: 999px; }
+  .codegen-stage-badge.pass { background: rgba(76,175,125,0.2); color: #4caf7d; }
+  .codegen-stage-badge.fail { background: rgba(226,104,90,0.2); color: #e2685a; }
+  .codegen-stage-badge.skipped { background: rgba(255,255,255,0.06); color: var(--text-faint); }
+
+  .ide-security-pill {
+    display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 600;
+    padding: 0.2rem 0.6rem; border-radius: 6px; white-space: nowrap;
+  }
+  .ide-security-pill.pass { background: rgba(76,175,125,0.15); border: 1px solid rgba(76,175,125,0.4); color: #4caf7d; }
+  .ide-security-pill.needs_fixes { background: rgba(226,104,90,0.15); border: 1px solid rgba(226,104,90,0.4); color: #e2685a; }
+
+  .ide-file-badge {
+    font-size: 0.62rem; padding: 0.1rem 0.38rem; border-radius: 999px; font-weight: 700;
+    margin-left: auto; line-height: 1; flex-shrink: 0;
+  }
+  .ide-file-badge.sev-high { background: rgba(226,104,90,0.25); color: #ff7b6b; border: 1px solid rgba(226,104,90,0.4); }
+  .ide-file-badge.sev-med { background: rgba(242,118,31,0.25); color: #ff9e54; border: 1px solid rgba(242,118,31,0.4); }
 
   /* Syntax highlight classes (applied by highlightCode) */
   .hl-keyword { color: #cba6f7; }
@@ -496,8 +587,11 @@
     <div class="ide-topbar">
       <span class="ide-topbar-title" id="ide-title">Code Generation</span>
       <span class="ide-model-badge" id="ide-model-badge">—</span>
+      <span class="ide-security-pill" id="ide-security-pill" style="display:none;"></span>
       <span class="ide-timer" id="ide-timer">0:00</span>
-      <button class="btn secondary" id="ide-save-btn" type="button" style="display:none;">Save file</button>
+      <button class="btn" id="ide-ai-fix-btn" type="button" style="display:none;padding:0.35rem 0.75rem;font-size:0.78rem;">✨ Fix with AI</button>
+      <button class="btn secondary" id="ide-save-rescan-btn" type="button" style="display:none;">🛡 Save &amp; Re-Scan</button>
+      <button class="btn secondary" id="ide-save-btn" type="button" style="display:none;">💾 Save file</button>
       <button class="btn secondary" id="ide-demo-btn" type="button">▶ UI Demo</button>
       <button class="btn secondary" id="ide-download-btn" type="button" disabled>⬇ Download All</button>
       <button class="btn secondary" id="ide-close-btn" type="button">✕ Close</button>
@@ -515,6 +609,13 @@
             <span class="ide-placeholder-icon">⚙</span>
             <span>Planning file structure…</span>
           </div>
+        </div>
+        <div class="ide-issues-drawer" id="ide-issues-drawer" style="display:none;">
+          <div class="ide-issues-head" id="ide-issues-head">
+            <span>🛡 Security Findings in <strong id="ide-issues-file-title">this file</strong> (<span id="ide-issues-count">0</span>)</span>
+            <span style="font-size:0.68rem;color:var(--text-faint);">Click finding to jump to line</span>
+          </div>
+          <div class="ide-issues-list" id="ide-issues-list"></div>
         </div>
         <div class="ide-log" id="ide-log"></div>
       </div>
@@ -1014,17 +1115,37 @@
       // either way, this only changes how the verdict itself reads.
       var verdictClass = review.verdict === 'pass' ? 'pass' : review.exhausted ? 'flagged' : 'needs_fixes';
       var verdictLabel = review.verdict === 'pass' ? 'Pass' : review.exhausted ? 'Flagged — manual review' : 'Needs fixes';
+
+      // 3-Stage breakdown if available in review.stages
+      var stagesHtml = '';
+      if (review.stages && Array.isArray(review.stages) && review.stages.length) {
+        var stagePills = review.stages.map(function (st, idx) {
+          var stClass = st.skipped ? 'skipped' : (st.passed ? 'pass' : 'fail');
+          var stIcon = st.skipped ? '↷' : (st.passed ? '✓' : '✕');
+          var stStatusText = st.skipped ? 'Skipped' : (st.passed ? 'Pass (0 issues)' : st.findingsCount + ' issue(s)');
+          return '<div class="codegen-stage-pill ' + stClass + '">' +
+            '<span>' + stIcon + ' <strong>Stage ' + (idx + 1) + ': ' + escapeHtml(st.name) + '</strong></span>' +
+            '<span class="codegen-stage-badge ' + stClass + '">' + escapeHtml(stStatusText) + '</span>' +
+            '</div>';
+        }).join('');
+        stagesHtml = '<div class="codegen-stages-grid">' + stagePills + '</div>';
+      }
+
       var findingsHtml = (review.findings && review.findings.length)
         ? review.findings.map(function (f) {
             var tag = f.tool || f.category;
-            return '<div class="codegen-finding"><span class="sev">' + escapeHtml(f.severity) + '</span>' +
-              (tag ? '<strong>' + escapeHtml(tag) + '</strong> — ' : '') +
-              escapeHtml(f.file) + ': ' + escapeHtml(f.issue) + '</div>';
+            var lineInfo = f.line ? ' (Line ' + f.line + ')' : '';
+            var sevClass = (f.severity === 'high' || f.severity === 'critical') ? 'sev-high' : 'sev-med';
+            return '<div class="codegen-finding ' + sevClass + '"><span class="sev">' + escapeHtml(f.severity) + '</span>' +
+              (tag ? '<strong>[' + escapeHtml(tag.toUpperCase()) + ']</strong> ' : '') +
+              '<code>' + escapeHtml(f.file) + lineInfo + '</code>: ' + escapeHtml(f.issue) + '</div>';
           }).join('')
         : '<div class="codegen-finding" style="border-color:transparent;color:var(--text-faint);font-style:italic;">No issues found.</div>';
+
       return '<div class="codegen-review-block">' +
         '<h5>' + escapeHtml(label) + (toolLabel ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;">— ' + escapeHtml(toolLabel) + '</span>' : '') + '</h5>' +
         '<div class="codegen-verdict ' + verdictClass + '">' + verdictLabel + '</div>' +
+        stagesHtml +
         '<p style="margin:0.3rem 0 0;font-size:0.8rem;color:var(--text-soft);">' + escapeHtml(review.summary || '') + '</p>' +
         findingsHtml +
         '</div>';
@@ -1065,13 +1186,6 @@
 
       var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
       var hasCicd = entry.modules.some(function (m) { return m.ciAdded; });
-      // Project-wide sandbox: only once every department is TL-approved AND
-      // self-testing has actually been run — its outcome doesn't have to be
-      // a clean pass (self-testing has no auto-fix loop behind it the way
-      // security review does, so requiring a literal pass here could block
-      // the demo forever on a subjective AI code-quality nitpick; a human
-      // already had to explicitly approve to get this far). Only meaningful
-      // if some department actually produced a frontend to show.
       var allSelfTested = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview; });
       var sandboxModule = entry.modules.find(function (m) { return m.hasFrontend; });
 
@@ -1087,10 +1201,6 @@
           '</div>'
         : '';
 
-      // Per-department stage panel — security review, TL-approval gate,
-      // self-testing gate — in that pipeline order, collapsed behind a
-      // <details> so the page isn't a wall of findings for every module at
-      // once. Nothing shows until CI/CD has actually run for that module.
       var stagesHtml = entry.modules.map(function (m) {
         if (!m.security) return '';
         var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
@@ -1098,13 +1208,14 @@
         var verdictLabel = m.securityFixRunning ? 'Fixing…' : m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
 
         var body = m.securityFixRunning
-          ? '<div class="codegen-stage-note">AI repair is running. Semgrep, SonarQube, and CI will replace the previous result when complete; the old Docker error below is intentionally hidden.</div>'
-          : renderReviewBlock('Security review', m.security, 'Semgrep + SonarQube') + renderExecutionBlock('CI build and validation', m.ciExecution);
+          ? '<div class="codegen-stage-note">AI repair is running. Security Tests, Semgrep, SonarQube, and CI will replace the previous result when complete.</div>'
+          : renderReviewBlock('Security review (3-Stage)', m.security, 'Security Tests + Semgrep + SonarQube') + renderExecutionBlock('CI build and validation', m.ciExecution);
         if (isOwnDept && !m.securityFixRunning && (m.security.verdict !== 'pass' || !m.ciExecution || m.ciExecution.verdict !== 'pass')) {
           body += '<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:0.6rem;">' +
-            '<button class="btn" type="button" data-fix-ai data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Fix with AI</button>' +
-            '<button class="btn secondary" type="button" data-manual-edit data-codegen-id="' + escapeAttr(m.codeGenId) + '" data-model-label="' + escapeAttr(m.modelLabel || '') + '" data-department="' + escapeAttr(m.department) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Fix manually in IDE</button>' +
-            '<button class="btn secondary" type="button" data-rerun-module data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">Re-run scan &amp; CI</button>' +
+            '<button class="btn" type="button" data-fix-ai data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">✨ Fix with AI</button>' +
+            '<button class="btn secondary" type="button" data-manual-edit data-codegen-id="' + escapeAttr(m.codeGenId) + '" data-model-label="' + escapeAttr(m.modelLabel || '') + '" data-department="' + escapeAttr(m.department) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🛠 Fix manually in IDE</button>' +
+            '<button class="btn secondary" type="button" data-rescan-security data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🛡 Re-scan Security</button>' +
+            '<button class="btn secondary" type="button" data-rerun-module data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🔄 Re-run CI/CD</button>' +
             (m.hasFrontend ? '<button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">▶ UI Demo</button>' : '') +
             '</div>' +
             '<span class="error-banner" data-rerun-error="' + escapeAttr(m.codeGenId) + '"></span>';
@@ -1234,6 +1345,26 @@
       el.querySelectorAll('[data-manual-edit]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           openCodeGenIdePanel(artifact, btn.dataset.codegenId, btn.dataset.modelLabel, btn.dataset.department);
+        });
+      });
+
+      el.querySelectorAll('[data-rescan-security]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          btn.textContent = 'Scanning…';
+          var errEl = el.querySelector('[data-rerun-error="' + btn.dataset.codegenId + '"]');
+          fetch(window.API_BASE + '/api/codegen/' + btn.dataset.codegenId + '/rescan-security', {
+            method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}'
+          }).then(function (r) { return r.json().then(function (b) { return { ok:r.ok, body:b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Security re-scan failed');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = '🛡 Re-scan Security';
+              if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
+            });
         });
       });
 
@@ -2984,10 +3115,11 @@
     var idePollingInterval = null;
     var ideTimerInterval = null;
     var ideActiveFile = null;
-    var ideAllFiles = {};   // path → { content, done }
+    var ideAllFiles = {};   // path → { content, done, needsFetch, findings }
     var ideOpenTabs = [];   // ordered list of open tab paths
     var ideCanEdit = false;
     var ideCurrentCodeGenId = null;
+    var ideSecurity = null;
 
     function closeIdePanel() {
       if (idePollingInterval) { clearInterval(idePollingInterval); idePollingInterval = null; }
@@ -2996,6 +3128,29 @@
       ideActiveFile = null;
       ideAllFiles = {};
       ideOpenTabs = [];
+      ideSecurity = null;
+    }
+
+    function updateSecurityPill(sec) {
+      var pill = document.getElementById('ide-security-pill');
+      var aiFixBtn = document.getElementById('ide-ai-fix-btn');
+      if (!pill) return;
+      if (!sec) {
+        pill.style.display = 'none';
+        if (aiFixBtn) aiFixBtn.style.display = 'none';
+        return;
+      }
+      pill.style.display = '';
+      if (sec.verdict === 'pass') {
+        pill.className = 'ide-security-pill pass';
+        pill.innerHTML = '🛡 Security: Clean (0 issues)';
+        if (aiFixBtn) aiFixBtn.style.display = 'none';
+      } else {
+        var count = sec.findings ? sec.findings.length : 0;
+        pill.className = 'ide-security-pill needs_fixes';
+        pill.innerHTML = '🛡 Security: ' + count + ' Issue' + (count === 1 ? '' : 's');
+        if (aiFixBtn && ideCanEdit) aiFixBtn.style.display = '';
+      }
     }
 
     function openCodeGenIdePanel(artifact, codeGenId, modelLabel, department) {
@@ -3004,13 +3159,20 @@
       ideAllFiles = {};
       ideOpenTabs = [];
       ideCurrentCodeGenId = codeGenId;
+      ideSecurity = null;
       ideCanEdit = !me.isClient && me.tierId === 'tl' && me.department === (department || me.department);
+
       document.getElementById('ide-save-btn').style.display = ideCanEdit ? '' : 'none';
       document.getElementById('ide-save-btn').disabled = true;
+      document.getElementById('ide-save-rescan-btn').style.display = ideCanEdit ? '' : 'none';
+      document.getElementById('ide-save-rescan-btn').disabled = true;
+      document.getElementById('ide-ai-fix-btn').style.display = 'none';
+      document.getElementById('ide-security-pill').style.display = 'none';
+      document.getElementById('ide-issues-drawer').style.display = 'none';
 
       var overlay = document.getElementById('ide-overlay');
       document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module';
-      document.getElementById('ide-model-badge').textContent = modelLabel;
+      document.getElementById('ide-model-badge').textContent = modelLabel || 'AI Model';
       document.getElementById('ide-timer').textContent = '0:00';
       document.getElementById('ide-progress-fill').style.width = '0%';
       document.getElementById('ide-progress-fill').classList.remove('done');
@@ -3071,7 +3233,19 @@
             item.style.paddingLeft = folder ? '1.6rem' : '0.9rem';
             var fname = f.path.split('/').pop();
             var spin = !f.done ? '<span class="tree-spin">◌</span>' : '<span class="tree-tick">✓</span>';
-            item.innerHTML = '<span class="tree-icon">' + fileIcon(f.path) + '</span>' + escapeHtml(fname) + spin;
+
+            // File security findings badge
+            var findings = (ideSecurity && ideSecurity.findings)
+              ? ideSecurity.findings.filter(function (x) { return x.file === f.path; })
+              : (f.findings || []);
+            var count = findings.length;
+            var badge = '';
+            if (count > 0) {
+              var hasHigh = findings.some(function (x) { return x.severity === 'high' || x.severity === 'critical'; });
+              badge = '<span class="ide-file-badge ' + (hasHigh ? 'sev-high' : 'sev-med') + '" title="' + count + ' security finding(s)">⚠ ' + count + '</span>';
+            }
+
+            item.innerHTML = '<span class="tree-icon">' + fileIcon(f.path) + '</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">' + escapeHtml(fname) + '</span>' + badge + spin;
             item.addEventListener('click', function () { selectFile(f.path); });
             tree.appendChild(item);
           });
@@ -3086,8 +3260,13 @@
           var tab = document.createElement('div');
           tab.className = 'ide-tab' + (path === ideActiveFile ? ' active' : '');
 
+          var findings = (ideSecurity && ideSecurity.findings)
+            ? ideSecurity.findings.filter(function (x) { return x.file === path; })
+            : (ideAllFiles[path] && ideAllFiles[path].findings ? ideAllFiles[path].findings : []);
+          var tabBadge = findings.length > 0 ? ' <span style="color:#ff7b6b;font-weight:700;">(⚠ ' + findings.length + ')</span>' : '';
+
           var label = document.createElement('span');
-          label.textContent = path.split('/').pop() + ' · ' + extLabel(path);
+          label.innerHTML = escapeHtml(path.split('/').pop()) + tabBadge + ' · <span style="opacity:0.6;">' + extLabel(path) + '</span>';
           label.addEventListener('click', function () { selectFile(path); });
           tab.appendChild(label);
 
@@ -3105,9 +3284,6 @@
         });
       }
 
-      // Closes just this tab — the generated file itself is untouched, this
-      // only affects which tabs are open in the viewer. Falls back to an
-      // adjacent open tab, or an empty-state placeholder if none are left.
       function closeTab(path) {
         var idx = ideOpenTabs.indexOf(path);
         if (idx === -1) return;
@@ -3127,6 +3303,58 @@
           renderTree(Object.values(ideAllFiles));
           document.getElementById('ide-code-area').innerHTML =
             '<div class="ide-placeholder"><span class="ide-placeholder-icon">📄</span><span>Select a file to view</span></div>';
+          document.getElementById('ide-issues-drawer').style.display = 'none';
+        }
+      }
+
+      function updateGutter(text, findings) {
+        var gutter = document.getElementById('ide-gutter');
+        if (!gutter) return;
+        var lines = (text || '').split(/\r?\n/);
+        var findingsByLine = {};
+        (findings || []).forEach(function (f) {
+          var l = f.line || 1;
+          if (!findingsByLine[l]) findingsByLine[l] = [];
+          findingsByLine[l].push(f);
+        });
+
+        var gutterHtml = lines.map(function (_, idx) {
+          var lineNum = idx + 1;
+          var lineFindings = findingsByLine[lineNum];
+          var marker = '';
+          if (lineFindings) {
+            var isHigh = lineFindings.some(function (x) { return x.severity === 'high' || x.severity === 'critical'; });
+            var tooltip = lineFindings.map(function (x) { return '[' + (x.tool || '').toUpperCase() + '] ' + x.issue; }).join('\n');
+            marker = '<span class="ide-gutter-marker ' + (isHigh ? 'high' : 'med') + '" title="' + escapeAttr(tooltip) + '">●</span>';
+          }
+          return '<div class="ide-gutter-line" data-line="' + lineNum + '">' + marker + '<span>' + lineNum + '</span></div>';
+        }).join('');
+        gutter.innerHTML = gutterHtml;
+      }
+
+      function jumpToLine(lineNum) {
+        var ta = document.getElementById('ide-edit-textarea');
+        if (ta) {
+          var lines = ta.value.split('\n');
+          var charPos = 0;
+          for (var i = 0; i < Math.min(lineNum - 1, lines.length); i++) {
+            charPos += lines[i].length + 1;
+          }
+          var endPos = charPos + (lines[lineNum - 1] ? lines[lineNum - 1].length : 0);
+          ta.focus();
+          ta.setSelectionRange(charPos, endPos);
+          ta.scrollTop = Math.max(0, (lineNum - 3) * 22);
+          var gutter = document.getElementById('ide-gutter');
+          if (gutter) gutter.scrollTop = ta.scrollTop;
+          return;
+        }
+
+        var row = document.getElementById('ide-line-' + lineNum);
+        if (row) {
+          row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          row.classList.remove('flash-highlight');
+          void row.offsetWidth;
+          row.classList.add('flash-highlight');
         }
       }
 
@@ -3136,7 +3364,6 @@
         if (!fileData) return;
         ideActiveFile = path;
 
-        // Add to tabs if not already there
         if (ideOpenTabs.indexOf(path) === -1) ideOpenTabs.push(path);
 
         renderTabs();
@@ -3145,46 +3372,143 @@
         var codeArea = document.getElementById('ide-code-area');
         if (!fileData.done) {
           codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Generating…</span></div>';
+          document.getElementById('ide-issues-drawer').style.display = 'none';
           return;
         }
 
-        // A done file's content is never included in the /status poll (kept
-        // out to keep that payload small) — it has to be fetched on demand,
-        // the first time this file is actually opened. Checking needsFetch
-        // before falling back to "empty" matters: content starts out as ''
-        // (falsy) for every file, done or not, so testing content first
-        // would call every never-yet-opened file empty without ever having
-        // tried to fetch it.
         if (fileData.needsFetch) {
           fileData.needsFetch = false;
-          codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Loading…</span></div>';
+          codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Loading file & security findings…</span></div>';
           fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file?path=' + encodeURIComponent(path), { credentials: 'include' })
             .then(function (r) { return r.json(); })
             .then(function (d) {
               if (ideAllFiles[path]) {
                 ideAllFiles[path].content = d.content;
-                if (path === ideActiveFile) displayFileContent(path, d.content);
+                ideAllFiles[path].findings = d.findings || [];
+                if (path === ideActiveFile) displayFileContent(path, d.content, d.findings || []);
               }
             });
           return;
         }
 
-        if (!fileData.content) {
-          codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">📄</span><span>Empty file</span></div>';
+        var curFindings = (ideSecurity && ideSecurity.findings)
+          ? ideSecurity.findings.filter(function (x) { return x.file === path; })
+          : (fileData.findings || []);
+        displayFileContent(path, fileData.content || '', curFindings);
+      }
+
+      function displayFileContent(path, content, findings) {
+        var codeArea = document.getElementById('ide-code-area');
+        findings = findings || [];
+        var lines = (content || '').split(/\r?\n/);
+        var findingsByLine = {};
+        findings.forEach(function (f) {
+          var l = f.line || 1;
+          if (!findingsByLine[l]) findingsByLine[l] = [];
+          findingsByLine[l].push(f);
+        });
+
+        // Build gutter html
+        var gutterHtml = lines.map(function (_, idx) {
+          var lineNum = idx + 1;
+          var lineFindings = findingsByLine[lineNum];
+          var marker = '';
+          if (lineFindings) {
+            var isHigh = lineFindings.some(function (x) { return x.severity === 'high' || x.severity === 'critical'; });
+            var tooltip = lineFindings.map(function (x) { return '[' + (x.tool || '').toUpperCase() + '] ' + x.issue; }).join('\n');
+            marker = '<span class="ide-gutter-marker ' + (isHigh ? 'high' : 'med') + '" title="' + escapeAttr(tooltip) + '">●</span>';
+          }
+          return '<div class="ide-gutter-line" data-line="' + lineNum + '">' + marker + '<span>' + lineNum + '</span></div>';
+        }).join('');
+
+        if (ideCanEdit) {
+          codeArea.innerHTML =
+            '<div class="ide-editor-container">' +
+              '<div class="ide-gutter" id="ide-gutter">' + gutterHtml + '</div>' +
+              '<div class="ide-code-scroll" id="ide-code-scroll" style="padding:0;">' +
+                '<textarea id="ide-edit-textarea" class="ide-textarea-editor" spellcheck="false">' + escapeHtml(content || '') + '</textarea>' +
+              '</div>' +
+            '</div>';
+
+          document.getElementById('ide-save-btn').disabled = false;
+          document.getElementById('ide-save-rescan-btn').disabled = false;
+
+          var textarea = document.getElementById('ide-edit-textarea');
+          var gutter = document.getElementById('ide-gutter');
+          textarea.addEventListener('scroll', function () {
+            gutter.scrollTop = textarea.scrollTop;
+          });
+          textarea.addEventListener('input', function () {
+            updateGutter(textarea.value, findings);
+          });
+          textarea.addEventListener('keydown', function (e) {
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              var start = this.selectionStart;
+              var end = this.selectionEnd;
+              this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
+              this.selectionStart = this.selectionEnd = start + 2;
+              updateGutter(this.value, findings);
+            }
+          });
         } else {
-          displayFileContent(path, fileData.content);
+          var linesHtml = lines.map(function (lineStr, idx) {
+            var lineNum = idx + 1;
+            var lineFindings = findingsByLine[lineNum];
+            var errCls = '';
+            if (lineFindings) {
+              var isHigh = lineFindings.some(function (x) { return x.severity === 'high' || x.severity === 'critical'; });
+              errCls = isHigh ? ' has-error-high' : ' has-error-med';
+            }
+            return '<div class="ide-line-row' + errCls + '" id="ide-line-' + lineNum + '">' + escapeHtml(lineStr || ' ') + '</div>';
+          }).join('');
+
+          codeArea.innerHTML =
+            '<div class="ide-editor-container">' +
+              '<div class="ide-gutter" id="ide-gutter">' + gutterHtml + '</div>' +
+              '<div class="ide-code-scroll" id="ide-code-scroll">' + linesHtml + '</div>' +
+            '</div>';
+        }
+
+        // ── In-Editor Security Findings Drawer ──
+        var drawer = document.getElementById('ide-issues-drawer');
+        if (findings.length > 0) {
+          drawer.style.display = 'flex';
+          document.getElementById('ide-issues-file-title').textContent = path.split('/').pop();
+          document.getElementById('ide-issues-count').textContent = findings.length;
+
+          var cardsHtml = findings.map(function (f) {
+            var tag = f.tool || f.category || 'security';
+            var isHigh = f.severity === 'high' || f.severity === 'critical';
+            var sevCls = isHigh ? 'sev-high' : 'sev-med';
+            var lineNum = f.line || 1;
+            return '<div class="ide-issue-card ' + sevCls + '" data-jump-line="' + lineNum + '">' +
+              '<span class="ide-issue-tool-tag">' + escapeHtml(tag.toUpperCase()) + '</span>' +
+              '<span class="ide-issue-line-tag">Line ' + lineNum + '</span>' +
+              '<span class="sev ' + escapeAttr(f.severity) + '">' + escapeHtml(f.severity) + '</span>' +
+              '<span style="color:#d4d4d8;flex:1;">' + escapeHtml(f.issue) + '</span>' +
+              '<span style="color:var(--accent);font-size:0.68rem;flex-shrink:0;">Jump →</span>' +
+              '</div>';
+          }).join('');
+          document.getElementById('ide-issues-list').innerHTML = cardsHtml;
+
+          document.querySelectorAll('.ide-issue-card').forEach(function (card) {
+            card.addEventListener('click', function () {
+              var lineNum = parseInt(card.dataset.jumpLine, 10) || 1;
+              jumpToLine(lineNum);
+            });
+          });
+        } else {
+          drawer.style.display = 'none';
         }
       }
 
-      function displayFileContent(path, content) {
-        var codeArea = document.getElementById('ide-code-area');
-        if (ideCanEdit) {
-          codeArea.innerHTML = '<textarea id="ide-edit-textarea" spellcheck="false" style="width:100%;height:100%;min-height:420px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:0.82rem/1.55 var(--font-mono);">' + escapeHtml(content || '') + '</textarea>';
-          document.getElementById('ide-save-btn').disabled = false;
-          return;
-        }
-        var highlighted = highlightCode(content || '', path);
-        codeArea.innerHTML = '<pre>' + highlighted + '</pre>';
+      // Toggle issues drawer collapse on header click
+      var issuesHead = document.getElementById('ide-issues-head');
+      if (issuesHead) {
+        issuesHead.onclick = function () {
+          document.getElementById('ide-issues-drawer').classList.toggle('collapsed');
+        };
       }
 
       // ── Poll status ──
@@ -3198,17 +3522,20 @@
             var files = data.files || [];
             var total = data.totalFiles || files.length || 1;
 
+            if (data.security) {
+              ideSecurity = data.security;
+              updateSecurityPill(data.security);
+            }
+
             // Update ideAllFiles with new stubs from server
             files.forEach(function (f) {
               if (!ideAllFiles[f.path]) {
-                ideAllFiles[f.path] = { path: f.path, description: f.description, content: '', done: false, needsFetch: true };
+                ideAllFiles[f.path] = { path: f.path, description: f.description, content: '', done: false, needsFetch: true, findings: [] };
               }
               if (f.done && !ideAllFiles[f.path].done) {
                 ideAllFiles[f.path].done = true;
                 ideAllFiles[f.path].needsFetch = true;
-                // Auto-select first completed file
                 if (!ideActiveFile) selectFile(f.path);
-                // Re-display if this is the active file
                 if (ideActiveFile === f.path) selectFile(f.path);
               }
             });
@@ -3228,8 +3555,8 @@
             }
             lastLogCount = log.length;
 
-            // Re-render tree if file count changed
-            if (files.length !== lastFileCount) {
+            // Re-render tree if file count changed or security status updated
+            if (files.length !== lastFileCount || data.security) {
               lastFileCount = files.length;
               renderTree(files.map(function (f) { return Object.assign({}, f, ideAllFiles[f.path]); }));
             }
@@ -3242,7 +3569,7 @@
               if (idePollingInterval) { clearInterval(idePollingInterval); idePollingInterval = null; }
               if (ideTimerInterval) { clearInterval(ideTimerInterval); ideTimerInterval = null; }
               if (data.status === 'done') {
-                logLine('✓ All files generated. Click any file to view, or Download All.', 'done');
+                logLine('✓ Generation complete. You can inspect findings, edit files, or run AI Auto-Fix.', 'done');
                 document.getElementById('ide-progress-fill').style.width = '100%';
               } else {
                 logLine('Generation ended with errors. Partial files may be available.', 'error');
@@ -3268,6 +3595,8 @@
       document.getElementById('ide-demo-btn').onclick = function () {
         openUatSandboxWindow(codeGenId);
       };
+
+      // ── Save File button ──
       document.getElementById('ide-save-btn').onclick = function () {
         var editor = document.getElementById('ide-edit-textarea');
         if (!editor || !ideActiveFile) return;
@@ -3282,9 +3611,75 @@
             if (!result.ok) throw new Error(result.body.error || 'Could not save file');
             ideAllFiles[ideActiveFile].content = editor.value;
             btn.textContent = 'Saved';
-            logLine('✓ Saved ' + ideActiveFile + '. Re-run security before approval.', 'done');
-            setTimeout(function () { btn.textContent = 'Save file'; btn.disabled = false; }, 1200);
-          }).catch(function (err) { btn.textContent = 'Save file'; btn.disabled = false; logLine('Save error: ' + err.message, 'error'); });
+            logLine('✓ Saved ' + ideActiveFile + '.', 'done');
+            setTimeout(function () { btn.textContent = '💾 Save file'; btn.disabled = false; }, 1200);
+          }).catch(function (err) { btn.textContent = '💾 Save file'; btn.disabled = false; logLine('Save error: ' + err.message, 'error'); });
+      };
+
+      // ── Save & Re-Scan button ──
+      document.getElementById('ide-save-rescan-btn').onclick = function () {
+        var editor = document.getElementById('ide-edit-textarea');
+        if (!editor || !ideActiveFile) return;
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Scanning (1. Tests → 2. Semgrep → 3. SonarQube)…';
+        logLine('Saving ' + ideActiveFile + ' and running 3-stage security scan...', '');
+
+        fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file', {
+          method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: ideActiveFile, content: editor.value, rescan: true })
+        }).then(function (r) { return r.json().then(function (b) { return { ok:r.ok, body:b }; }); })
+          .then(function (result) {
+            btn.disabled = false;
+            btn.textContent = '🛡 Save & Re-Scan';
+            if (!result.ok) throw new Error(result.body.error || 'Could not save & re-scan file');
+
+            ideAllFiles[ideActiveFile].content = editor.value;
+            if (result.body.security) {
+              ideSecurity = result.body.security;
+              updateSecurityPill(ideSecurity);
+              var activeFindings = ideSecurity.findings ? ideSecurity.findings.filter(function (f) { return f.file === ideActiveFile; }) : [];
+              ideAllFiles[ideActiveFile].findings = activeFindings;
+              displayFileContent(ideActiveFile, editor.value, activeFindings);
+              renderTree(Object.values(ideAllFiles));
+            }
+
+            if (result.body.security && result.body.security.verdict === 'pass') {
+              logLine('✓ 3-Stage security scan passed! 0 issues found.', 'done');
+            } else {
+              var count = result.body.security && result.body.security.findings ? result.body.security.findings.length : 0;
+              logLine('⚠ 3-Stage security scan finished: ' + count + ' issue(s) found.', 'error');
+            }
+          }).catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = '🛡 Save & Re-Scan';
+            logLine('Save & re-scan error: ' + err.message, 'error');
+          });
+      };
+
+      // ── AI Auto-Fix button ──
+      document.getElementById('ide-ai-fix-btn').onclick = function () {
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'AI fixing…';
+        logLine('Starting AI Security Auto-Repair and 3-stage re-scan loop...', '');
+
+        fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/fix-security-ai', {
+          method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}'
+        }).then(function (r) { return r.json().then(function (b) { return { ok:r.ok, body:b }; }); })
+          .then(function (result) {
+            btn.disabled = false;
+            btn.textContent = '✨ Fix with AI';
+            if (!result.ok) throw new Error(result.body.error || 'AI Fix failed');
+            logLine('✓ AI Auto-Repair finished. Updating files and security status...', 'done');
+            Object.keys(ideAllFiles).forEach(function (p) { ideAllFiles[p].needsFetch = true; });
+            pollStatus();
+            if (ideActiveFile) selectFile(ideActiveFile);
+          }).catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = '✨ Fix with AI';
+            logLine('AI fix error: ' + err.message, 'error');
+          });
       };
     }
 

@@ -13,8 +13,18 @@ const codegenRoutes = require('./routes/codegen.routes');
 const app = express();
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+const allowedOrigins = FRONTEND_ORIGIN.split(',').map(s => s.trim());
 
-app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 app.use(
   session({

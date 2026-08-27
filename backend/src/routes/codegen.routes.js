@@ -208,20 +208,24 @@ function applyDeterministicSecurityFixes(job) {
 }
 
 async function scanAndAutoFix(job) {
+  const onProgress = (msg) => {
+    job.log.push({ ts: Date.now(), msg });
+    persistJob(job);
+  };
   const deterministicChanges = applyDeterministicSecurityFixes(job);
   if (deterministicChanges) {
     job.log.push({ ts: Date.now(), msg: `Applied deterministic security hardening to ${deterministicChanges} file(s).` });
     await persistJob(job);
   }
-  job.log.push({ ts: Date.now(), msg: 'Running security scan…' });
+  job.log.push({ ts: Date.now(), msg: 'Running 3-stage security scan (Security Tests -> Semgrep -> SonarQube)…' });
   await persistJob(job);
 
-  let security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+  let security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files, onProgress });
   let best = { security, files: snapshotFileContents(job.files) };
   let stalledRounds = 0;
 
   for (let round = 1; round <= MAX_AUTO_FIX_ROUNDS && security.verdict === 'needs_fixes' && security.findings.length; round++) {
-    job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying fixes (round ${round})…` });
+    job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying AI fixes (round ${round})…` });
     await persistJob(job);
 
     const fixedFiles = await runSecurityAutoFix({ department: job.department, files: job.files, findings: security.findings });
@@ -235,9 +239,9 @@ async function scanAndAutoFix(job) {
     // the deterministic rules before every rescan so the verified baseline
     // cannot regress between repair rounds.
     applyDeterministicSecurityFixes(job);
-    job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-scanning…` });
+    job.log.push({ ts: Date.now(), msg: `Fixed ${fixedFiles.length} file(s) — re-running 3-stage security scan…` });
     await persistJob(job);
-    security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+    security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files, onProgress });
 
     if (security.findings.length < best.security.findings.length) {
       best = { security, files: snapshotFileContents(job.files) };
@@ -275,21 +279,38 @@ async function scanAndAutoFix(job) {
   job.log.push({
     ts: Date.now(),
     msg: security.verdict === 'pass'
-      ? '✓ Security scan passed.'
+      ? '✓ All security tests passed after AI repair.'
       : security.exhausted
-        ? `⚠ Auto-fix plateaued after repeated attempts — ${security.findings.length} issue(s) flagged for manual review.`
+        ? `⚠ Auto-fix plateaued after repeated attempts — ${security.findings.length} issue(s) flagged for manual review in IDE.`
         : `⚠ Security scan still flags ${security.findings.length} issue(s) after fixing.`,
   });
+  await persistJob(job);
   return security;
 }
 
 async function scanOnly(job) {
-  job.log.push({ ts: Date.now(), msg: 'Running first security scan with Semgrep + SonarQube…' });
+  const onProgress = (msg) => {
+    job.log.push({ ts: Date.now(), msg });
+    persistJob(job);
+  };
+  job.log.push({ ts: Date.now(), msg: 'Initiating 3-stage security scan: 1. Security Tests -> 2. Semgrep OSS -> 3. SonarQube…' });
   await persistJob(job);
-  const security = await runSecurityScan({ department: job.department, artifactId: job.artifactId, files: job.files });
+  const security = await runSecurityScan({
+    department: job.department,
+    artifactId: job.artifactId,
+    files: job.files,
+    onProgress,
+  });
   job.security = security;
   job.reviewedAt = Date.now();
-  job.log.push({ ts: Date.now(), msg: security.verdict === 'pass' ? '✓ Security scan passed.' : `⚠ Security scan found ${security.findings.length} issue(s). TL action required.` });
+  if (security.verdict === 'pass') {
+    job.log.push({ ts: Date.now(), msg: '✓ 3-stage security scan passed (0 issues found).' });
+  } else {
+    job.log.push({
+      ts: Date.now(),
+      msg: `⚠ 3-stage security scan completed with ${security.findings.length} issue(s). TL action options: "Fix with AI" or "Fix manually in IDE".`,
+    });
+  }
   await persistJob(job);
   return security;
 }
@@ -447,14 +468,26 @@ router.get('/:codeGenId/status', requireAuth, async (req, res) => {
   const job = await getJob(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found (may have expired)' });
 
-  // Send file stubs (path + done flag) but NOT content — the UI fetches full
+  // Map finding counts per file
+  const findingsByFile = {};
+  for (const f of job.security?.findings || []) {
+    const norm = (f.file || '').replace(/\\/g, '/');
+    findingsByFile[norm] = (findingsByFile[norm] || 0) + 1;
+  }
+
+  // Send file stubs (path + done flag + finding counts) but NOT content — the UI fetches full
   // content of the selected file separately via /file to keep status payloads small.
   res.json({
     status: job.status,
     model: job.model,
     modelLabel: job.modelLabel,
     totalFiles: job.totalFiles,
-    files: job.files.map((f) => ({ path: f.path, description: f.description, done: f.done })),
+    files: job.files.map((f) => ({
+      path: f.path,
+      description: f.description,
+      done: f.done,
+      findingsCount: findingsByFile[f.path.replace(/\\/g, '/')] || 0,
+    })),
     log: job.log,
     security: job.security || null,
     reviewedAt: job.reviewedAt || null,
@@ -471,7 +504,7 @@ router.get('/:codeGenId/status', requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/codegen/:codeGenId/file ─────────────────────────────────────────
-// Returns the content of one file from the job (passed as ?path= query param).
+// Returns the content of one file from the job along with its specific security findings.
 router.get('/:codeGenId/file', requireAuth, async (req, res) => {
   const job = await getJob(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
@@ -480,7 +513,15 @@ router.get('/:codeGenId/file', requireAuth, async (req, res) => {
   const file = job.files.find((f) => f.path === filePath);
   if (!file) return res.status(404).json({ error: 'File not found in this job' });
 
-  res.json({ path: file.path, content: file.content, done: file.done });
+  const normPath = (filePath || '').replace(/\\/g, '/');
+  const fileFindings = (job.security?.findings || []).filter((f) => (f.file || '').replace(/\\/g, '/') === normPath);
+
+  res.json({
+    path: file.path,
+    content: file.content,
+    done: file.done,
+    findings: fileFindings,
+  });
 });
 
 // Manual IDE editing is restricted to the module's owning TL.
@@ -495,12 +536,37 @@ router.put('/:codeGenId/file', requireAuth, async (req, res) => {
   if (!file) return res.status(404).json({ error: 'File not found in this job' });
   if (typeof req.body?.content !== 'string') return res.status(400).json({ error: 'content must be a string' });
   file.content = req.body.content;
-  job.security = null;
-  job.ciExecution = null;
   job.tlApproved = false;
-  job.log.push({ ts: Date.now(), msg: `Manual IDE edit saved: ${file.path}. Security re-scan required.` });
-  await persistJob(job);
-  res.json({ path: file.path, saved: true });
+
+  let securityResult = null;
+  if (req.body.rescan) {
+    job.log.push({ ts: Date.now(), msg: `Saved ${file.path} — running immediate 3-stage security re-scan…` });
+    securityResult = await scanOnly(job);
+  } else {
+    job.log.push({ ts: Date.now(), msg: `Manual IDE edit saved: ${file.path}. Re-scan to verify.` });
+    await persistJob(job);
+  }
+
+  res.json({ path: file.path, saved: true, security: securityResult || job.security });
+});
+
+// ─── POST /api/codegen/:codeGenId/rescan-security ─────────────────────────────
+// Re-runs the 3-stage security scan on demand (e.g. after manual edits in IDE).
+router.post('/:codeGenId/rescan-security', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  const job = await getJob(req.params.codeGenId);
+  if (!job) return res.status(404).json({ error: 'Code gen job not found' });
+  if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
+    return res.status(403).json({ error: 'Only this department’s Team Lead can run security re-scans' });
+  }
+
+  try {
+    job.log.push({ ts: Date.now(), msg: 'TL requested manual 3-stage security re-scan…' });
+    const security = await scanOnly(job);
+    res.json({ security });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 // ─── GET /api/codegen/:codeGenId/download ─────────────────────────────────────

@@ -37,4 +37,16 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => console.log(`[frontend] serving ${ROOT} on http://localhost:${PORT}`));
+function startServer(port) {
+  server.once('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[frontend] port ${port} in use, trying ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      console.error('[frontend] server error:', err);
+    }
+  });
+  server.listen(port, () => console.log(`[frontend] serving ${ROOT} on http://localhost:${port}`));
+}
+
+startServer(PORT);
