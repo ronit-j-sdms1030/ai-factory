@@ -23,8 +23,6 @@ const TRANSITIONS = {
   fsd_final_approval: { giveFinalFsdApproval: 'approved' },
 };
 
-const FINAL_APPROVER_TIERS = ['vp', 'ceo', 'md'];
-
 function transition(artifact, action, actor, options = {}) {
   const comment = options.comment || '';
   const finalApproverTier = options.finalApproverTier || null;
@@ -105,20 +103,13 @@ function transition(artifact, action, actor, options = {}) {
   // the FSD client-review loop, so "send it to the client for review" has
   // nobody to send to. Once they're done editing in fsd_review it goes
   // straight to the next real gate instead — VP, who signs off before the
-  // team split runs.
+  // team split runs. VP is the only next gate: an MD/CEO cannot reroute
+  // their own requirement to their peer instead, since that would let them
+  // pick a co-equal rubber-stamp approver and skip the one real independent
+  // review (VP) the requirement is supposed to get.
   if (action === 'sendFsdToClient' && isSelfOriginMdCeo(artifact)) {
     if (finalApproverTier) {
-      if (!FINAL_APPROVER_TIERS.includes(finalApproverTier) || finalApproverTier === artifact.originator.tierId) {
-        throw new Error(`Invalid finalApproverTier: "${finalApproverTier}" for this requirement.`);
-      }
-      const nextStep = artifact.approvalChain[artifact.currentApprovalIndex];
-      if (nextStep) {
-        nextStep.approverTiers = [finalApproverTier];
-        nextStep.mode = 'any';
-        nextStep.approvedBy = [];
-      } else {
-        artifact.approvalChain.push({ approverTiers: [finalApproverTier], mode: 'any', approvedBy: [] });
-      }
+      throw new Error('Self-originated MD/CEO requirements always route to VP next — a final approver cannot be chosen.');
     }
     artifact.currentStage =
       artifact.currentApprovalIndex >= artifact.approvalChain.length ? 'approved' : 'pending_approval';

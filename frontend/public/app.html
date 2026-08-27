@@ -192,6 +192,7 @@
   }
   .codegen-module-row:first-child { border-top: none; }
   .codegen-module-dept { font-weight: 600; font-size: 0.86rem; color: var(--text); }
+  .codegen-fixed-tick { color: #3fae6a; font-weight: 700; }
   .codegen-module-status { font-size: 0.74rem; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.04em; }
   .codegen-module-status.not_started { color: var(--text-faint); }
   .codegen-module-status.generating { color: var(--accent); }
@@ -302,6 +303,18 @@
   .ide-tree-item .tree-tick { font-size: 0.65rem; margin-left: auto; color: #4caf7d; flex-shrink: 0; }
   .ide-tree-item .tree-spin { font-size: 0.65rem; margin-left: auto; color: #f2761f; flex-shrink: 0; animation: tree-spin 1s linear infinite; }
   @keyframes tree-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .ide-streaming-badge {
+    position: absolute; top: 0.6rem; right: 0.9rem; z-index: 5;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: rgba(242, 118, 31, 0.15); color: #f2761f;
+    font-size: 0.72rem; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 999px;
+    pointer-events: none;
+  }
+  .ide-streaming-badge::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%; background: #f2761f;
+    animation: ide-streaming-pulse 1s ease-in-out infinite;
+  }
+  @keyframes ide-streaming-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
   /* Code editor area */
   .ide-editor { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
@@ -324,7 +337,7 @@
     color: #6b6c72; flex-shrink: 0;
   }
   .ide-tab-close:hover { background: rgba(255,255,255,0.12); color: #d4d4d8; }
-  .ide-code-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .ide-code-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; position: relative; }
   .ide-editor-container {
     display: flex; flex: 1; min-height: 0; overflow: hidden; background: #0b0c0e; position: relative;
   }
@@ -767,17 +780,6 @@
             // "Send for review" would read as sending it to themselves.
             buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for production' : 'Send for review' });
           }
-          // MD/CEO can route directly to their peer as the final production
-          // approver. This is a one-click approval route, not a discussion
-          // share with a recipient/note modal.
-          if (isOriginator && (me.tierId === 'md' || me.tierId === 'ceo')) {
-            buttons.push({
-              action: 'sendFsdToClient',
-              label: 'Send to ' + (me.tierId === 'md' ? 'CEO' : 'MD'),
-              secondary: true,
-              finalApproverTier: me.tierId === 'md' ? 'ceo' : 'md',
-            });
-          }
         }
         if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
           buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
@@ -949,7 +951,6 @@
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
-          if (btnDef.finalApproverTier) return sendFsdDirectly(artifact, btnDef.finalApproverTier, btn, actionsEl);
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
           if (btnDef.modal === 'codeGen') return openCodeGenOverviewModal(artifact);
@@ -1169,12 +1170,24 @@
       var el = document.createElement('div');
       el.className = 'item codegen-status-card';
 
+      // Any single department's own generated HTML is only ever a preview of
+      // that one module, not the project — showing it before every other
+      // department has even been generated reads as "the whole app," which
+      // is actively misleading (e.g. an AI department's own throwaway
+      // dashboard, mistaken for a finished cross-department product demo).
+      // So no UI Demo/Sandbox anywhere on this card until all departments
+      // have finished generating.
+      var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
+
       var rows = entry.modules.map(function (m) {
         var label = CODEGEN_STATUS_LABELS[m.status] || m.status;
         var pct = m.progressPct || 0;
         var canView = !!m.codeGenId;
+        // "Fixed" = security and the real CI execution both actually pass —
+        // the same condition that hides the Fix-with-AI toolbar below.
+        var isFixed = m.security && m.security.verdict === 'pass' && m.ciExecution && m.ciExecution.verdict === 'pass';
         return '<div class="codegen-module-row">' +
-          '<span class="codegen-module-dept">' + escapeHtml(m.department) + '</span>' +
+          '<span class="codegen-module-dept">' + escapeHtml(m.department) + (isFixed ? ' <span class="codegen-fixed-tick" title="Security and CI both pass">✓</span>' : '') + '</span>' +
           '<span class="codegen-module-status ' + escapeAttr(m.status) + '">' + escapeHtml(label) + '</span>' +
           '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + pct + '%;"></div></div>' +
           '<span class="codegen-module-pct">' + pct + '%</span>' +
@@ -1184,24 +1197,45 @@
           '</div>';
       }).join('');
 
-      var allDone = entry.modules.length > 0 && entry.modules.every(function (m) { return m.status === 'done'; });
       var hasCicd = entry.modules.some(function (m) { return m.ciAdded; });
-      var allSelfTested = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview; });
-      var sandboxModule = entry.modules.find(function (m) { return m.hasFrontend; });
+      // Generation finishing isn't the same as a department being vetted —
+      // security could still be flagged, or nobody's even approved it yet.
+      // The demo represents this as a finished, signed-off product, so it
+      // needs every department actually approved and self-tested first, not
+      // just "code exists."
+      var allApproved = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview; });
 
+      // One button for the whole requirement, not one per department — see
+      // POST/GET /api/codegen/:artifactId/project-demo. Only meaningful once
+      // every department has actually finished generating, since it
+      // synthesizes from all of their real output.
       var footer = allDone
         ? '<div class="codegen-cicd-footer">' +
             '<button class="btn secondary" type="button" data-run-cicd style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
               (hasCicd ? 'Re-run CI/CD' : 'Run CI/CD') +
             '</button>' +
-            (allSelfTested && sandboxModule
-              ? '<button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(sandboxModule.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View Sandbox</button>'
+            (allApproved
+              ? '<button class="btn secondary" type="button" data-project-demo data-artifact-id="' + escapeAttr(entry.artifact._id) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
+                  (entry.projectDemoReady ? '▶ Project Demo' : '✨ Generate Project Demo') +
+                '</button>' +
+                (entry.projectDemoReady
+                  ? '<button class="btn secondary" type="button" data-project-demo-regen data-artifact-id="' + escapeAttr(entry.artifact._id) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;" title="Regenerate from the current code">🔄</button>'
+                  : '')
               : '') +
             '<span class="error-banner" data-cicd-error></span>' +
+            '<span class="error-banner" data-project-demo-error="' + escapeAttr(entry.artifact._id) + '"></span>' +
           '</div>'
         : '';
 
-      var stagesHtml = entry.modules.map(function (m) {
+      // The per-department report dropdown is more sensitive than the
+      // summary rows above (real security/CI findings, not just progress) —
+      // a TL only ever sees their own department's; VP (and anyone else who
+      // can reach this page) sees every department's.
+      var visibleModules = me.tierId === 'tl'
+        ? entry.modules.filter(function (m) { return m.department === me.department; })
+        : entry.modules;
+
+      var stagesHtml = visibleModules.map(function (m) {
         if (!m.security) return '';
         var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
         var verdictClass = m.security.verdict === 'pass' ? 'pass' : m.security.exhausted ? 'flagged' : 'needs_fixes';
@@ -1216,7 +1250,6 @@
             '<button class="btn secondary" type="button" data-manual-edit data-codegen-id="' + escapeAttr(m.codeGenId) + '" data-model-label="' + escapeAttr(m.modelLabel || '') + '" data-department="' + escapeAttr(m.department) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🛠 Fix manually in IDE</button>' +
             '<button class="btn secondary" type="button" data-rescan-security data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🛡 Re-scan Security</button>' +
             '<button class="btn secondary" type="button" data-rerun-module data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">🔄 Re-run CI/CD</button>' +
-            (m.hasFrontend ? '<button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">▶ UI Demo</button>' : '') +
             '</div>' +
             '<span class="error-banner" data-rerun-error="' + escapeAttr(m.codeGenId) + '"></span>';
         }
@@ -1242,11 +1275,7 @@
           }
         }
 
-        if (m.tlApproved && m.codeReview && m.hasFrontend) {
-          body += '<div style="margin-top:0.6rem;"><button class="btn secondary" type="button" data-uat data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">View UAT sandbox</button></div>';
-        }
-
-        return '<details class="codegen-dept-details">' +
+        return '<details class="codegen-dept-details" id="codegen-details-' + escapeAttr(m.codeGenId) + '">' +
           '<summary>' + escapeHtml(m.department) + ' <span class="codegen-summary-verdict codegen-verdict ' + verdictClass + '">' + verdictLabel + '</span></summary>' +
           '<div class="codegen-dept-details-body">' + body + '</div>' +
           '</details>';
@@ -1299,6 +1328,63 @@
             });
         });
       }
+
+      // Same "open the window before the fetch resolves" pattern as the
+      // per-department UAT sandbox — this call is an LLM synthesis over
+      // every department's output and can genuinely take a minute or two,
+      // and calling window.open() only after a fetch resolves gets treated
+      // as a blocked popup by most browsers.
+      el.querySelectorAll('[data-project-demo]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var artifactId = btn.dataset.artifactId;
+          var demoUrl = window.API_BASE + '/api/codegen/' + artifactId + '/project-demo';
+          if (entry.projectDemoReady) {
+            window.open(demoUrl, '_blank', 'noopener');
+            return;
+          }
+          var win = window.open('', '_blank');
+          if (win) win.document.write('<!doctype html><title>Project Demo</title><body style="font-family:sans-serif;padding:2rem;color:#666;">Generating the project demo — combining every department’s work into one preview. This can take a minute or two…</body>');
+          btn.disabled = true;
+          btn.textContent = 'Generating…';
+          var errEl = el.querySelector('[data-project-demo-error="' + artifactId + '"]');
+          if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
+          fetch(demoUrl, { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not generate the project demo');
+              if (win) win.location.href = demoUrl;
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = '✨ Generate Project Demo';
+              if (win) win.document.body.textContent = err.message;
+              if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
+            });
+        });
+      });
+
+      el.querySelectorAll('[data-project-demo-regen]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var artifactId = btn.dataset.artifactId;
+          btn.disabled = true;
+          var originalText = btn.textContent;
+          btn.textContent = '…';
+          var errEl = el.querySelector('[data-project-demo-error="' + artifactId + '"]');
+          if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
+          fetch(window.API_BASE + '/api/codegen/' + artifactId + '/project-demo', { method: 'POST', credentials: 'include' })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not regenerate the project demo');
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = originalText;
+              if (errEl) { errEl.textContent = err.message; errEl.classList.add('visible'); }
+            });
+        });
+      });
 
       el.querySelectorAll('[data-approve]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -1421,7 +1507,16 @@
       window.open(window.API_BASE + '/api/codegen/' + codeGenId + '/uat', '_blank', 'noopener');
     }
 
+    // The 15s auto-refresh (see setInterval below) re-fetches and fully
+    // re-renders this list, which would otherwise snap shut any department
+    // dropdown the user had open — each rebuilt <details> starts closed by
+    // default. Carrying the open codeGenIds across the rebuild keeps
+    // whatever the user was looking at open.
     function renderCodegenStatusList() {
+      var container = document.getElementById('codegen-status-list');
+      var openIds = Array.prototype.slice.call(container.querySelectorAll('details.codegen-dept-details[open]'))
+        .map(function (details) { return details.id; });
+
       renderPaginatedList({
         listId: 'codegen-status-list',
         paginationId: 'codegen-status-pagination',
@@ -1431,6 +1526,11 @@
         getPage: function () { return codegenStatusPage; },
         setPage: function (p) { codegenStatusPage = p; },
         rerender: renderCodegenStatusList,
+      });
+
+      openIds.forEach(function (id) {
+        var details = document.getElementById(id);
+        if (details) details.open = true;
       });
     }
 
@@ -1447,7 +1547,14 @@
       Promise.all(candidates.map(function (artifact) {
         return fetch(window.API_BASE + '/api/codegen/by-artifact/' + artifact._id, { credentials: 'include' })
           .then(function (res) { return res.ok ? res.json() : { modules: [] }; })
-          .then(function (data) { return { artifact: artifact, modules: data.modules || [] }; })
+          .then(function (data) {
+            return {
+              artifact: artifact,
+              modules: data.modules || [],
+              projectDemoReady: !!data.projectDemoReady,
+              projectDemoGeneratedAt: data.projectDemoGeneratedAt || null,
+            };
+          })
           .catch(function () { return { artifact: artifact, modules: [] }; });
       })).then(function (entries) {
         codegenStatusData = entries.filter(function (e) { return e.modules.length; })
@@ -1688,31 +1795,6 @@
       document.getElementById('route-md-btn').addEventListener('click', function () { submit('md', this); });
 
       document.getElementById('modal-overlay').classList.add('open');
-    }
-
-    function sendFsdDirectly(artifact, finalApproverTier, btn, actionsEl) {
-      var buttons = actionsEl ? Array.prototype.slice.call(actionsEl.querySelectorAll('button')) : [];
-      buttons.forEach(function (button) { button.disabled = true; });
-      var originalText = btn.textContent;
-      btn.textContent = 'Sending…';
-
-      fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/sendFsdToClient', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ finalApproverTier: finalApproverTier }),
-      })
-        .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
-        .then(function (result) {
-          if (!result.ok) throw new Error(result.body.error || 'Could not send the FSD');
-          showToast('FSD sent directly to ' + finalApproverTier.toUpperCase() + '.');
-          loadArtifacts();
-        })
-        .catch(function (err) {
-          showToast(err.message, true);
-          buttons.forEach(function (button) { button.disabled = false; });
-          btn.textContent = originalText;
-        });
     }
 
     function openRequirementDiscussion(artifact) {
@@ -3371,8 +3453,16 @@
 
         var codeArea = document.getElementById('ide-code-area');
         if (!fileData.done) {
-          codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Generating…</span></div>';
           document.getElementById('ide-issues-drawer').style.display = 'none';
+          // Once the model has actually started streaming this file, show
+          // what's been written so far instead of a static placeholder —
+          // the next poll (every 1.5s) will bring in more of it live.
+          if (fileData.content) {
+            displayFileContent(path, fileData.content, []);
+            showStreamingBadge(true);
+          } else {
+            codeArea.innerHTML = '<div class="ide-placeholder"><span class="ide-placeholder-icon">⏳</span><span>Generating…</span></div>';
+          }
           return;
         }
 
@@ -3395,6 +3485,22 @@
           ? ideSecurity.findings.filter(function (x) { return x.file === path; })
           : (fileData.findings || []);
         displayFileContent(path, fileData.content || '', curFindings);
+      }
+
+      // Decoupled from displayFileContent on purpose — that function fully
+      // replaces #ide-code-area's innerHTML on every call (editable and
+      // read-only branches both do), so appending this after the fact is
+      // simpler than threading a flag through both render paths.
+      function showStreamingBadge(show) {
+        var codeArea = document.getElementById('ide-code-area');
+        var existing = codeArea.querySelector('.ide-streaming-badge');
+        if (existing) existing.remove();
+        if (show) {
+          var badge = document.createElement('div');
+          badge.className = 'ide-streaming-badge';
+          badge.textContent = 'Writing live…';
+          codeArea.appendChild(badge);
+        }
       }
 
       function displayFileContent(path, content, findings) {
@@ -3531,6 +3637,16 @@
             files.forEach(function (f) {
               if (!ideAllFiles[f.path]) {
                 ideAllFiles[f.path] = { path: f.path, description: f.description, content: '', done: false, needsFetch: true, findings: [] };
+              }
+              // The file currently being written streams its growing content
+              // in on every poll — show it live if that's the open tab,
+              // instead of a static "Generating…" placeholder.
+              if (typeof f.partialContent === 'string' && f.partialContent !== ideAllFiles[f.path].content) {
+                ideAllFiles[f.path].content = f.partialContent;
+                if (ideActiveFile === f.path) {
+                  displayFileContent(f.path, f.partialContent, []);
+                  showStreamingBadge(true);
+                }
               }
               if (f.done && !ideAllFiles[f.path].done) {
                 ideAllFiles[f.path].done = true;

@@ -116,23 +116,28 @@ describe('submit -> pending_approval -> approved', () => {
     expect(artifact.currentApprovalIndex).toBe(2);
   });
 
-  test('an MD can send the reviewed FSD directly to CEO instead of VP', () => {
+  test('an MD cannot reroute the reviewed FSD to CEO instead of VP', () => {
     const artifact = makeArtifact('md');
     transition(artifact, 'submit', { userId: 'u-md', tierId: 'md' });
     transition(artifact, 'approve', { userId: 'u-md', tierId: 'md' });
     artifact.currentStage = 'fsd_review';
 
-    transition(
-      artifact,
-      'sendFsdToClient',
-      { userId: 'u-md', tierId: 'md' },
-      { finalApproverTier: 'ceo' }
-    );
+    expect(() =>
+      transition(
+        artifact,
+        'sendFsdToClient',
+        { userId: 'u-md', tierId: 'md' },
+        { finalApproverTier: 'ceo' }
+      )
+    ).toThrow(/always route to VP/);
 
+    // The rejected attempt must not have mutated the chain — VP is still
+    // the only next gate.
+    expect(artifact.approvalChain[1].approverTiers).toEqual(['vp']);
+
+    transition(artifact, 'sendFsdToClient', { userId: 'u-md', tierId: 'md' });
     expect(artifact.currentStage).toBe('pending_approval');
-    expect(artifact.approvalChain[1].approverTiers).toEqual(['ceo']);
-    expect(() => transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' })).toThrow(/Unauthorized approver/);
-    transition(artifact, 'approve', { userId: 'u-ceo', tierId: 'ceo' });
+    transition(artifact, 'approve', { userId: 'u-vp', tierId: 'vp' });
     expect(artifact.currentStage).toBe('approved');
   });
 

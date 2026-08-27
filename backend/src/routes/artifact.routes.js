@@ -257,6 +257,13 @@ router.get('/', requireAuth, async (req, res) => {
             ? [{ currentStage: { $in: ['fsd_review', 'fsd_final_approval'] }, 'approvalChain.0.approverTiers': actor.tierId }]
             : []),
           ...(actor.tierId === 'vp' ? [{ currentStage: 'team_revision_requested' }] : []),
+          // VP oversees code-gen/production for every approved requirement,
+          // not just the ones where VP happened to be the approving gate —
+          // an MD or CEO can self-approve and route straight to their peer,
+          // never touching VP's queue at all, yet VP still needs to see its
+          // code-gen status. Without this, an artifact VP never gated on
+          // would be invisible to them everywhere, including there.
+          ...(actor.tierId === 'vp' ? [{ currentStage: 'approved', teamReportsGeneratedAt: { $exists: true, $ne: null } }] : []),
           ...(['md', 'ceo', 'vp'].includes(actor.tierId) ? [{ 'discussionMessages.0': { $exists: true } }] : []),
           // MD and CEO can always see each other's self-approved ideas, even
           // though neither gates the other's anymore.
@@ -909,12 +916,7 @@ router.post('/:id/:action', requireAuth, async (req, res) => {
         artifact,
         'sendFsdToClient',
         { userId: actor.id, tierId: actor.tierId },
-        {
-          comment: finalApproverTier
-            ? `Routed to ${finalApproverTier.toUpperCase()} for final approval`
-            : sendComment || 'Sent to originator for approval',
-          finalApproverTier,
-        }
+        { comment: sendComment || 'Sent to originator for approval', finalApproverTier }
       );
     } catch (err) {
       return res.status(400).json({ error: err.message });

@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto');
 const Artifact = require('../models/artifact.model');
 const CodeGenJob = require('../models/codeGenJob.model');
 const { requireAuth } = require('../middleware/auth.middleware');
-const { runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL, runCodeReview, runSecurityAutoFix } = require('../services/llm.service');
+const { runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL, runCodeReview, runSecurityAutoFix, FRONTEND_OWNING_DEPARTMENT, runProjectDemoSynthesis, runBuildFix } = require('../services/llm.service');
 const { runSecurityScan } = require('../services/securityScanner.service');
 const { runPipeline } = require('../services/pipelineRunner.service');
 
@@ -117,11 +117,33 @@ function docToJob(doc) {
 
 // Cache-first lookup for a single job, falling back to (and rehydrating
 // from) Mongo — covers the case where this process restarted since the job
-// last ran.
+// last ran. Fine for high-frequency, low-stakes reads (status polling,
+// previews) where a one-poll-cycle lag costs nothing.
 async function getJob(codeGenId) {
   const cached = codeGenJobs.get(codeGenId);
   if (cached) return cached;
 
+  const doc = await CodeGenJob.findOne({ codeGenId });
+  if (!doc) return null;
+
+  const job = docToJob(doc);
+  codeGenJobs.set(codeGenId, job);
+  return job;
+}
+
+// Always reads fresh from Mongo (and rehydrates the cache with what it
+// finds) — for anything that GATES a state transition on the job's current
+// fields (approve, self-test, re-running CI/CD or security) rather than
+// just displaying them. getJob()'s cache-first read can legitimately be
+// stale here: this same process may have cached this exact job earlier
+// (e.g. an open IDE panel polling /status) before some OTHER action (CI/CD
+// finishing, a security fix landing) persisted the real update straight to
+// Mongo — a gate check against that stale cache entry then rejects an
+// action that's actually valid, which is confusing in a way a display lag
+// never is. The extra Mongo round-trip is negligible for a one-off action;
+// it's not worth paying for on every /status poll, which is why that one
+// stays on getJob() above.
+async function getJobFresh(codeGenId) {
   const doc = await CodeGenJob.findOne({ codeGenId });
   if (!doc) return null;
 
@@ -344,12 +366,14 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'No team work package found for your department' });
   }
 
-  // Only meaningful for the frontend-owning department's own generation —
-  // lets its sandbox demo represent the whole project's planned features
-  // (mocked), not just this department's own slice.
+  // Given to every department's own generation, not just the frontend
+  // owner's — lets each one build with awareness of what else is being
+  // built alongside it (consistent naming/API conventions), and lets the
+  // frontend-owning department's sandbox demo represent the whole project's
+  // planned features (mocked), not just this department's own slice.
   const otherDepartments = (artifact.teamReports || [])
     .filter((t) => t.team !== actor.department)
-    .map((t) => ({ team: t.team, objective: t.objective }));
+    .map((t) => ({ team: t.team, objective: t.objective, architecture: t.architecture }));
 
   // Locked once a job exists and hasn't errored — starting a second job
   // over a generating/done one would silently orphan it (nothing else in
@@ -402,7 +426,7 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
         artifact: { title: artifact.title },
         model,
         otherDepartments,
-        onFileProgress: ({ index, total, path: filePath, status, missing, message }) => {
+        onFileProgress: ({ index, total, path: filePath, status, missing, message, partialContent }) => {
           job.totalFiles = total;
           if (status === 'generating') {
             // Add a pending slot so the file tree shows it immediately
@@ -410,6 +434,19 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
               job.files.push({ path: filePath, description: '', content: '', done: false });
             }
             job.log.push({ ts: Date.now(), msg: `Generating ${filePath} (${index + 1}/${total})…` });
+          } else if (status === 'streaming') {
+            // Mutating the in-memory copy is enough for the IDE panel's own
+            // polling (same process, same object) to show the file being
+            // written live — persisting every chunk to Mongo would be way
+            // more writes than this is worth; a throttled persist (a couple
+            // times a second) still bounds how much a mid-file restart loses.
+            const existing = job.files.find((f) => f.path === filePath);
+            if (existing) existing.content = partialContent;
+            const now = Date.now();
+            if (!job._lastStreamPersist || now - job._lastStreamPersist > 500) {
+              job._lastStreamPersist = now;
+              persistJob(job);
+            }
           } else if (status === 'done') {
             // Content will be overwritten below from the returned array
             const existing = job.files.find((f) => f.path === filePath);
@@ -423,6 +460,10 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
             job.log.push({ ts: Date.now(), msg: `Sandbox demo is missing ${missing.join(', ')} — adding mock section(s)…` });
           } else if (status === 'coverage-error') {
             job.log.push({ ts: Date.now(), msg: `Could not verify cross-department coverage: ${message}` });
+          } else if (status === 'validation-retry') {
+            job.log.push({ ts: Date.now(), msg: `${filePath} didn't parse (${message}) — regenerating…` });
+          } else if (status === 'validation-failed') {
+            job.log.push({ ts: Date.now(), msg: `⚠ ${filePath} still doesn't parse after retrying (${message}) — shipped anyway, will need a manual look.` });
           }
         },
       }).then(async (result) => {
@@ -475,8 +516,13 @@ router.get('/:codeGenId/status', requireAuth, async (req, res) => {
     findingsByFile[norm] = (findingsByFile[norm] || 0) + 1;
   }
 
-  // Send file stubs (path + done flag + finding counts) but NOT content — the UI fetches full
-  // content of the selected file separately via /file to keep status payloads small.
+  // Send file stubs (path + done flag + finding counts) but NOT full content —
+  // the UI fetches a finished file's content separately via /file to keep
+  // status payloads small. The one exception is whichever file is actively
+  // streaming right now (still !done but already has content) — its
+  // growing partial content rides along here so the IDE panel can show it
+  // being written in real time; only ever one file at a time, so this stays
+  // small too.
   res.json({
     status: job.status,
     model: job.model,
@@ -487,6 +533,7 @@ router.get('/:codeGenId/status', requireAuth, async (req, res) => {
       description: f.description,
       done: f.done,
       findingsCount: findingsByFile[f.path.replace(/\\/g, '/')] || 0,
+      ...(!f.done && f.content ? { partialContent: f.content } : {}),
     })),
     log: job.log,
     security: job.security || null,
@@ -554,7 +601,7 @@ router.put('/:codeGenId/file', requireAuth, async (req, res) => {
 // Re-runs the 3-stage security scan on demand (e.g. after manual edits in IDE).
 router.post('/:codeGenId/rescan-security', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  const job = await getJob(req.params.codeGenId);
+  const job = await getJobFresh(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
   if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
     return res.status(403).json({ error: 'Only this department’s Team Lead can run security re-scans' });
@@ -680,7 +727,12 @@ router.post('/:artifactId/run-cicd', requireAuth, async (req, res) => {
   if (!departments.length) return res.status(400).json({ error: 'This requirement has no department packages yet' });
 
   const isOriginator = artifact.originator.userId === actor.id;
-  const isReviewer = artifact.approvalChain[0].approverTiers.includes(actor.tierId);
+  // Checking only approvalChain[0] excluded VP from nearly every real
+  // artifact: VP is gate 1 (after MD/CEO/TL/client's own gate 0), not gate
+  // 0, for every originator except PM. Check the whole chain, not just its
+  // first step, so anyone who's a real approver anywhere in it — including
+  // VP on the far more common gate-1 case — can act here.
+  const isReviewer = artifact.approvalChain.some((step) => step.approverTiers.includes(actor.tierId));
   const isInvolvedTl = actor.tierId === 'tl' && actor.department && departments.includes(actor.department);
   if (!isOriginator && !isReviewer && !isInvolvedTl) {
     return res.status(403).json({ error: 'You are not authorized to run this step' });
@@ -726,7 +778,7 @@ router.post('/:artifactId/run-cicd', requireAuth, async (req, res) => {
 // This avoids making one TL wait for every unrelated department scan.
 router.post('/:codeGenId/rerun-cicd', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  const job = await getJob(req.params.codeGenId);
+  const job = await getJobFresh(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
   if (actor.isClient || (actor.tierId === 'tl' && actor.department !== job.department)) {
     return res.status(403).json({ error: 'Only this department’s Team Lead or an authorized reviewer can rerun this module' });
@@ -758,22 +810,45 @@ router.post('/:codeGenId/rerun-cicd', requireAuth, async (req, res) => {
 // this endpoint is only called after the TL chooses "Fix with AI".
 router.post('/:codeGenId/fix-security-ai', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  const job = await getJob(req.params.codeGenId);
+  const job = await getJobFresh(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
   if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
     return res.status(403).json({ error: 'Only this department’s Team Lead can apply AI fixes' });
   }
-  if (!job.security || job.security.verdict === 'pass') {
-    return res.status(400).json({ error: 'Run a scan with findings before requesting an AI fix' });
+  // This used to only ever touch security findings — if security was
+  // already clean but the real CI build/test execution itself failed, the
+  // button was offered (the UI shows it whenever either one isn't passing)
+  // but the request was rejected outright, with no automated way to fix a
+  // build failure at all. Now it fixes whichever of the two actually needs it.
+  const hasSecurityFindings = !!(job.security && job.security.verdict !== 'pass');
+  const hasBuildFailure = !!(job.ciExecution && job.ciExecution.verdict !== 'pass');
+  if (!hasSecurityFindings && !hasBuildFailure) {
+    return res.status(400).json({ error: 'Nothing to fix — security and the CI build both already pass.' });
   }
   if (activeSecurityFixes.has(job.codeGenId)) {
-    return res.status(409).json({ error: 'An AI security fix is already running for this module' });
+    return res.status(409).json({ error: 'An AI fix is already running for this module' });
   }
   activeSecurityFixes.add(job.codeGenId);
   try {
-    job.log.push({ ts: Date.now(), msg: 'TL requested AI-assisted security fixes…' });
-    const security = await scanAndAutoFix(job);
+    let security = job.security;
+    if (hasSecurityFindings) {
+      job.log.push({ ts: Date.now(), msg: 'TL requested AI-assisted security fixes…' });
+      security = await scanAndAutoFix(job);
+    }
+    if (hasBuildFailure) {
+      job.log.push({ ts: Date.now(), msg: 'TL requested AI-assisted CI build fixes…' });
+      const fixedFiles = await runBuildFix({ department: job.department, files: job.files, ciExecution: job.ciExecution });
+      if (fixedFiles.length) {
+        for (const fixed of fixedFiles) {
+          const existing = job.files.find((f) => f.path === fixed.path);
+          if (existing) existing.content = fixed.content;
+          else job.files.push({ path: fixed.path, description: '', content: fixed.content, done: true });
+        }
+        job.log.push({ ts: Date.now(), msg: `AI build fix touched ${fixedFiles.length} file(s) — re-running CI…` });
+      }
+    }
     job.ciExecution = await runPipeline({ files: job.files, phase: 'ci' });
+    job.log.push({ ts: Date.now(), msg: job.ciExecution.verdict === 'pass' ? '✓ CI execution passed.' : '⚠ CI execution still failing after the AI fix attempt.' });
     await persistJob(job);
     res.json({ security, ciExecution: job.ciExecution });
   } catch (err) {
@@ -789,7 +864,7 @@ router.post('/:codeGenId/fix-security-ai', requireAuth, async (req, res) => {
 // actually completed first (a file added, a security scan on record).
 router.post('/:codeGenId/approve', requireAuth, async (req, res) => {
   const actor = req.session.user;
-  const job = await getJob(req.params.codeGenId);
+  const job = await getJobFresh(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
 
   if (actor.isClient || actor.tierId !== 'tl' || actor.department !== job.department) {
@@ -826,29 +901,34 @@ router.post('/:codeGenId/self-test', requireAuth, async (req, res) => {
   const actor = req.session.user;
   if (actor.isClient) return res.status(403).json({ error: 'Clients cannot run this step' });
 
-  const job = await getJob(req.params.codeGenId);
+  const job = await getJobFresh(req.params.codeGenId);
   if (!job) return res.status(404).json({ error: 'Code gen job not found' });
   if (!job.tlApproved) {
     return res.status(400).json({ error: 'This module needs its Team Lead\'s approval before self-testing can begin' });
   }
 
   try {
-    job.testExecution = await runPipeline({ files: job.files, phase: 'test' });
-    if (job.testExecution.verdict !== 'pass') {
-      job.log.push({ ts: Date.now(), msg: '⚠ Real test execution failed.' });
-      await persistJob(job);
-      return res.status(422).json({ error: 'Real project tests failed', testExecution: job.testExecution });
-    }
-    const codeReview = await runCodeReview({ department: job.department, files: job.files });
+    // Run independently — a failing (or simply nonexistent) real test suite
+    // shouldn't hide the AI review entirely. A TL needs both pieces of
+    // information regardless of which one failed; a test failure that
+    // dead-ends before the review ever runs means the one time you'd most
+    // want AI feedback (something's actually broken) is exactly when you
+    // never get it.
+    const [testExecution, codeReview] = await Promise.all([
+      runPipeline({ files: job.files, phase: 'test' }),
+      runCodeReview({ department: job.department, files: job.files }),
+    ]);
+    job.testExecution = testExecution;
     job.codeReview = codeReview;
     job.codeReviewedAt = Date.now();
+    job.log.push({ ts: Date.now(), msg: testExecution.verdict === 'pass' ? '✓ Real test execution passed.' : '⚠ Real test execution failed.' });
     job.log.push({
       ts: Date.now(),
       msg: codeReview.verdict === 'pass' ? '✓ Self AI testing passed.' : `⚠ Self AI testing flagged ${codeReview.findings.length} issue(s).`,
     });
     codeGenJobs.set(job.codeGenId, job);
     await persistJob(job);
-    res.json({ testExecution: job.testExecution, codeReview });
+    res.json({ testExecution, codeReview });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
@@ -947,6 +1027,94 @@ router.get('/:codeGenId/uat', requireAuth, async (req, res) => {
   res.send(html);
 });
 
+// ─── POST /api/codegen/:artifactId/project-demo ───────────────────────────────
+// Synthesizes ONE combined demo from every department's actual generated
+// code, once all of them have finished. Distinct from any single
+// department's own /uat — that only ever shows one module's own file, even
+// after hasFrontend was restricted to just the frontend owner. This reads
+// every department's real file list (not just its original one-line
+// objective) and, if the frontend owner produced a working sandbox file,
+// uses it as a concrete starting point. Result is cached on the artifact
+// (an LLM call, not something to redo on every click) until explicitly
+// regenerated.
+router.post('/:artifactId/project-demo', requireAuth, async (req, res) => {
+  const actor = req.session.user;
+  if (actor.isClient) return res.status(403).json({ error: 'Clients cannot run this step' });
+
+  const artifact = await Artifact.findById(req.params.artifactId).select('teamReports approvalChain originator title projectDemo');
+  if (!artifact) return res.status(404).json({ error: 'Artifact not found' });
+
+  const departments = (artifact.teamReports || []).map((t) => t.team);
+  if (!departments.length) return res.status(400).json({ error: 'This requirement has no department packages yet' });
+
+  const isOriginator = artifact.originator.userId === actor.id;
+  // Checking only approvalChain[0] excluded VP from nearly every real
+  // artifact: VP is gate 1 (after MD/CEO/TL/client's own gate 0), not gate
+  // 0, for every originator except PM. Check the whole chain, not just its
+  // first step, so anyone who's a real approver anywhere in it — including
+  // VP on the far more common gate-1 case — can act here.
+  const isReviewer = artifact.approvalChain.some((step) => step.approverTiers.includes(actor.tierId));
+  const isInvolvedTl = actor.tierId === 'tl' && actor.department && departments.includes(actor.department);
+  if (!isOriginator && !isReviewer && !isInvolvedTl) {
+    return res.status(403).json({ error: 'You are not authorized to run this step' });
+  }
+
+  const latestByDept = await getJobsForArtifact(req.params.artifactId);
+  const missing = departments.filter((d) => {
+    const job = latestByDept.get(d);
+    return !job || job.status !== 'done';
+  });
+  if (missing.length) {
+    return res.status(400).json({ error: 'All department modules must be fully generated first — still waiting on: ' + missing.join(', ') });
+  }
+  // Generated isn't the same as vetted — this demo represents a finished,
+  // signed-off product, so every department's own TL has to have actually
+  // approved and self-tested it first, not just have code that exists.
+  const unapproved = departments.filter((d) => {
+    const job = latestByDept.get(d);
+    return !job.tlApproved || !job.codeReview;
+  });
+  if (unapproved.length) {
+    return res.status(400).json({ error: 'Every department must be approved and self-tested first — still waiting on: ' + unapproved.join(', ') });
+  }
+
+  const demoInput = departments.map((department) => {
+    const job = latestByDept.get(department);
+    const teamReport = (artifact.teamReports || []).find((t) => t.team === department) || {};
+    const entry = department === FRONTEND_OWNING_DEPARTMENT ? findFrontendEntry(job.files) : null;
+    return {
+      team: department,
+      objective: teamReport.objective,
+      files: job.files.map((f) => ({ path: f.path, description: f.description })),
+      referenceHtml: entry ? entry.content : undefined,
+    };
+  });
+
+  try {
+    const result = await runProjectDemoSynthesis({ title: artifact.title, departments: demoInput });
+    if (!result || !result.content) throw new Error('The model returned no content');
+    artifact.projectDemo = { html: result.content, generatedAt: Date.now() };
+    await artifact.save();
+    res.json({ generatedAt: artifact.projectDemo.generatedAt });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+// A directly runnable, authenticated deployment of the synthesized project
+// demo — same sandboxing posture as /:codeGenId/uat above.
+router.get('/:artifactId/project-demo', requireAuth, async (req, res) => {
+  const artifact = await Artifact.findById(req.params.artifactId).select('projectDemo');
+  if (!artifact) return res.status(404).send('Artifact not found');
+  if (!artifact.projectDemo || !artifact.projectDemo.html) {
+    return res.status(400).send('No project demo has been generated yet for this requirement');
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'unsafe-inline' https:; img-src data: https:; font-src https:; connect-src 'none'");
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(artifact.projectDemo.html);
+});
+
 // ─── GET /api/codegen/by-artifact/:artifactId ─────────────────────────────────
 // Cross-department code-gen status for VPs and Team Leads — one entry per
 // department that has a team package, with progress % and a codeGenId to
@@ -959,7 +1127,7 @@ router.get('/by-artifact/:artifactId', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Only VPs and Team Leads can view code generation status' });
   }
 
-  const artifact = await Artifact.findById(req.params.artifactId).select('teamReports');
+  const artifact = await Artifact.findById(req.params.artifactId).select('teamReports projectDemo');
   if (!artifact) return res.status(404).json({ error: 'Artifact not found' });
 
   const departments = (artifact.teamReports || []).map((t) => t.team);
@@ -994,11 +1162,22 @@ router.get('/by-artifact/:artifactId', requireAuth, async (req, res) => {
       codeReviewedAt: job.codeReviewedAt || null,
       testExecution: job.testExecution || null,
       securityFixRunning: activeSecurityFixes.has(job.codeGenId),
-      hasFrontend: job.status === 'done' && !!findFrontendEntry(job.files),
+      // Restricted to the one department actually instructed to build the
+      // whole-project sandbox demo (see FRONTEND_OWNING_DEPARTMENT in
+      // llm.service.js) — any other department's own incidental HTML file
+      // (an AI department generating its own throwaway dashboard, say)
+      // isn't a project demo and showing a UI Demo button for it just reads
+      // as "there are two conflicting demos," not "here's the app."
+      hasFrontend: job.department === FRONTEND_OWNING_DEPARTMENT && job.status === 'done' && !!findFrontendEntry(job.files),
     };
   });
 
-  res.json({ modules, allDone: modules.length > 0 && modules.every((m) => m.status === 'done') });
+  res.json({
+    modules,
+    allDone: modules.length > 0 && modules.every((m) => m.status === 'done'),
+    projectDemoReady: !!(artifact.projectDemo && artifact.projectDemo.html),
+    projectDemoGeneratedAt: (artifact.projectDemo && artifact.projectDemo.generatedAt) || null,
+  });
 });
 
 // ─── GET /api/codegen/models ──────────────────────────────────────────────────

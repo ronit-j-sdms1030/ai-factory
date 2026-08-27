@@ -93,6 +93,15 @@ const artifactSchema = new Schema(
     // correctly but stripped on save because the schema didn't know them.
     teamReports: [Schema.Types.Mixed],
     teamReportsGeneratedAt: Date,
+    // A single synthesized demo combining all departments' actual generated
+    // code into one cohesive, self-contained preview — distinct from any one
+    // department's own generated frontend. Only meaningful once every
+    // department's module has finished generating; see POST/GET
+    // /api/codegen/:artifactId/project-demo.
+    projectDemo: {
+      html: String,
+      generatedAt: Date,
+    },
     teamReportEditHistory: [
       {
         department: String,

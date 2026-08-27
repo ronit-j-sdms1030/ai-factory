@@ -1,4 +1,6 @@
 const OpenAI = require('openai');
+const Anthropic = require('@anthropic-ai/sdk');
+const babel = require('@babel/core');
 
 // OpenRouter speaks the OpenAI chat-completions wire format, so the OpenAI
 // SDK works unmodified against it — just point baseURL at OpenRouter and use
@@ -12,6 +14,25 @@ const client = new OpenAI({
     'X-Title': 'Stark Digital AI Software Factory',
   },
 });
+
+// Code generation specifically goes straight to Anthropic's own API instead
+// of through OpenRouter — every other stage (chat intake, report/FSD
+// writing, self-testing's code review) stays on the client/OpenRouter
+// above and is untouched by this. See runCodeGen and the fixer functions
+// tied to it (runSecurityAutoFix, runBuildFix, runProjectDemoSynthesis,
+// checkFrontendCoverage, patchFrontendCoverage) below.
+const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// The rest of this file builds prompts as an OpenAI-style messages array
+// ([{role:'system',...}, {role:'user',...}, ...]) — Anthropic's Messages
+// API takes the system prompt as its own top-level `system` string instead
+// of a message with role "system", so every direct-to-Claude call site
+// splits it out with this rather than rebuilding prompts in a different shape.
+function splitSystemMessage(messages) {
+  const systemMsg = messages.find((m) => m.role === 'system');
+  const rest = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role, content: m.content }));
+  return { system: systemMsg ? systemMsg.content : undefined, messages: rest };
+}
 
 // Three models for three different jobs. The conversational back-and-forth
 // only ever needs plain natural language, so a small/cheap model is fine
@@ -319,13 +340,20 @@ async function runChatTurn({ originatorLabel, history }) {
 // that should be a real array comes back as a JSON-encoded string instead.
 // Recursively re-parse any string value that looks like JSON so the caller
 // always gets real arrays/objects regardless of which provider generated it.
-function normalizeDoubleEncodedFields(value) {
-  if (Array.isArray(value)) return value.map(normalizeDoubleEncodedFields);
+function normalizeDoubleEncodedFields(value, key) {
+  if (Array.isArray(value)) return value.map((v) => normalizeDoubleEncodedFields(v));
   if (value && typeof value === 'object') {
     const out = {};
-    for (const [key, v] of Object.entries(value)) out[key] = normalizeDoubleEncodedFields(v);
+    for (const [k, v] of Object.entries(value)) out[k] = normalizeDoubleEncodedFields(v, k);
     return out;
   }
+  // "content" is always raw file text across every tool schema in this
+  // file — never parse it, even when the text itself happens to look like
+  // JSON (a package.json's content, say). Confirmed by a real bug: fixing
+  // package.json came back with `content` silently replaced by a parsed
+  // object instead of the literal string, which then crashed the pipeline
+  // runner's fs.writeFile with "data argument must be a string."
+  if (key === 'content') return value;
   if (typeof value === 'string' && /^[[{]/.test(value.trim())) {
     try {
       return normalizeDoubleEncodedFields(JSON.parse(value));
@@ -399,6 +427,47 @@ async function callForcedTool({ model, messages, tool, maxTokens, retries = 1, t
     }
   }
   throw new Error('The model returned a malformed response after retrying: ' + lastErr.message);
+}
+
+// Same shape and purpose as callForcedTool above, against Anthropic's
+// Messages API instead — used only by the code-gen-tied fixer functions
+// (runSecurityAutoFix, runBuildFix, runProjectDemoSynthesis,
+// checkFrontendCoverage, patchFrontendCoverage). Anthropic's tool_use
+// content block already gives `input` as a parsed object, not a JSON
+// string to re-parse — the OpenAI path needs JSON.parse, this doesn't.
+async function callForcedToolClaude({ model, messages, tool, maxTokens, retries = 1, timeoutMs = 90000 }) {
+  const params = tool.function.parameters;
+  const anthropicTool = { name: tool.function.name, description: tool.function.description, input_schema: params };
+  const { system, messages: claudeMessages } = splitSystemMessage(messages);
+
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await anthropicClient.messages.create(
+        {
+          model,
+          max_tokens: maxTokens,
+          system,
+          messages: claudeMessages,
+          tools: [anthropicTool],
+          tool_choice: { type: 'tool', name: tool.function.name },
+        },
+        { timeout: timeoutMs, maxRetries: 0 }
+      );
+
+      const toolUse = (response.content || []).find((c) => c.type === 'tool_use');
+      if (!toolUse) throw new Error('Claude did not return a structured response.');
+
+      const parsed = normalizeDoubleEncodedFields(toolUse.input);
+      const missing = findMissingFields(parsed, params);
+      if (missing.length) throw new Error(`Claude's response was missing required fields: ${missing.join(', ')}`);
+
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error('Claude returned a malformed response after retrying: ' + lastErr.message);
 }
 
 // One-shot: reads the full finished conversation and structures it. Forces
@@ -733,16 +802,17 @@ async function runTeamReportChatEdit({ department, report, message }) {
 
 // ─── Code Generation ──────────────────────────────────────────────────────────
 
-// Models available for the TL's plug-and-play model selector.
+// Models available for the TL's plug-and-play model selector — Claude only,
+// called directly against Anthropic's API (see anthropicClient above), not
+// through OpenRouter. IDs are Anthropic's own native model identifiers, not
+// OpenRouter's "anthropic/..." naming.
 const CODE_GEN_MODELS = {
-  'deepseek/deepseek-v3.2:nitro': 'DeepSeek V3.2 (default)',
-  'anthropic/claude-sonnet-4.5': 'Claude Sonnet 4.5',
-  'openai/gpt-4o': 'GPT-4o',
-  'openai/gpt-4o-mini': 'GPT-4o Mini',
-  'google/gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'claude-sonnet-5': 'Claude Sonnet 5 (default)',
+  'claude-opus-5': 'Claude Opus 5',
+  'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
 };
 
-const DEFAULT_CODE_GEN_MODEL = 'deepseek/deepseek-v3.2:nitro';
+const DEFAULT_CODE_GEN_MODEL = 'claude-sonnet-5';
 
 // Generates production-ready code for a team work package.
 // Returns { files: [{ path: string, content: string }] }
@@ -752,6 +822,38 @@ const DEFAULT_CODE_GEN_MODEL = 'deepseek/deepseek-v3.2:nitro';
 // sandbox-ready frontend + database files below — QA/AI/DevOps/Sales &
 // Marketing keep generating exactly whatever their own scope calls for.
 const FRONTEND_OWNING_DEPARTMENT = 'Development';
+
+// The sandbox/project-demo files are the one generated artifact that never
+// goes through any of the pipeline's other checks (Semgrep, SonarQube, the
+// real `node --check`/build in pipelineRunner.service.js all operate on
+// each department's normal source files, not on JSX inlined inside an
+// HTML <script> tag meant for browser-side Babel). A malformed string
+// literal here previously meant the page silently rendered blank with no
+// signal anywhere except a browser console nobody was looking at. This
+// actually parses the generated script server-side — using the same
+// preset-react transform Babel Standalone applies in-browser — so a syntax
+// error is caught and retried before the file is ever saved, not
+// discovered by someone clicking "UI Demo" and staring at a blank page.
+function extractBabelScript(html) {
+  const match = /<script[^>]*type=["']text\/babel["'][^>]*>([\s\S]*?)<\/script>/i.exec(html || '');
+  return match ? match[1] : null;
+}
+
+function validateSandboxScript(html) {
+  const script = extractBabelScript(html);
+  if (!script || !script.trim()) return { valid: false, error: 'No <script type="text/babel"> block was found in the generated HTML.' };
+  try {
+    babel.transformSync(script, {
+      presets: [['@babel/preset-react', { runtime: 'classic' }]],
+      filename: 'sandbox.jsx',
+      babelrc: false,
+      configFile: false,
+    });
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
 
 // A plain Vite/webpack React app can't run in the static-preview sandbox
 // (browsers can't execute raw .tsx, and there's no build step there by
@@ -766,6 +868,28 @@ const FRONTEND_OWNING_DEPARTMENT = 'Development';
 // status widget, etc.), not just this department's own slice. Everything
 // still stays mocked/simulated in this one file — this does not mean
 // pulling in or executing any other department's actual generated code.
+// Reused by both a department's own sandbox file and the cross-department
+// project-demo synthesis below — the recurring failure mode wasn't broken
+// code, it was code that RAN but looked like a wireframe: bare unstyled
+// divs, literal "---" placeholders instead of plausible numbers, a generic
+// h1 and nothing else. Spelling out concrete visual expectations (not just
+// "make it nice") is what actually moves the output.
+const VISUAL_POLISH_GUIDANCE =
+  'Make this look like a real, professionally designed product, not a wireframe — a proper layout (e.g. a sidebar or top nav, a content area with real spacing/padding), a cohesive color palette (2-3 colors plus neutrals, not browser defaults), readable typography with clear visual hierarchy (headings, body text, labels sized and weighted differently), and styled interactive elements (buttons, inputs, cards with subtle shadows/borders/rounded corners). ' +
+  'Every number, name, date, and status shown must be a specific, plausible value (e.g. "1,204 units", "Jane Cooper", "Shipped 2 days ago") — never a literal placeholder like "---", "N/A", "Lorem ipsum", or "TBD". If real content isn\'t available yet, invent realistic-looking mock content rather than leaving a visible placeholder.';
+
+// The recurring failure mode here wasn't visual — it was code that LOOKED
+// finished but wasn't: a button with no onClick, a component importing a
+// file that was never generated, JSX with an unescaped quote that breaks
+// the parser. This is checked mechanically too (see validateSandboxScript
+// below, which actually parses the output before it ships) — but catching
+// it after the fact means one wasted round-trip; naming the failure modes
+// up front is what avoids that round-trip in the first place.
+const FUNCTIONAL_COMPLETENESS_GUIDANCE =
+  'This file must actually work when opened, not just look right: every button, link, and interactive element MUST have a real onClick/onChange handler that does something observable (updates state, shows a result, toggles a view) — never a decorative element with no handler at all. ' +
+  'Every component you reference (e.g. <Foo />) must be defined in this same file — never reference a component, function, or import that doesn\'t exist anywhere in the file you\'re writing. ' +
+  'Double-check every string literal is properly closed and quotes inside strings are escaped (e.g. write 27\\" or use a template literal, never leave a stray unescaped quote) — a single malformed string breaks the entire script and the whole page renders blank.';
+
 function buildFrontendSandboxInstructions(otherDepartments) {
   const otherSection = (otherDepartments && otherDepartments.length)
     ? '\n\nThis is a full-project prototype, not just this department\'s own slice — the other departments on this same requirement are building:\n' +
@@ -777,10 +901,24 @@ function buildFrontendSandboxInstructions(otherDepartments) {
     'This department owns the product\'s UI, so the file plan MUST also include exactly these two additional files:\n' +
     '1. "frontend/index.html" — a SELF-CONTAINED React demo of the ACTUAL product UI for this requirement (real screens/components implied by the Data Model and Architecture below — not a generic placeholder), built with React 18 + ReactDOM loaded from the unpkg CDN, with JSX transformed in-browser via Babel Standalone (also from CDN) — NOT a Vite/webpack/Next.js setup, since this file must run directly in a plain browser with zero build step. ' +
     'Structure: <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>, <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>, <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>, then exactly ONE inline <script type="text/babel"> tag containing the ENTIRE app — every component, hook, and mock data, all in this one file. Do not reference any separate .js/.jsx file from this HTML; nothing outside this one script tag. ' +
-    'The app must make NO real network requests — instead of fetching a backend, define an in-memory mock dataset directly in this same script (matching the Data Model below) and use React state/hooks to read and update it, so the whole thing is fully self-contained and works with the file opened directly, no server required.' +
+    'The app must make NO real network requests — instead of fetching a backend, define an in-memory mock dataset directly in this same script (matching the Data Model below) and use React state/hooks to read and update it, so the whole thing is fully self-contained and works with the file opened directly, no server required. ' +
+    VISUAL_POLISH_GUIDANCE + ' ' +
+    FUNCTIONAL_COMPLETENESS_GUIDANCE +
     otherSection + '\n' +
     '2. A real database schema file appropriate to this stack (e.g. "database/schema.sql" for a relational database, or an equivalent schema/model definition file for the chosen database) — the actual DDL/schema for the Data Model below, as a genuine deliverable. This file is NOT executed by the sandbox preview — it\'s real code for whoever provisions the actual database.'
   );
+}
+
+// Applied to EVERY department's own code generation (not just the frontend
+// owner) — the goal isn't a shared demo file here, it's that 5
+// independently-generated codebases don't each invent their own
+// incompatible conventions for the same underlying product. A department
+// still only builds its own scope; this just steers HOW it builds it.
+function buildCrossDepartmentConsistencyInstructions(otherDepartments) {
+  if (!otherDepartments || !otherDepartments.length) return '';
+  return '\n\nThis department\'s code is one piece of a single combined product, not a standalone project — the other departments building the rest of it are:\n' +
+    otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '') + (d.architecture ? ' — ' + d.architecture : '')).join('\n') +
+    '\nWrite this department\'s own code so it could realistically interoperate with theirs later: use the same conventions a reasonable engineering team would agree on across the whole product — consistent naming (e.g. camelCase JSON field names, an "id" field on every entity, timestamps as ISO 8601) for any concept another department would plausibly also reference (shared entities like users/orders/products, if applicable), and standard REST conventions (resource-based paths, JSON bodies, conventional HTTP status codes) for any API this department exposes. Do not invent a bespoke, incompatible convention purely for this one module\'s own convenience.';
 }
 
 const FRONTEND_COVERAGE_CHECK_TOOL = {
@@ -834,7 +972,7 @@ async function checkFrontendCoverage({ html, otherDepartments }) {
     },
     { role: 'user', content: 'Other departments to check for:\n' + deptList + '\n\nfrontend/index.html:\n```html\n' + html + '\n```' },
   ];
-  return callForcedTool({ model: REPORT_MODEL, messages, tool: FRONTEND_COVERAGE_CHECK_TOOL, maxTokens: 500, timeoutMs: 60000 });
+  return callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: FRONTEND_COVERAGE_CHECK_TOOL, maxTokens: 500, timeoutMs: 60000 });
 }
 
 async function patchFrontendCoverage({ html, otherDepartments, missingDepartments }) {
@@ -853,13 +991,80 @@ async function patchFrontendCoverage({ html, otherDepartments, missingDepartment
     },
     { role: 'user', content: 'Missing departments to add:\n' + missingDetail + '\n\nCurrent frontend/index.html:\n```html\n' + html + '\n```' },
   ];
-  return callForcedTool({ model: REPORT_MODEL, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
+  return callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
+}
+
+const PROJECT_DEMO_TOOL = {
+  type: 'function',
+  function: {
+    name: 'write_project_demo',
+    description: 'Return one complete, self-contained HTML file synthesizing every department\'s actual work into a single cohesive product demo.',
+    parameters: {
+      type: 'object',
+      properties: {
+        content: { type: 'string', description: 'The COMPLETE file content — one self-contained React+Babel+CDN HTML file, not a diff or snippet.' },
+      },
+      required: ['content'],
+    },
+  },
+};
+
+// The combine-everything-into-one-demo step, run once (and cached) after
+// every department has finished generating. Unlike buildFrontendSandboxInstructions
+// above (one department's own file, at its own generation time, mocking the
+// others from just a one-line objective), this reads what every department
+// ACTUALLY built — its real file list and, for the frontend-owning
+// department, its actual generated sandbox file as a concrete reference —
+// and writes a fresh file grounded in that, not a guess made before any of
+// it existed.
+// departments: [{ team, objective, files: [{path, description}], referenceHtml? }]
+async function runProjectDemoSynthesis({ title, departments }) {
+  const departmentsText = departments.map((d) => {
+    const fileList = (d.files || []).map((f) => '  - ' + f.path + (f.description ? ': ' + f.description : '')).join('\n');
+    return '### ' + d.team + '\nObjective: ' + (d.objective || '') + '\nFiles actually built:\n' + fileList;
+  }).join('\n\n');
+
+  const referenceEntry = departments.find((d) => d.referenceHtml);
+  const referenceSection = referenceEntry
+    ? '\n\nOne department (' + referenceEntry.team + ') already built its own working self-contained React+Babel+CDN demo, reproduced below. Use it as your starting point and structural reference — extend and restyle it to also genuinely represent every other department listed above, rather than starting from nothing:\n```html\n' + referenceEntry.referenceHtml.slice(0, 12000) + '\n```'
+    : '';
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are synthesizing ONE combined product demo for "' + (title || 'this project') + '" from what several departments actually built, each in their own separate codebase (different tech stacks — you cannot run or import their real code). ' +
+        'Write a SELF-CONTAINED React demo: React 18 + ReactDOM loaded from the unpkg CDN, JSX transformed in-browser via Babel Standalone (also CDN) — NOT a Vite/webpack/Next.js setup, zero build step. ' +
+        'Structure: <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>, <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>, <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>, then exactly ONE inline <script type="text/babel"> tag containing the entire app. ' +
+        'Make it genuinely represent EVERY department listed below as a real, clickable section or screen with plausible mock data reflecting what that department\'s own file list shows they actually built (not a generic guess) — e.g. if a department\'s files show an "inventory forecast" component, include a real forecast-looking panel with plausible numbers, not just a label. ' +
+        'The app must make NO real network requests — use an in-memory mock dataset and React state/hooks only. ' +
+        VISUAL_POLISH_GUIDANCE + ' ' +
+        FUNCTIONAL_COMPLETENESS_GUIDANCE +
+        referenceSection +
+        '\n\nCall write_project_demo exactly once with the complete file.',
+    },
+    { role: 'user', content: 'Departments and what each actually built:\n\n' + departmentsText },
+  ];
+
+  const MAX_ATTEMPTS = 3;
+  let result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+  for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
+    const validation = validateSandboxScript(result.content || '');
+    if (validation.valid) break;
+    messages.push(
+      { role: 'assistant', content: JSON.stringify({ content: result.content }) },
+      { role: 'user', content: 'That file does not parse: ' + validation.error + '\n\nCall write_project_demo again with the COMPLETE corrected file.' }
+    );
+    result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+  }
+  return result;
 }
 
 async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDepartments }) {
   const chosenModel = CODE_GEN_MODELS[model] ? model : DEFAULT_CODE_GEN_MODEL;
   const isFrontendOwner = teamReport.team === FRONTEND_OWNING_DEPARTMENT;
   const frontendSandboxInstructions = isFrontendOwner ? buildFrontendSandboxInstructions(otherDepartments) : '';
+  const consistencyInstructions = buildCrossDepartmentConsistencyInstructions(otherDepartments);
 
   // Step 1 — Ask the model to plan out the file tree
   const planMessages = [
@@ -873,6 +1078,7 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
         'Format: { "files": [ { "path": "relative/path/to/file.ext", "description": "one-line purpose" }, ... ] } ' +
         'Include ALL files: package.json, config, source files, tests, Dockerfile, README.md, etc. ' +
         (isFrontendOwner ? frontendSandboxInstructions + ' ' : '') +
+        consistencyInstructions + ' ' +
         'Output ONLY valid JSON — no markdown fences, no commentary before or after.',
     },
     {
@@ -891,12 +1097,13 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
   ];
 
   let filePlan;
-  const planResponse = await client.chat.completions.create(
-    { model: chosenModel, messages: planMessages, max_tokens: 3000 },
+  const planSplit = splitSystemMessage(planMessages);
+  const planResponse = await anthropicClient.messages.create(
+    { model: chosenModel, max_tokens: 3000, system: planSplit.system, messages: planSplit.messages },
     { timeout: 60000, maxRetries: 0 }
   );
 
-  const planRaw = ((planResponse.choices[0].message && planResponse.choices[0].message.content) || '').trim();
+  const planRaw = ((planResponse.content[0] && planResponse.content[0].text) || '').trim();
   // Strip markdown fences if present
   const jsonStr = planRaw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   try {
@@ -951,20 +1158,57 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
     ];
 
     let content = '';
-    try {
-      const fileResponse = await client.chat.completions.create(
-        // The sandbox entry file has to fit an entire React app (every
-        // component, every hook, the mock dataset) in one script block —
-        // the usual 4000-token budget runs out mid-file for anything but
-        // a trivial screen.
-        { model: chosenModel, messages: fileMessages, max_tokens: isSandboxEntryFile ? 12000 : 4000 },
-        { timeout: isSandboxEntryFile ? 120000 : 90000, maxRetries: 0 }
-      );
-      content = ((fileResponse.choices[0].message && fileResponse.choices[0].message.content) || '').trim();
-      // Strip any accidental markdown fences
-      content = content.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
-    } catch (err) {
-      content = '// Generation failed for this file: ' + err.message;
+    let attemptMessages = fileMessages;
+    // Only the sandbox entry file gets validated and retried — it's the one
+    // generated artifact nothing else in the pipeline ever parses or runs,
+    // so a syntax error here would otherwise ship silently (see
+    // validateSandboxScript above).
+    const maxAttempts = isSandboxEntryFile ? 3 : 1;
+    let lastValidationError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let attemptContent = '';
+      try {
+        // Streamed rather than awaited whole — lets the IDE panel show the
+        // file actually being written token-by-token instead of a static
+        // "Generating…" placeholder that snaps to full content once done.
+        const attemptSplit = splitSystemMessage(attemptMessages);
+        const stream = await anthropicClient.messages.create(
+          // The sandbox entry file has to fit an entire React app (every
+          // component, every hook, the mock dataset) in one script block —
+          // the usual 4000-token budget runs out mid-file for anything but
+          // a trivial screen.
+          { model: chosenModel, max_tokens: isSandboxEntryFile ? 12000 : 4000, system: attemptSplit.system, messages: attemptSplit.messages, stream: true },
+          { timeout: isSandboxEntryFile ? 120000 : 90000, maxRetries: 0 }
+        );
+        for await (const event of stream) {
+          if (event.type !== 'content_block_delta' || !event.delta || event.delta.type !== 'text_delta') continue;
+          const delta = event.delta.text || '';
+          if (!delta) continue;
+          attemptContent += delta;
+          if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'streaming', partialContent: attemptContent });
+        }
+        attemptContent = attemptContent.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+      } catch (err) {
+        content = '// Generation failed for this file: ' + err.message;
+        break;
+      }
+      content = attemptContent;
+
+      if (!isSandboxEntryFile) break;
+      const validation = validateSandboxScript(content);
+      if (validation.valid) break;
+
+      lastValidationError = validation.error;
+      if (attempt < maxAttempts) {
+        if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'validation-retry', message: lastValidationError });
+        attemptMessages = fileMessages.concat([
+          { role: 'assistant', content: attemptContent },
+          { role: 'user', content: 'That file does not parse: ' + lastValidationError + '\n\nReturn the COMPLETE corrected file — the whole file again, not just the fix.' },
+        ]);
+      } else if (onFileProgress) {
+        onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'validation-failed', message: lastValidationError });
+      }
     }
 
     generated.push({ path: fileSpec.path, description: fileSpec.description || '', content });
@@ -1127,12 +1371,71 @@ async function runSecurityAutoFix({ department, files, findings }) {
   // Dockerfile plus multiple Python modules, say), 6000 tokens routinely
   // wasn't enough room, so the model would silently return only one file
   // and the rest of the findings would look like the fix "didn't work."
-  const result = await callForcedTool({ model: REPORT_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
+  const result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
+  return result.files || [];
+}
+
+const BUILD_FIX_TOOL = {
+  type: 'function',
+  function: {
+    name: 'apply_build_fixes',
+    description: 'Return corrected, complete file contents that resolve the given CI build/test failure.',
+    parameters: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          description: 'One entry per file that needed a change to fix the failure — this can include files not directly named in the error (e.g. package.json needs a missing dependency added, or a config file needs to be created) as well as ones that are.',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string', description: 'The file\'s path — reuse an existing path exactly to edit it, or a new path to add a file that was missing entirely.' },
+              content: { type: 'string', description: 'The COMPLETE file content — the whole file, not a diff or snippet.' },
+            },
+            required: ['path', 'content'],
+          },
+        },
+      },
+      required: ['files'],
+    },
+  },
+};
+
+// "Fix with AI" previously only ever touched security findings — if
+// security was already clean but the real CI build/test execution itself
+// failed (a missing dependency, a wrong import path, a missing build
+// config), there was no automated fix path at all, only "fix manually in
+// the IDE." This reads the actual failed command's real stdout/stderr —
+// not a guess — and asks the model to fix whatever's actually broken,
+// which can mean editing files never mentioned in the error (package.json
+// needs a dependency the code already imports) or files it directly names.
+async function runBuildFix({ department, files, ciExecution }) {
+  const failedChecks = ((ciExecution && ciExecution.checks) || []).filter((c) => !c.passed);
+  if (!failedChecks.length) return [];
+
+  const failureText = failedChecks.map((c) =>
+    `### Command: ${c.command}\nExit code: ${c.exitCode}\nSTDOUT:\n${(c.stdout || '(empty)').slice(-3000)}\nSTDERR:\n${(c.stderr || '(empty)').slice(-3000)}`
+  ).join('\n\n');
+  const context = buildFilesContext(files, 40000);
+
+  const messages = [
+    {
+      role: 'system',
+      content:
+        `You are fixing a real CI build/test failure in the ${department} department's generated codebase. ` +
+        'The failure output below is from actually running the build — treat it as ground truth, not a guess. Diagnose the real cause (missing dependency, wrong file path, a config file that was never generated, an incompatible file layout, etc.) and fix it. ' +
+        'Preserve everything else about the codebase exactly as-is — only change what\'s needed to make the build succeed. ' +
+        'Call apply_build_fixes exactly once with the complete corrected content of every file that needs to change (including a genuinely new file if one is missing entirely, like a build config).',
+    },
+    { role: 'user', content: 'Failed command(s):\n' + failureText + '\n\nFiles:\n' + context },
+  ];
+  const result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: BUILD_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
   return result.files || [];
 }
 
 module.exports = {
   runChatTurn, runFinalize, runDetailedReport, runTeamSplit, runFsdChatEdit, runTeamReportChatEdit,
   runCodeGen, CODE_GEN_MODELS, DEFAULT_CODE_GEN_MODEL, runCodeReview, runSecurityAutoFix,
+  FRONTEND_OWNING_DEPARTMENT, runProjectDemoSynthesis, runBuildFix,
 };
 
