@@ -1205,6 +1205,17 @@
       // just "code exists."
       var allApproved = entry.modules.length > 0 && entry.modules.every(function (m) { return m.tlApproved && m.codeReview; });
 
+      // A department's underlying code stays exactly as generated regardless
+      // of which model drives THIS synthesis step — defaults to whatever
+      // Development (the frontend-owning department) used, but the picker
+      // lets a TL choose a more reliable model for just this one-shot demo
+      // build without regenerating any department's actual code.
+      var demoDefaultModel = (entry.modules.find(function (m) { return m.department === 'Development'; }) || {}).model || '';
+      var demoModelOptions = (codeGenModels || []).map(function (mo) {
+        return '<option value="' + escapeAttr(mo.id) + '"' + (mo.id === demoDefaultModel ? ' selected' : '') + '>' + escapeHtml(mo.label) + '</option>';
+      }).join('');
+      var demoModelPicker = '<select data-project-demo-model data-artifact-id="' + escapeAttr(entry.artifact._id) + '" style="padding:0.35rem 0.5rem;font-size:0.78rem;border-radius:6px;" title="Model used to synthesize this demo">' + demoModelOptions + '</select>';
+
       // One button for the whole requirement, not one per department — see
       // POST/GET /api/codegen/:artifactId/project-demo. Only meaningful once
       // every department has actually finished generating, since it
@@ -1215,7 +1226,8 @@
               (hasCicd ? 'Re-run CI/CD' : 'Run CI/CD') +
             '</button>' +
             (allApproved
-              ? '<button class="btn secondary" type="button" data-project-demo data-artifact-id="' + escapeAttr(entry.artifact._id) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
+              ? demoModelPicker +
+                '<button class="btn secondary" type="button" data-project-demo data-artifact-id="' + escapeAttr(entry.artifact._id) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">' +
                   (entry.projectDemoReady ? '▶ Project Demo' : '✨ Generate Project Demo') +
                 '</button>' +
                 (entry.projectDemoReady
@@ -1348,7 +1360,12 @@
           btn.textContent = 'Generating…';
           var errEl = el.querySelector('[data-project-demo-error="' + artifactId + '"]');
           if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
-          fetch(demoUrl, { method: 'POST', credentials: 'include' })
+          var modelSel = el.querySelector('[data-project-demo-model][data-artifact-id="' + artifactId + '"]');
+          fetch(demoUrl, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: modelSel ? modelSel.value : undefined }),
+          })
             .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
             .then(function (result) {
               if (!result.ok) throw new Error(result.body.error || 'Could not generate the project demo');
@@ -1372,7 +1389,12 @@
           btn.textContent = '…';
           var errEl = el.querySelector('[data-project-demo-error="' + artifactId + '"]');
           if (errEl) { errEl.classList.remove('visible'); errEl.textContent = ''; }
-          fetch(window.API_BASE + '/api/codegen/' + artifactId + '/project-demo', { method: 'POST', credentials: 'include' })
+          var modelSel = el.querySelector('[data-project-demo-model][data-artifact-id="' + artifactId + '"]');
+          fetch(window.API_BASE + '/api/codegen/' + artifactId + '/project-demo', {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: modelSel ? modelSel.value : undefined }),
+          })
             .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
             .then(function (result) {
               if (!result.ok) throw new Error(result.body.error || 'Could not regenerate the project demo');
@@ -1511,11 +1533,19 @@
     // re-renders this list, which would otherwise snap shut any department
     // dropdown the user had open — each rebuilt <details> starts closed by
     // default. Carrying the open codeGenIds across the rebuild keeps
-    // whatever the user was looking at open.
+    // whatever the user was looking at open. The project-demo model
+    // <select> has the same problem — a rebuild resets it to its
+    // server-driven default, silently discarding whatever the user just
+    // picked if they hadn't clicked Generate yet within that 15s window —
+    // so its per-artifact selection is carried across the rebuild too.
     function renderCodegenStatusList() {
       var container = document.getElementById('codegen-status-list');
       var openIds = Array.prototype.slice.call(container.querySelectorAll('details.codegen-dept-details[open]'))
         .map(function (details) { return details.id; });
+      var selectedModels = {};
+      Array.prototype.forEach.call(container.querySelectorAll('[data-project-demo-model]'), function (sel) {
+        selectedModels[sel.dataset.artifactId] = sel.value;
+      });
 
       renderPaginatedList({
         listId: 'codegen-status-list',
@@ -1531,6 +1561,10 @@
       openIds.forEach(function (id) {
         var details = document.getElementById(id);
         if (details) details.open = true;
+      });
+      Array.prototype.forEach.call(container.querySelectorAll('[data-project-demo-model]'), function (sel) {
+        var remembered = selectedModels[sel.dataset.artifactId];
+        if (remembered && Array.prototype.some.call(sel.options, function (o) { return o.value === remembered; })) sel.value = remembered;
       });
     }
 
@@ -2524,6 +2558,7 @@
     }
 
     function loadArtifacts() {
+      ensureCodeGenModelsLoaded();  // fire-and-forget — ready well before anyone opens the project-demo picker
       fetch(window.API_BASE + '/api/artifacts', { credentials: 'include' }).then(function (res) { return res.json(); }).then(function (data) {
         var artifacts = data.artifacts || [];
         var mine = artifacts.filter(function (a) { return a.originator.userId === me.id; });
@@ -3022,6 +3057,17 @@
     // ─── Code Gen Overview Modal ─────────────────────────────────────────────
     var codeGenSelectedModel = 'deepseek/deepseek-v3.2:nitro';
     var codeGenModels = null;  // loaded once from /api/codegen/models
+
+    // Shared by the code-gen overview modal above and the project-demo model
+    // picker below — both need the same real model list, so this is the one
+    // place that fetches and caches it.
+    function ensureCodeGenModelsLoaded() {
+      return codeGenModels
+        ? Promise.resolve(codeGenModels)
+        : fetch(window.API_BASE + '/api/codegen/models', { credentials: 'include' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { codeGenModels = d.models || []; return codeGenModels; });
+    }
 
     function openCodeGenOverviewModal(artifact) {
       document.getElementById('modal-title').textContent = 'Auto Code Generation';

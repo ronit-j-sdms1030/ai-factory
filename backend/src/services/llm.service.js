@@ -913,11 +913,22 @@ const FUNCTIONAL_COMPLETENESS_GUIDANCE =
   'Every component you reference (e.g. <Foo />) must be defined in this same file — never reference a component, function, or import that doesn\'t exist anywhere in the file you\'re writing. ' +
   'Double-check every string literal is properly closed and quotes inside strings are escaped (e.g. write 27\\" or use a template literal, never leave a stray unescaped quote) — a single malformed string breaks the entire script and the whole page renders blank.';
 
+// Observed live: asked to "represent every department," models default to
+// one top-level nav tab per department, literally named after the internal
+// team ("QA", "DevOps", "AI", "Development") — the result reads as an
+// internal org chart, not a believable product. This is what actually keeps
+// it feeling like ONE cohesive project instead of N bolted-together demos.
+const DEPARTMENT_INTEGRATION_GUIDANCE =
+  'Organize navigation and layout around real user-facing workflows for this actual product (e.g. for a returns portal: Dashboard, Returns, Warranty Claims) — never around internal department/team names. Do NOT add a separate top-level tab, nav item, or page literally named after an internal department (e.g. "QA", "DevOps", "AI", "Development") — that exposes internal org structure instead of a believable product. ' +
+  'Instead, weave each department\'s actual capability into wherever a real user would naturally encounter it — an AI-powered feature (e.g. damage assessment) belongs inside the workflow it assists (e.g. shown while reviewing a return), not as its own menu item. ' +
+  'Departments whose work is purely internal engineering (e.g. QA test results, CI/CD pipeline status, sprint/task tracking) are not something a real customer-facing product would show end users at all — if that department must be represented, fold it into a single, clearly-internal area (e.g. one small "System Health" panel) instead of giving it equal billing next to real product features.';
+
 function buildFrontendSandboxInstructions(otherDepartments) {
   const otherSection = (otherDepartments && otherDepartments.length)
     ? '\n\nThis is a full-project prototype, not just this department\'s own slice — the other departments on this same requirement are building:\n' +
       otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '')).join('\n') +
-      '\nRepresent each of these in the UI too, as a real (if simplified) screen or section with realistic mock data/behavior standing in for that department\'s feature (e.g. an AI department building recommendations → a "Recommended for you" panel with plausible mock results; a DevOps department building monitoring → a small system-status widget). Do not just list their names — actually build a working, clickable mock of each.'
+      '\nRepresent each of these in the UI too, with realistic mock data/behavior standing in for that department\'s feature — actually build a working, clickable mock of each, not just a mention. ' +
+      DEPARTMENT_INTEGRATION_GUIDANCE
     : '';
 
   return (
@@ -990,7 +1001,8 @@ async function checkFrontendCoverage({ html, otherDepartments, model }) {
     {
       role: 'system',
       content:
-        'You are reviewing a generated UAT sandbox file for a multi-department product. Determine which of the listed OTHER departments do NOT yet have a real, working mock UI section in this file (a genuine clickable panel/screen with plausible mock data — not just a mention in text or a comment). ' +
+        'You are reviewing a generated UAT sandbox file for a multi-department product. Determine which of the listed OTHER departments do NOT yet have a real, working mock UI representation in this file (a genuine clickable feature with plausible mock data — not just a mention in text or a comment). ' +
+        'A department counts as represented whether its capability appears as its own section OR is woven into an existing workflow (e.g. an AI feature shown inside a review screen) — do not require a dedicated top-level tab per department. ' +
         'Call report_frontend_coverage exactly once.',
     },
     { role: 'user', content: 'Other departments to check for:\n' + deptList + '\n\nfrontend/index.html:\n```html\n' + html + '\n```' },
@@ -1008,7 +1020,8 @@ async function patchFrontendCoverage({ html, otherDepartments, missingDepartment
       role: 'system',
       content:
         'You are extending a self-contained React+Babel+CDN sandbox demo (frontend/index.html) for a multi-department product. ' +
-        'Add a real, working, clickable mock UI section for EACH of the missing departments below — realistic mock data/behavior standing in for that department\'s feature (e.g. an AI department building recommendations → a "Recommended for you" panel with plausible mock results; a DevOps department building monitoring → a small system-status widget) — while preserving every existing section and behavior exactly as-is. ' +
+        'Add a real, working, clickable mock UI representation for EACH of the missing departments below — realistic mock data/behavior standing in for that department\'s feature — while preserving every existing section and behavior exactly as-is. ' +
+        DEPARTMENT_INTEGRATION_GUIDANCE + ' ' +
         'The result must remain ONE self-contained file: React 18 + ReactDOM + Babel Standalone from the unpkg CDN, one inline <script type="text/babel"> tag, no separate .js/.jsx file references, no real network requests — everything in-memory mock data. ' +
         'Call patch_frontend_coverage exactly once with the complete revised file.',
     },
@@ -1017,17 +1030,27 @@ async function patchFrontendCoverage({ html, otherDepartments, missingDepartment
   return callForcedToolAny({ model, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
 }
 
+// Split into two fields, with the script FIRST, instead of one giant
+// "content" field — observed live: asked for one monolithic file, models
+// (Gemini 2.5 Flash via OpenRouter in particular) reliably front-load a
+// long, richly-detailed <style> block (chasing VISUAL_POLISH_GUIDANCE) and
+// then cut off before ever reaching the actual <script type="text/babel">
+// app logic, even well within the token budget — 3 separate real attempts
+// each stopped partway through the stylesheet. Declaring appScript as the
+// first required property gets the part that actually matters written
+// while the model still has its full output budget ahead of it.
 const PROJECT_DEMO_TOOL = {
   type: 'function',
   function: {
     name: 'write_project_demo',
-    description: 'Return one complete, self-contained HTML file synthesizing every department\'s actual work into a single cohesive product demo.',
+    description: 'Return the two pieces of one self-contained HTML file synthesizing every department\'s actual work into a single cohesive product demo.',
     parameters: {
       type: 'object',
       properties: {
-        content: { type: 'string', description: 'The COMPLETE file content — one self-contained React+Babel+CDN HTML file, not a diff or snippet.' },
+        appScript: { type: 'string', description: 'The COMPLETE React/JSX app — everything that goes inside the <script type="text/babel"> tag, with no wrapping <script> tags of your own. A <div id="root"> already exists in the page before this script runs — do NOT define your own container element anywhere in your JSX; mount into the existing one, e.g. ReactDOM.render(<App />, document.getElementById("root")) or createRoot(document.getElementById("root")).render(<App />). Write this FIRST, before stylesAndHead.' },
+        stylesAndHead: { type: 'string', description: 'The CDN <script> tags for React/ReactDOM/Babel Standalone plus one <style> block with all CSS — everything that comes BEFORE the app script in the final file. Do NOT include a <div id="root"> yourself — one is already provided.' },
       },
-      required: ['content'],
+      required: ['appScript', 'stylesAndHead'],
     },
   },
 };
@@ -1049,7 +1072,7 @@ async function runProjectDemoSynthesis({ title, departments, model }) {
 
   const referenceEntry = departments.find((d) => d.referenceHtml);
   const referenceSection = referenceEntry
-    ? '\n\nOne department (' + referenceEntry.team + ') already built its own working self-contained React+Babel+CDN demo, reproduced below. Use it as your starting point and structural reference — extend and restyle it to also genuinely represent every other department listed above, rather than starting from nothing:\n```html\n' + referenceEntry.referenceHtml.slice(0, 12000) + '\n```'
+    ? '\n\nOne department (' + referenceEntry.team + ') already built its own working self-contained React+Babel+CDN demo, reproduced below. Use it as your starting point and structural reference — extend and restyle it so every other department\'s capability is genuinely reflected too, integrated the way described above rather than bolted on as new top-level tabs:\n```html\n' + referenceEntry.referenceHtml.slice(0, 12000) + '\n```'
     : '';
 
   const messages = [
@@ -1058,29 +1081,78 @@ async function runProjectDemoSynthesis({ title, departments, model }) {
       content:
         'You are synthesizing ONE combined product demo for "' + (title || 'this project') + '" from what several departments actually built, each in their own separate codebase (different tech stacks — you cannot run or import their real code). ' +
         'Write a SELF-CONTAINED React demo: React 18 + ReactDOM loaded from the unpkg CDN, JSX transformed in-browser via Babel Standalone (also CDN) — NOT a Vite/webpack/Next.js setup, zero build step. ' +
-        'Structure: <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>, <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>, <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>, then exactly ONE inline <script type="text/babel"> tag containing the entire app. ' +
-        'Make it genuinely represent EVERY department listed below as a real, clickable section or screen with plausible mock data reflecting what that department\'s own file list shows they actually built (not a generic guess) — e.g. if a department\'s files show an "inventory forecast" component, include a real forecast-looking panel with plausible numbers, not just a label. ' +
+        'You will return it as two separate pieces (see the tool schema) so write appScript FIRST: the complete React/JSX app, with no wrapping <script> tag — just the component code, hooks, and mock dataset. Then write stylesAndHead: the three CDN <script src="..."> tags (react, react-dom, @babel/standalone) plus one <style> block with the CSS. A <div id="root"></div> is already placed for you right before the app script runs — mount into that existing element (document.getElementById("root")); do not declare a container element of your own anywhere. ' +
+        'Make it genuinely represent EVERY department listed below with plausible mock data reflecting what that department\'s own file list shows they actually built (not a generic guess) — e.g. if a department\'s files show an "inventory forecast" component, include a real forecast-looking panel with plausible numbers, not just a label. ' +
+        DEPARTMENT_INTEGRATION_GUIDANCE + ' ' +
         'The app must make NO real network requests — use an in-memory mock dataset and React state/hooks only. ' +
         VISUAL_POLISH_GUIDANCE + ' ' +
         FUNCTIONAL_COMPLETENESS_GUIDANCE +
         referenceSection +
-        '\n\nCall write_project_demo exactly once with the complete file.',
+        '\n\nCall write_project_demo exactly once with both fields.',
     },
     { role: 'user', content: 'Departments and what each actually built:\n\n' + departmentsText },
   ];
 
-  const MAX_ATTEMPTS = 3;
-  let result = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
-  for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
-    const validation = validateSandboxScript(result.content || '');
-    if (validation.valid) break;
-    messages.push(
-      { role: 'assistant', content: JSON.stringify({ content: result.content }) },
-      { role: 'user', content: 'That file does not parse: ' + validation.error + '\n\nCall write_project_demo again with the COMPLETE corrected file.' }
-    );
-    result = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+  // The mount div is injected here, deterministically, rather than trusted
+  // to the model — leaving it to the model meant it sometimes never wrote
+  // one outside the script at all, instead defining its own <div id="root">
+  // as part of the App component's OWN rendered JSX. That's a real
+  // chicken-and-egg bug: nothing with that id exists in the actual DOM
+  // until AFTER a successful render, so document.getElementById("root") at
+  // render time finds nothing and ReactDOM throws "Target container is not
+  // a DOM element" (error #200) — reproduced live. Guaranteeing the div
+  // exists in the assembled HTML, before the script tag, removes the whole
+  // failure class regardless of what the model does.
+  function assemble(fields) {
+    return (fields.stylesAndHead || '') + '\n<div id="root"></div>\n<script type="text/babel">\n' + (fields.appScript || '') + '\n</script>';
   }
-  return result;
+
+  const MAX_ATTEMPTS = 3;
+  let fields = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+  let validation = validateSandboxScript(assemble(fields));
+  for (let attempt = 2; attempt <= MAX_ATTEMPTS && !validation.valid; attempt++) {
+    messages.push(
+      { role: 'assistant', content: JSON.stringify(fields) },
+      { role: 'user', content: 'That file does not parse: ' + validation.error + '\n\nCall write_project_demo again with the COMPLETE corrected appScript and stylesAndHead.' }
+    );
+    fields = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+    validation = validateSandboxScript(assemble(fields));
+  }
+  // Silently returning here would let a still-broken result (an
+  // under-length or off-topic response the model returned instead of the
+  // real file) look like a success to the caller. Only hand back content
+  // that has actually been verified to parse.
+  if (!validation.valid) throw new Error('The model could not produce a working project demo after ' + MAX_ATTEMPTS + ' attempts: ' + validation.error);
+
+  // Parsing fine isn't the same as actually representing every department —
+  // "make this genuinely cover all four departments" is just a prompt
+  // instruction, and models routinely settle for the one or two most
+  // obvious tabs (e.g. a Development-only "Returns" table with the AI/QA/
+  // DevOps sections left as literal placeholder text) and stop. Reuse the
+  // same verify-then-patch mechanism that already guards the per-department
+  // sandbox file's coverage, checked against ALL departments this time
+  // rather than "every OTHER department" since there's no single owner here.
+  let html = assemble(fields);
+  const MAX_COVERAGE_ROUNDS = 2;
+  let previousMissingCount = Infinity;
+  for (let round = 1; round <= MAX_COVERAGE_ROUNDS; round++) {
+    let coverage;
+    try {
+      coverage = await checkFrontendCoverage({ html, otherDepartments: departments, model });
+    } catch (err) {
+      break;
+    }
+    const missing = coverage.missingDepartments || [];
+    if (!missing.length || missing.length >= previousMissingCount) break;
+    previousMissingCount = missing.length;
+    try {
+      const patch = await patchFrontendCoverage({ html, otherDepartments: departments, missingDepartments: missing, model });
+      if (patch && patch.content && validateSandboxScript(patch.content).valid) html = patch.content;
+    } catch (err) {
+      break;
+    }
+  }
+  return { content: html };
 }
 
 async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDepartments }) {
