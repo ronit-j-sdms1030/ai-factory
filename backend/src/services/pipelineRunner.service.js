@@ -38,6 +38,12 @@ function stackFor(files) {
   if (paths.includes('package.json')) return 'node';
   if (paths.includes('requirements.txt') || paths.some((p) => /\.py$/i.test(p))) return 'python';
   if (paths.some((p) => /\.html$/i.test(p))) return 'static';
+  // A DevOps-style department's real deliverable is infrastructure-as-code —
+  // Terraform, CI/CD workflow definitions, deploy shell scripts — not an
+  // npm/pytest project. Without this, such a department can never pass CI:
+  // "no supported executable stack" isn't a description of anything wrong
+  // with the generated files, so no amount of AI rewriting can satisfy it.
+  if (paths.some((p) => /\.tf$/i.test(p) || /(^|\/)\.github\/workflows\//i.test(p) || /(^|\/)\.circleci\/config\.ya?ml$/i.test(p))) return 'infra';
   return 'generic';
 }
 
@@ -104,6 +110,48 @@ async function runPythonChecks(dir, phase) {
   return checks;
 }
 
+// Repo root — where node_modules (and js-yaml) actually live. The YAML check
+// below runs directly on the host rather than sandboxed, the same way
+// runNodeChecks' `node --check` syntax checks do above: parsing untrusted
+// YAML with a safe loader never executes anything, so there's no isolation
+// benefit to spinning up a container for it, only latency.
+const BACKEND_ROOT = path.join(__dirname, '..', '..');
+const YAML_CHECK_SCRIPT =
+  "try{require('js-yaml').load(require('fs').readFileSync(process.argv[1],'utf8'));process.exit(0);}" +
+  'catch(e){console.error(e.message);process.exit(1);}';
+
+async function runInfraChecks(dir) {
+  const tfFiles = [];
+  const yamlFiles = [];
+  const shFiles = [];
+  async function walk(current) {
+    for (const item of await fs.readdir(current, { withFileTypes: true })) {
+      if (['node_modules', '.git'].includes(item.name)) continue;
+      const full = path.join(current, item.name);
+      if (item.isDirectory()) await walk(full);
+      else if (/\.tf$/i.test(item.name)) tfFiles.push(full);
+      else if (/\.ya?ml$/i.test(item.name)) yamlFiles.push(full);
+      else if (/\.sh$/i.test(item.name)) shFiles.push(full);
+    }
+  }
+  await walk(dir);
+
+  const checks = [];
+  for (const file of yamlFiles.slice(0, 50)) checks.push(await runCommand(process.execPath, ['-e', YAML_CHECK_SCRIPT, file], BACKEND_ROOT, 15000));
+  for (const file of shFiles.slice(0, 50)) checks.push(await runCommand('bash', ['-n', file], dir, 15000));
+  // fmt (not validate) deliberately — validate needs `terraform init` to
+  // download real provider schemas, which means real network access for
+  // something that's supposed to be an isolated syntax check. No -check
+  // flag: this only needs to catch genuinely malformed/truncated HCL (fmt
+  // still has to parse a file before it can reformat it, so that alone
+  // fails the same way -check would) — not gate on canonical `=` alignment,
+  // which would fail plenty of otherwise-correct generated code on a purely
+  // cosmetic basis and send the AI fixer chasing whitespace instead of bugs.
+  if (tfFiles.length) checks.push(await runSandboxed('hashicorp/terraform:latest', 'terraform fmt -recursive .', dir, false));
+  if (!checks.length) checks.push({ command: 'infra inspection', passed: false, exitCode: null, durationMs: 0, stdout: '', stderr: 'No Terraform, workflow, or shell files were found to validate.' });
+  return checks;
+}
+
 async function runPipeline({ files, phase }) {
   const dir = await materialize(files);
   const stack = stackFor(files);
@@ -113,6 +161,7 @@ async function runPipeline({ files, phase }) {
     if (stack === 'node') checks = await runNodeChecks(dir, phase);
     else if (stack === 'python') checks = await runPythonChecks(dir, phase);
     else if (stack === 'static') checks = [{ command: 'static artifact validation', passed: true, exitCode: 0, durationMs: 0, stdout: 'HTML artifact is available for browser UAT.', stderr: '' }];
+    else if (stack === 'infra') checks = await runInfraChecks(dir);
     else checks = [{ command: 'pipeline detection', passed: false, exitCode: null, durationMs: 0, stdout: '', stderr: 'No supported executable stack was detected.' }];
     return { phase, stack, verdict: checks.every((c) => c.passed) ? 'pass' : 'fail', checks, startedAt, completedAt: Date.now(), durationMs: Date.now() - startedAt };
   } finally {

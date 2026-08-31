@@ -470,6 +470,21 @@ async function callForcedToolClaude({ model, messages, tool, maxTokens, retries 
   throw new Error('Claude returned a malformed response after retrying: ' + lastErr.message);
 }
 
+// Dispatches to whichever provider the given code-gen model actually
+// belongs to. The code-gen-tied fixers (security auto-fix, build fix,
+// project demo synthesis, frontend coverage check/patch) run against
+// whatever model a department's job was originally generated with — a job
+// generated on an OpenRouter model (e.g. Gemini 2.5 Flash) must not have its
+// "fix with AI" step hardcoded to Claude, or it breaks for anyone who hasn't
+// configured ANTHROPIC_API_KEY even though that job never needed it.
+async function callForcedToolAny({ model, messages, tool, maxTokens, retries, timeoutMs }) {
+  const chosenModel = CODE_GEN_MODELS[model] ? model : DEFAULT_CODE_GEN_MODEL;
+  if (ANTHROPIC_DIRECT_MODELS.has(chosenModel)) {
+    return callForcedToolClaude({ model: chosenModel, messages, tool, maxTokens, retries, timeoutMs });
+  }
+  return callForcedTool({ model: chosenModel, messages, tool, maxTokens, retries, timeoutMs });
+}
+
 // One-shot: reads the full finished conversation and structures it. Forces
 // the tool call so the response can only ever be the structured document,
 // never plain text.
@@ -802,17 +817,25 @@ async function runTeamReportChatEdit({ department, report, message }) {
 
 // ─── Code Generation ──────────────────────────────────────────────────────────
 
-// Models available for the TL's plug-and-play model selector — Claude only,
-// called directly against Anthropic's API (see anthropicClient above), not
-// through OpenRouter. IDs are Anthropic's own native model identifiers, not
-// OpenRouter's "anthropic/..." naming.
+// Models available for the TL's plug-and-play model selector. The Claude
+// entries use Anthropic's own native model IDs and are called directly
+// against Anthropic's API (see anthropicClient above); every other entry is
+// an OpenRouter model ID ("vendor/model") and goes through the OpenRouter
+// client instead — ANTHROPIC_DIRECT_MODELS below is what runCodeGen checks
+// to decide which one to use.
 const CODE_GEN_MODELS = {
   'claude-sonnet-5': 'Claude Sonnet 5 (default)',
   'claude-opus-5': 'Claude Opus 5',
   'claude-haiku-4-5-20251001': 'Claude Haiku 4.5',
+  'deepseek/deepseek-v3.2:nitro': 'DeepSeek V3.2',
+  'anthropic/claude-sonnet-4.5': 'Claude Sonnet 4.5 (via OpenRouter)',
+  'openai/gpt-4o': 'GPT-4o',
+  'openai/gpt-4o-mini': 'GPT-4o Mini',
+  'google/gemini-2.5-flash': 'Gemini 2.5 Flash',
 };
 
 const DEFAULT_CODE_GEN_MODEL = 'claude-sonnet-5';
+const ANTHROPIC_DIRECT_MODELS = new Set(['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5-20251001']);
 
 // Generates production-ready code for a team work package.
 // Returns { files: [{ path: string, content: string }] }
@@ -961,7 +984,7 @@ const FRONTEND_COVERAGE_FIX_TOOL = {
 // component files instead of folding them into the one file the sandbox
 // actually runs. This checks the ACTUAL generated file and patches in
 // whatever got left out, the same verify-then-fix shape as scanAndAutoFix.
-async function checkFrontendCoverage({ html, otherDepartments }) {
+async function checkFrontendCoverage({ html, otherDepartments, model }) {
   const deptList = otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '')).join('\n');
   const messages = [
     {
@@ -972,10 +995,10 @@ async function checkFrontendCoverage({ html, otherDepartments }) {
     },
     { role: 'user', content: 'Other departments to check for:\n' + deptList + '\n\nfrontend/index.html:\n```html\n' + html + '\n```' },
   ];
-  return callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: FRONTEND_COVERAGE_CHECK_TOOL, maxTokens: 500, timeoutMs: 60000 });
+  return callForcedToolAny({ model, messages, tool: FRONTEND_COVERAGE_CHECK_TOOL, maxTokens: 500, timeoutMs: 60000 });
 }
 
-async function patchFrontendCoverage({ html, otherDepartments, missingDepartments }) {
+async function patchFrontendCoverage({ html, otherDepartments, missingDepartments, model }) {
   const missingDetail = otherDepartments
     .filter((d) => missingDepartments.includes(d.team))
     .map((d) => '- ' + d.team + ': ' + (d.objective || ''))
@@ -991,7 +1014,7 @@ async function patchFrontendCoverage({ html, otherDepartments, missingDepartment
     },
     { role: 'user', content: 'Missing departments to add:\n' + missingDetail + '\n\nCurrent frontend/index.html:\n```html\n' + html + '\n```' },
   ];
-  return callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
+  return callForcedToolAny({ model, messages, tool: FRONTEND_COVERAGE_FIX_TOOL, maxTokens: 12000, timeoutMs: 120000 });
 }
 
 const PROJECT_DEMO_TOOL = {
@@ -1018,7 +1041,7 @@ const PROJECT_DEMO_TOOL = {
 // and writes a fresh file grounded in that, not a guess made before any of
 // it existed.
 // departments: [{ team, objective, files: [{path, description}], referenceHtml? }]
-async function runProjectDemoSynthesis({ title, departments }) {
+async function runProjectDemoSynthesis({ title, departments, model }) {
   const departmentsText = departments.map((d) => {
     const fileList = (d.files || []).map((f) => '  - ' + f.path + (f.description ? ': ' + f.description : '')).join('\n');
     return '### ' + d.team + '\nObjective: ' + (d.objective || '') + '\nFiles actually built:\n' + fileList;
@@ -1047,7 +1070,7 @@ async function runProjectDemoSynthesis({ title, departments }) {
   ];
 
   const MAX_ATTEMPTS = 3;
-  let result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+  let result = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
   for (let attempt = 2; attempt <= MAX_ATTEMPTS; attempt++) {
     const validation = validateSandboxScript(result.content || '');
     if (validation.valid) break;
@@ -1055,13 +1078,14 @@ async function runProjectDemoSynthesis({ title, departments }) {
       { role: 'assistant', content: JSON.stringify({ content: result.content }) },
       { role: 'user', content: 'That file does not parse: ' + validation.error + '\n\nCall write_project_demo again with the COMPLETE corrected file.' }
     );
-    result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
+    result = await callForcedToolAny({ model, messages, tool: PROJECT_DEMO_TOOL, maxTokens: 14000, timeoutMs: 150000 });
   }
   return result;
 }
 
 async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDepartments }) {
   const chosenModel = CODE_GEN_MODELS[model] ? model : DEFAULT_CODE_GEN_MODEL;
+  const useAnthropic = ANTHROPIC_DIRECT_MODELS.has(chosenModel);
   const isFrontendOwner = teamReport.team === FRONTEND_OWNING_DEPARTMENT;
   const frontendSandboxInstructions = isFrontendOwner ? buildFrontendSandboxInstructions(otherDepartments) : '';
   const consistencyInstructions = buildCrossDepartmentConsistencyInstructions(otherDepartments);
@@ -1097,13 +1121,21 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
   ];
 
   let filePlan;
-  const planSplit = splitSystemMessage(planMessages);
-  const planResponse = await anthropicClient.messages.create(
-    { model: chosenModel, max_tokens: 3000, system: planSplit.system, messages: planSplit.messages },
-    { timeout: 60000, maxRetries: 0 }
-  );
-
-  const planRaw = ((planResponse.content[0] && planResponse.content[0].text) || '').trim();
+  let planRaw;
+  if (useAnthropic) {
+    const planSplit = splitSystemMessage(planMessages);
+    const planResponse = await anthropicClient.messages.create(
+      { model: chosenModel, max_tokens: 3000, system: planSplit.system, messages: planSplit.messages },
+      { timeout: 60000, maxRetries: 0 }
+    );
+    planRaw = ((planResponse.content[0] && planResponse.content[0].text) || '').trim();
+  } else {
+    const planResponse = await client.chat.completions.create(
+      { model: chosenModel, messages: planMessages, max_tokens: 3000 },
+      { timeout: 60000, maxRetries: 0 }
+    );
+    planRaw = ((planResponse.choices[0].message && planResponse.choices[0].message.content) || '').trim();
+  }
   // Strip markdown fences if present
   const jsonStr = planRaw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
   try {
@@ -1172,21 +1204,36 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
         // Streamed rather than awaited whole — lets the IDE panel show the
         // file actually being written token-by-token instead of a static
         // "Generating…" placeholder that snaps to full content once done.
-        const attemptSplit = splitSystemMessage(attemptMessages);
-        const stream = await anthropicClient.messages.create(
-          // The sandbox entry file has to fit an entire React app (every
-          // component, every hook, the mock dataset) in one script block —
-          // the usual 4000-token budget runs out mid-file for anything but
-          // a trivial screen.
-          { model: chosenModel, max_tokens: isSandboxEntryFile ? 12000 : 4000, system: attemptSplit.system, messages: attemptSplit.messages, stream: true },
-          { timeout: isSandboxEntryFile ? 120000 : 90000, maxRetries: 0 }
-        );
-        for await (const event of stream) {
-          if (event.type !== 'content_block_delta' || !event.delta || event.delta.type !== 'text_delta') continue;
-          const delta = event.delta.text || '';
-          if (!delta) continue;
-          attemptContent += delta;
-          if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'streaming', partialContent: attemptContent });
+        // The sandbox entry file has to fit an entire React app (every
+        // component, every hook, the mock dataset) in one script block —
+        // the usual 4000-token budget runs out mid-file for anything but
+        // a trivial screen.
+        const maxTokens = isSandboxEntryFile ? 12000 : 4000;
+        const timeoutMs = isSandboxEntryFile ? 120000 : 90000;
+        if (useAnthropic) {
+          const attemptSplit = splitSystemMessage(attemptMessages);
+          const stream = await anthropicClient.messages.create(
+            { model: chosenModel, max_tokens: maxTokens, system: attemptSplit.system, messages: attemptSplit.messages, stream: true },
+            { timeout: timeoutMs, maxRetries: 0 }
+          );
+          for await (const event of stream) {
+            if (event.type !== 'content_block_delta' || !event.delta || event.delta.type !== 'text_delta') continue;
+            const delta = event.delta.text || '';
+            if (!delta) continue;
+            attemptContent += delta;
+            if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'streaming', partialContent: attemptContent });
+          }
+        } else {
+          const stream = await client.chat.completions.create(
+            { model: chosenModel, messages: attemptMessages, max_tokens: maxTokens, stream: true },
+            { timeout: timeoutMs, maxRetries: 0 }
+          );
+          for await (const chunk of stream) {
+            const delta = (chunk.choices[0] && chunk.choices[0].delta && chunk.choices[0].delta.content) || '';
+            if (!delta) continue;
+            attemptContent += delta;
+            if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'streaming', partialContent: attemptContent });
+          }
         }
         attemptContent = attemptContent.trim().replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
       } catch (err) {
@@ -1227,7 +1274,7 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
       for (let round = 1; round <= MAX_COVERAGE_ROUNDS; round++) {
         let coverage;
         try {
-          coverage = await checkFrontendCoverage({ html: entry.content, otherDepartments });
+          coverage = await checkFrontendCoverage({ html: entry.content, otherDepartments, model: chosenModel });
         } catch (err) {
           if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-error', message: err.message });
           break;
@@ -1237,7 +1284,7 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
         previousMissingCount = missing.length;
         if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-fix', missing, round });
         try {
-          const patch = await patchFrontendCoverage({ html: entry.content, otherDepartments, missingDepartments: missing });
+          const patch = await patchFrontendCoverage({ html: entry.content, otherDepartments, missingDepartments: missing, model: chosenModel });
           if (patch && patch.content) entry.content = patch.content;
         } catch (err) {
           if (onFileProgress) onFileProgress({ index: files.length, total: files.length, path: 'frontend/index.html', status: 'coverage-error', message: err.message });
@@ -1348,7 +1395,7 @@ const SECURITY_FIX_TOOL = {
 // rewrites just the flagged files to resolve the specific findings, leaving
 // everything else about them untouched. Still no code execution: this is
 // the AI editing text based on the AI's own prior read of that text.
-async function runSecurityAutoFix({ department, files, findings }) {
+async function runSecurityAutoFix({ department, files, findings, model }) {
   const flaggedPaths = [...new Set(findings.map((f) => f.file))];
   const relevantFiles = files.filter((f) => flaggedPaths.includes(f.path) && f.content);
   if (!relevantFiles.length) return [];
@@ -1371,7 +1418,7 @@ async function runSecurityAutoFix({ department, files, findings }) {
   // Dockerfile plus multiple Python modules, say), 6000 tokens routinely
   // wasn't enough room, so the model would silently return only one file
   // and the rest of the findings would look like the fix "didn't work."
-  const result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: SECURITY_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
+  const result = await callForcedToolAny({ model, messages, tool: SECURITY_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
   return result.files || [];
 }
 
@@ -1409,7 +1456,7 @@ const BUILD_FIX_TOOL = {
 // not a guess — and asks the model to fix whatever's actually broken,
 // which can mean editing files never mentioned in the error (package.json
 // needs a dependency the code already imports) or files it directly names.
-async function runBuildFix({ department, files, ciExecution }) {
+async function runBuildFix({ department, files, ciExecution, model }) {
   const failedChecks = ((ciExecution && ciExecution.checks) || []).filter((c) => !c.passed);
   if (!failedChecks.length) return [];
 
@@ -1429,7 +1476,7 @@ async function runBuildFix({ department, files, ciExecution }) {
     },
     { role: 'user', content: 'Failed command(s):\n' + failureText + '\n\nFiles:\n' + context },
   ];
-  const result = await callForcedToolClaude({ model: DEFAULT_CODE_GEN_MODEL, messages, tool: BUILD_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
+  const result = await callForcedToolAny({ model, messages, tool: BUILD_FIX_TOOL, maxTokens: 16000, timeoutMs: 90000 });
   return result.files || [];
 }
 

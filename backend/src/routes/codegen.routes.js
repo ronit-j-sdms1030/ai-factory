@@ -250,7 +250,7 @@ async function scanAndAutoFix(job) {
     job.log.push({ ts: Date.now(), msg: `Security scan found ${security.findings.length} issue(s) — applying AI fixes (round ${round})…` });
     await persistJob(job);
 
-    const fixedFiles = await runSecurityAutoFix({ department: job.department, files: job.files, findings: security.findings });
+    const fixedFiles = await runSecurityAutoFix({ department: job.department, files: job.files, findings: security.findings, model: job.model });
     if (!fixedFiles.length) break; // nothing came back — no point re-scanning the same state again
 
     for (const fixed of fixedFiles) {
@@ -837,7 +837,7 @@ router.post('/:codeGenId/fix-security-ai', requireAuth, async (req, res) => {
     }
     if (hasBuildFailure) {
       job.log.push({ ts: Date.now(), msg: 'TL requested AI-assisted CI build fixes…' });
-      const fixedFiles = await runBuildFix({ department: job.department, files: job.files, ciExecution: job.ciExecution });
+      const fixedFiles = await runBuildFix({ department: job.department, files: job.files, ciExecution: job.ciExecution, model: job.model });
       if (fixedFiles.length) {
         for (const fixed of fixedFiles) {
           const existing = job.files.find((f) => f.path === fixed.path);
@@ -1090,8 +1090,14 @@ router.post('/:artifactId/project-demo', requireAuth, async (req, res) => {
     };
   });
 
+  // Drive the synthesis with whichever model the frontend-owning department
+  // was actually generated with — that's the department whose real file is
+  // handed over as a structural reference, so its provider is the one this
+  // step is most likely to need working credentials for anyway.
+  const demoModel = (latestByDept.get(FRONTEND_OWNING_DEPARTMENT) || {}).model;
+
   try {
-    const result = await runProjectDemoSynthesis({ title: artifact.title, departments: demoInput });
+    const result = await runProjectDemoSynthesis({ title: artifact.title, departments: demoInput, model: demoModel });
     if (!result || !result.content) throw new Error('The model returned no content');
     artifact.projectDemo = { html: result.content, generatedAt: Date.now() };
     await artifact.save();
