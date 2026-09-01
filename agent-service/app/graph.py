@@ -115,11 +115,28 @@ def build_graph(checkpointer=None):
     builder.add_node("seed_chain", seed_chain)
     builder.add_node("intake_agent", intake_agent)
     builder.add_node("brd_agent", brd_agent)
-    builder.add_node("brd_gate", brd_gate)
     builder.add_node("ui_agent", ui_agent)
-    builder.add_node("ui_gate", ui_gate)
     builder.add_node("decomposition_agent", decomposition_agent)
-    builder.add_node("workitems_gate", workitems_gate)
+
+    # Gates route with Command(goto=...), which LangGraph cannot infer from the
+    # function body — so without `destinations` the compiled graph claims
+    # brd_gate leads straight to END and leaves the UI and decomposition nodes
+    # orphaned with no incoming edge. That is not just a drawing problem: it is
+    # what Studio renders and what anyone reading the topology believes. Each
+    # gate can approve onward, send the artefact back to the agent that
+    # produced it, or reject outright.
+    builder.add_node(
+        "brd_gate", brd_gate,
+        destinations=("ui_agent", "brd_agent", END),
+    )
+    builder.add_node(
+        "ui_gate", ui_gate,
+        destinations=("decomposition_agent", "ui_agent", END),
+    )
+    builder.add_node(
+        "workitems_gate", workitems_gate,
+        destinations=("decomposition_agent", END),
+    )
 
     builder.add_edge(START, "seed_chain")
     builder.add_edge("seed_chain", "intake_agent")
@@ -130,3 +147,15 @@ def build_graph(checkpointer=None):
     # Gates route onward with Command(goto=...), so they need no static edges.
 
     return builder.compile(checkpointer=checkpointer)
+
+
+def make_graph(config=None):
+    """Entry point for ``langgraph dev`` and LangGraph Studio.
+
+    The CLI calls a graph factory with its own ``RunnableConfig``, which lands
+    in the first parameter — passing ``build_graph`` directly meant the config
+    dict arrived where a checkpointer was expected and compilation failed. The
+    platform also supplies its own checkpointer, so this compiles without one
+    rather than fighting it for ownership of persistence.
+    """
+    return build_graph()
