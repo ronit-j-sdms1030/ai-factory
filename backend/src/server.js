@@ -7,6 +7,7 @@ const connectDB = require('./db/connect');
 const { seedDemoUsers } = require('./seed');
 const authRoutes = require('./routes/auth.routes');
 const codegenRoutes = require('./routes/codegen.routes');
+const agentProxyRoutes = require('./routes/agentProxy.routes');
 
 
 const app = express();
@@ -35,9 +36,10 @@ app.use(
 );
 
 app.use('/api/auth', authRoutes);
-// /api/artifacts is served by the Python agent service — see
-// ../../agent-service. Express retains auth (code generation depends on
-// the session) and /api/codegen, which has not been migrated.
+// /api/artifacts is served by the Python agent service. Express keeps the
+// URL and the session, and forwards the authenticated request onward, so the
+// frontend needs no change while the migration continues.
+app.use('/api/artifacts', agentProxyRoutes);
 app.use('/api/codegen', codegenRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, service: 'ai-software-factory backend', frontend: FRONTEND_ORIGIN }));

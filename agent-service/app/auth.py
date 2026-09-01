@@ -13,6 +13,7 @@ for the integration step rather than something to assume here.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -57,9 +58,46 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _forwarded_user(request: Request) -> dict[str, Any] | None:
+    """Identity forwarded by the Express proxy, if it can be trusted.
+
+    During migration the frontend still talks to Express, which authenticates
+    the session and forwards the user here. Trusting that header is only safe
+    if the caller proves it is Express, so it is accepted solely when a shared
+    secret matches.
+
+    Fails closed: with ``AGENT_SERVICE_TOKEN`` unset, forwarded identities are
+    ignored entirely rather than trusted by default. An unset secret must not
+    turn into an open door.
+    """
+    header = request.headers.get("x-actor")
+    if not header:
+        return None
+
+    expected = os.environ.get("AGENT_SERVICE_TOKEN")
+    if not expected or request.headers.get("x-agent-service-token") != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Forwarded identity rejected: missing or invalid agent service token",
+        )
+
+    try:
+        user = json.loads(header)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed X-Actor header")
+
+    if not isinstance(user, dict) or not user.get("id"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed X-Actor header")
+    return user
+
+
 def current_user(request: Request) -> dict[str, Any]:
-    """Dependency for routes that require a signed-in user."""
-    user = request.session.get("user")
+    """Dependency for routes that require a signed-in user.
+
+    Accepts either a direct session on this service or an identity forwarded
+    by the Express proxy.
+    """
+    user = _forwarded_user(request) or request.session.get("user")
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not signed in")
     return user
