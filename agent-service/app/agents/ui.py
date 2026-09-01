@@ -151,14 +151,12 @@ def strip_module_syntax(source: str) -> str:
 def _plan_screens(brd: dict) -> UIPlan:
     """Decide the screen set. Small output, so this call is cheap and reliable.
 
-    Deliberately not UI_MODEL. Planning is a schema-following task, not a
-    coding one, and the coder-tuned model failed it outright — it returned
-    screens with its own field names and dropped `purpose` and `keyElements`
-    on every one, 22 validation errors before a single screen was written.
-    The report model handles this shape reliably and always has.
+    Deliberately its own model. Planning is a schema-following task, not a
+    coding one, and two models have failed it while handling their own stage
+    fine — see UI_PLAN_MODEL in config for what each did.
     """
     return llm.call_structured(
-        model=config.DETAILED_REPORT_MODEL,
+        model=config.UI_PLAN_MODEL,
         schema=UIPlan,
         max_tokens=4000,
         retries=1,

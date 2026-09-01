@@ -89,7 +89,7 @@ def _model(name: str, default: str) -> str:
 
 
 # Conversational. Plain natural language, so a small fast model is right.
-CHAT_MODEL = _model("CHAT_MODEL", "groq/llama-3.3-70b-versatile")
+CHAT_MODEL = _model("CHAT_MODEL", "groq/openai/gpt-oss-20b")
 
 # Small structured jobs — finalising intake, applying FSD and package edits.
 REPORT_MODEL = _model("REPORT_MODEL", "groq/openai/gpt-oss-120b")
@@ -98,10 +98,24 @@ REPORT_MODEL = _model("REPORT_MODEL", "groq/openai/gpt-oss-120b")
 # the pipeline, and the screen plan that has to follow a schema exactly.
 DETAILED_REPORT_MODEL = _model("DETAILED_REPORT_MODEL", "groq/openai/gpt-oss-120b")
 
-# Screen sources only — a code-specialised model. Not the same model as the
-# screen plan: a coder-tuned model failed that call outright, returning its own
-# field names and dropping `purpose` and `keyElements` from every screen.
-UI_MODEL = _model("UI_MODEL", "groq/moonshotai/kimi-k2-instruct")
+# Screen sources. Ideally a code-specialised model — qwen3-coder produced the
+# cleanest React of anything tried — but Groq serves no coder model on this
+# account, so the large general model does both here. Kept as its own setting
+# because the right answer differs from the screen plan's: a coder-tuned model
+# failed that call outright, returning its own field names and dropping
+# `purpose` and `keyElements` from every screen.
+UI_MODEL = _model("UI_MODEL", "groq/openai/gpt-oss-120b")
+
+# The screen plan is its own setting because it is its own kind of work, and
+# two different models have now failed it while handling their own stage
+# fine: qwen3-coder returned its own field names, and gpt-oss-120b dropped
+# route, purpose and keyElements from every screen, twice, including on retry.
+#
+# It is also the cheapest call in the pipeline — roughly 1,700 completion
+# tokens once per run, against ~90,000 for the screens themselves — so leaving
+# it on a model that reliably follows a nested schema costs almost nothing
+# even when the rest of the stage has moved elsewhere to save credits.
+UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "deepseek/deepseek-v3.2")
 
 # The largest schema in the pipeline — work items with dependency edges, plus a
 # package per department carrying its own tech stack, owned data model, phased

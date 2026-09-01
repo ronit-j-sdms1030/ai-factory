@@ -30,6 +30,7 @@ from langsmith.wrappers import wrap_openai
 from openai import (
     APIConnectionError,
     APITimeoutError,
+    BadRequestError,
     InternalServerError,
     OpenAI,
     RateLimitError,
@@ -55,6 +56,20 @@ _RAW_TEXT_FIELDS = {"content"}
 # request or a bad key fails identically on every attempt, and retrying only
 # delays a clear error.
 _TRANSIENT = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+
+
+def _is_model_output_error(exc: BaseException) -> bool:
+    """Is this 400 the model's fault rather than ours?
+
+    Groq validates a forced tool call against the schema server-side and
+    rejects a mismatch with 400, where OpenRouter returns the malformed object
+    and lets Pydantic catch it. Same failure, different messenger — and it is
+    the model's output that was wrong, so another sample is worth taking.
+
+    A 400 about the request itself — an unknown model, a malformed body — will
+    fail identically every time, so those are still left alone.
+    """
+    return "tool call validation failed" in str(exc).lower()
 
 
 def _client(model: str) -> tuple[OpenAI, str]:
@@ -143,6 +158,16 @@ def call_structured(
 
             raw = json.loads(calls[0].function.arguments)
             return schema.model_validate(_unwrap_double_encoded(raw))
+
+        except BadRequestError as exc:
+            if not _is_model_output_error(exc):
+                raise
+            last_error = exc
+            log.warning(
+                "structured call to %s returned output the provider rejected "
+                "(attempt %d/%d): %s",
+                model, attempt + 1, retries + 1, str(exc)[:200],
+            )
 
         except (ValidationError, json.JSONDecodeError, RuntimeError, *_TRANSIENT) as exc:
             last_error = exc

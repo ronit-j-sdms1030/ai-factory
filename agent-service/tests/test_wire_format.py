@@ -143,3 +143,27 @@ class TestTransientFailuresAreRetried:
 
         assert BadRequestError not in _TRANSIENT
         assert AuthenticationError not in _TRANSIENT
+
+
+class TestProviderSideSchemaRejection:
+    """Groq rejects a schema-violating tool call with 400; OpenRouter does not.
+
+    Same failure — the model filled the schema wrongly — reported as a request
+    error instead of returned as a bad object. Worth another sample; a 400
+    about the request itself is not.
+    """
+
+    def test_a_tool_validation_400_is_retried(self):
+        from app.llm import _is_model_output_error
+
+        assert _is_model_output_error(
+            Exception("Error code: 400 - Tool call validation failed: "
+                      "parameters for tool UIPlan did not match schema")
+        )
+
+    def test_an_unknown_model_400_is_not_retried(self):
+        from app.llm import _is_model_output_error
+
+        assert not _is_model_output_error(
+            Exception("Error code: 400 - The model `nope` does not exist")
+        )
