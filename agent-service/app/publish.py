@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import github_api
+from . import github_api, reviewers
 from .git_store import GitStore, GitStoreError, open_store
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,10 @@ class PublishResult:
     branch: str | None = None
     sha: str | None = None
     pull_request_url: str | None = None
+    pull_request_number: int | None = None
     pushed: bool = False
+    reviewers_requested: list[str] | None = None
+    unmapped_reviewers: list[str] | None = None
     error: str | None = None
 
 
@@ -119,14 +122,8 @@ def publish(
             base=store.default_branch,
         )
         result.pull_request_url = pull.get("html_url")
-
-        # Requesting reviewers is a nice-to-have: on a personal account the
-        # tier teams do not exist, and the pull request is still a valid gate
-        # without them. Never fail the publish over it.
-        try:
-            client.request_reviewers(pull["number"], teams=list(spec["reviewers"]))
-        except github_api.GitHubError as exc:
-            log.info("could not request reviewers (teams may not exist): %s", exc)
+        result.pull_request_number = pull.get("number")
+        _assign_reviewers(client, pull, stage, result)
     except Exception as exc:  # noqa: BLE001
         log.exception("opening the pull request failed for %s", commit.branch)
         result.error = f"pull request failed: {exc}"
@@ -174,3 +171,45 @@ def _push_with_token(store: GitStore, branch: str, config: github_api.GitHubConf
     else:
         # First push of this branch; nothing to overwrite, so no lease needed.
         store.repo.git.push(url, f"{branch}:{branch}")
+
+
+def _assign_reviewers(client, pull: dict, stage: str, result: PublishResult) -> None:
+    """Put the right people on the pull request, by team or by name.
+
+    Teams are tried first because that is the mechanism CODEOWNERS and branch
+    protection enforce. They only exist inside a GitHub organisation, so on a
+    personal account the call fails and individual users are requested
+    instead — the same humans, without repository-level enforcement.
+
+    Never fatal: an unreviewed pull request is still a record of the gate, and
+    failing the publish here would lose the artefact entirely.
+    """
+    number = pull.get("number")
+    author = ((pull.get("user") or {}).get("login"))
+
+    try:
+        client.request_reviewers(number, teams=reviewers.team_slugs(stage))
+        result.reviewers_requested = reviewers.team_slugs(stage)
+        return
+    except github_api.GitHubError as exc:
+        log.info("team reviewers unavailable for %s (likely a personal account): %s", stage, exc)
+
+    logins = reviewers.github_logins_for(stage, exclude_login=author)
+    unmapped = reviewers.unmapped_reviewers(stage)
+    result.unmapped_reviewers = unmapped or None
+
+    if not logins:
+        # Nobody is assignable. Say so loudly — a gate with no reviewer looks
+        # healthy and waits forever.
+        result.error = (
+            f"no reviewer could be assigned for '{stage}': no GitHub team, and no "
+            f"approver has a githubLogin mapped ({', '.join(unmapped) or 'no candidates'})"
+        )
+        return
+
+    try:
+        client.request_reviewers(number, users=logins)
+        result.reviewers_requested = logins
+    except github_api.GitHubError as exc:
+        log.warning("could not request individual reviewers for %s: %s", stage, exc)
+        result.error = f"reviewers could not be requested: {exc}"

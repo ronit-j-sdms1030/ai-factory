@@ -123,3 +123,62 @@ class TestCodeowners:
     def test_prompt_changes_need_an_approver(self):
         """SoW 4.0 requires prompt templates to carry change history and approver identity."""
         assert "/prompts/" in codeowners("stark", [])
+
+
+from app.routes.webhooks import _action_for, _may_act
+
+
+class TestActionMapping:
+    """A pull-request approval means different things at different stages."""
+
+    def test_approval_at_pending_approval_is_an_approve(self):
+        assert _action_for("pending_approval", "approve") == "approve"
+
+    def test_approval_during_fsd_review_sends_the_fsd_onward(self):
+        """fsd_review does not accept 'approve' at all — it accepts sendFsdToClient."""
+        assert _action_for("fsd_review", "approve") == "sendFsdToClient"
+
+    def test_approval_at_the_client_loop_and_final_gate(self):
+        assert _action_for("fsd_pending_client", "approve") == "approveFsd"
+        assert _action_for("fsd_final_approval", "approve") == "giveFinalFsdApproval"
+
+    def test_rejection_only_applies_where_the_stage_models_it(self):
+        assert _action_for("pending_approval", "reject") == "reject"
+        assert _action_for("pending_approval", "revise") == "requestRevision"
+        assert _action_for("fsd_review", "reject") is None
+
+    def test_unknown_stage_yields_no_action(self):
+        assert _action_for("approved", "approve") is None
+
+
+class TestWebhookAuthorization:
+    """Must mirror state_machine.transition, not invent a parallel rule."""
+
+    def _artifact(self, stage, index=0):
+        return {
+            "currentStage": stage,
+            "approvalChain": [
+                {"approverTiers": ["md"], "approvedBy": []},
+                {"approverTiers": ["vp"], "approvedBy": []},
+            ],
+            "currentApprovalIndex": index,
+        }
+
+    def test_pending_approval_follows_the_current_chain_step(self):
+        art = self._artifact("pending_approval", index=1)
+        assert _may_act(art, "brd", "vp")
+        assert not _may_act(art, "brd", "md")
+
+    def test_fsd_loop_uses_the_gate_zero_pool_not_the_current_index(self):
+        art = self._artifact("fsd_review", index=1)
+        assert _may_act(art, "brd", "md")
+        assert not _may_act(art, "brd", "vp")
+
+    def test_client_loop_admits_no_tier(self):
+        """Originator-only; nobody can stand in for them via a review."""
+        art = self._artifact("fsd_pending_client", index=1)
+        assert not _may_act(art, "brd", "md")
+        assert not _may_act(art, "brd", "vp")
+
+    def test_exhausted_chain_admits_nobody(self):
+        assert not _may_act(self._artifact("pending_approval", index=2), "brd", "vp")

@@ -74,7 +74,10 @@ async def github_webhook(
         )
         return {"ignored": "reviewer is not the current gate"}
 
-    action = {"approve": "approve", "revise": "requestRevision", "reject": "reject"}[event.action]
+    action = _action_for(artifact.get("currentStage"), event.action)
+    if action is None:
+        return {"ignored": f"stage {artifact.get('currentStage')} accepts no {event.action} action"}
+
     try:
         transition(artifact, action, actor, comment=f"GitHub PR #{event.pr_number}: {event.body}".strip())
     except TransitionError as exc:
@@ -85,10 +88,55 @@ async def github_webhook(
     return {"ok": True, "action": action, "stage": artifact.get("currentStage")}
 
 
+# A pull-request approval means different things at different points in the
+# workflow, so the action depends on the stage the artifact is actually in.
+# Approving the BRD's pull request while the requirement sits in fsd_review is
+# the reviewer saying "this FSD is done", which is sendFsdToClient — not
+# approve, which that stage does not accept at all.
+_APPROVE_ACTION_BY_STAGE = {
+    "pending_approval": "approve",
+    "fsd_review": "sendFsdToClient",
+    "fsd_pending_client": "approveFsd",
+    "fsd_final_approval": "giveFinalFsdApproval",
+    "pending_client_review": "acceptChanges",
+}
+
+# Only pending_approval models rejection and revision; the FSD loop has no
+# equivalent transition, so those decisions are recorded but cannot move it.
+_OTHER_ACTIONS = {"revise": "requestRevision", "reject": "reject"}
+
+
+def _action_for(current_stage: str | None, decision: str) -> str | None:
+    if decision == "approve":
+        return _APPROVE_ACTION_BY_STAGE.get(current_stage or "")
+    if current_stage == "pending_approval":
+        return _OTHER_ACTIONS.get(decision)
+    return None
+
+
 def _may_act(artifact: dict, stage: str | None, tier: str | None) -> bool:
-    """Is this reviewer's tier the one this gate is waiting on?"""
+    """Is this reviewer's tier the one this gate is waiting on?
+
+    Mirrors the authorization in ``state_machine.transition`` rather than
+    inventing a parallel rule: the FSD loop is not chain-indexed and is
+    governed by the gate-0 reviewer pool, while pending_approval is governed
+    by whichever step the chain currently sits on. A divergence here would let
+    the webhook admit an approval the state machine would then refuse — or,
+    worse, one it would wrongly accept.
+    """
+    current = artifact.get("currentStage")
+
+    if current in ("fsd_review", "fsd_final_approval"):
+        chain = artifact.get("approvalChain") or [{}]
+        return tier in (chain[0].get("approverTiers") or [])
+
+    if current == "fsd_pending_client":
+        # Originator-only; a tier cannot stand in for them.
+        return False
+
     if stage in GATE_TIERS:
         return tier in GATE_TIERS[stage]
+
     chain = artifact.get("approvalChain") or []
     index = artifact.get("currentApprovalIndex", 0)
     if index >= len(chain):
