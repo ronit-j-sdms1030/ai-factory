@@ -85,6 +85,38 @@ class GitStore:
         repo.index.commit("Initialise governance repository")
         return cls(path, default_branch=default_branch)
 
+    def ensure_base_commit(self) -> None:
+        """Guarantee the default branch exists with at least one commit.
+
+        A repository freshly created on GitHub and cloned has no commits at
+        all, so there is nothing to branch from. Rather than requiring someone
+        to remember to initialise it with a README first, create the base
+        commit here — the failure mode otherwise is an opaque KeyError on the
+        first artefact write.
+        """
+        if self.default_branch in self.repo.heads:
+            return
+
+        if self.repo.head.is_valid():
+            # Commits exist under a different branch name (for example the
+            # remote defaults to master). Point the expected name at them
+            # rather than starting a parallel history.
+            self.repo.create_head(self.default_branch, self.repo.head.commit)
+            return
+
+        readme = self.path / "README.md"
+        if not readme.exists():
+            readme.write_text(
+                "# Governance repository\n\n"
+                "Requirement artefacts written by the AI Software Factory's agents.\n"
+                "Each approval gate is a pull request; see `docs/architecture.md` in the platform repo.\n",
+                encoding="utf-8",
+            )
+        self.repo.index.add(["README.md"])
+        self.repo.index.commit("Initialise governance repository")
+        if self.repo.active_branch.name != self.default_branch:
+            self.repo.active_branch.rename(self.default_branch)
+
     # ── paths ────────────────────────────────────────────────────────────────
     def requirement_dir(self, artifact_id: str) -> Path:
         return self.path / "requirements" / _slug(artifact_id)
@@ -99,19 +131,31 @@ class GitStore:
         Markdown rather than JSON because this is the artefact a human actually
         reads at the first gate; the structured form is embedded for machines.
         """
+        # Both spellings are accepted because both pipelines write to the same
+        # collection during the migration: the Python schema uses snake_case,
+        # while records created by the Express backend use camelCase. Reading
+        # only one silently produced empty sections in the very document a
+        # reviewer reads at the first gate.
+        def field(*names: str) -> list:
+            for name in names:
+                value = requirement.get(name)
+                if value:
+                    return value
+            return []
+
         body = [
             f"# {requirement.get('title', 'Untitled requirement')}",
             "",
             requirement.get("summary", ""),
             "",
             "## In scope",
-            *(f"- {x}" for x in requirement.get("in_scope") or []),
+            *(f"- {x}" for x in field("in_scope", "inScope")),
             "",
             "## Out of scope",
-            *(f"- {x}" for x in requirement.get("out_of_scope") or []),
+            *(f"- {x}" for x in field("out_of_scope", "outOfScope")),
             "",
             "## Open questions",
-            *(f"- {x}" for x in requirement.get("open_questions") or []),
+            *(f"- {x}" for x in field("open_questions", "openQuestions")),
             "",
             "## Structured requirement",
             "",
@@ -189,6 +233,8 @@ class GitStore:
         actor = AGENT_ACTORS.get(agent)
         if actor is None:
             raise GitStoreError(f"unknown agent '{agent}'")
+
+        self.ensure_base_commit()
 
         branch = self.branch_name(artifact_id, stage)
         base = self.repo.heads[self.default_branch]

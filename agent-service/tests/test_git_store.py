@@ -118,6 +118,14 @@ class TestLayouts:
         files = store.workitem_files(DECOMPOSITION)
         assert "workitems/sales-marketing/package.json" in files
 
+    def test_requirement_markdown_reads_camelcase_from_the_js_pipeline(self, store):
+        """Both pipelines write to one collection during migration; reading only
+        snake_case rendered empty sections in the document reviewed at gate 1."""
+        body = store.requirement_files(
+            {"title": "T", "inScope": ["a"], "outOfScope": ["b"], "openQuestions": ["c"]}, ""
+        )["requirement.md"]
+        assert "- a" in body and "- b" in body and "- c" in body
+
     def test_requirement_markdown_embeds_the_structured_form(self, store):
         files = store.requirement_files(
             {"title": "T", "summary": "S", "in_scope": ["a"]}, "user: hello"
@@ -171,3 +179,36 @@ class TestOptionalConfiguration:
         GitStore.init(tmp_path / "g")
         monkeypatch.setenv("GOVERNANCE_REPO_PATH", str(tmp_path / "g"))
         assert open_store() is not None
+
+
+class TestEmptyRepository:
+    """A repo freshly created on GitHub and cloned has no commits at all."""
+
+    def test_commits_into_a_cloned_empty_repository(self, tmp_path):
+        Repo.init(tmp_path / "empty", initial_branch="main")
+        store = GitStore(tmp_path / "empty")
+        result = store.commit_artefacts(
+            artifact_id="a1", stage="brd", agent="brd",
+            files={"brd/brd.json": "{}"}, message="m",
+        )
+        assert result.branch == "req/a1/brd"
+        assert store.repo.heads["main"].commit.message.startswith("Initialise")
+
+    def test_base_commit_is_created_only_once(self, tmp_path):
+        Repo.init(tmp_path / "empty", initial_branch="main")
+        store = GitStore(tmp_path / "empty")
+        store.commit_artefacts(artifact_id="a1", stage="brd", agent="brd",
+                               files={"a.json": "{}"}, message="m")
+        store.commit_artefacts(artifact_id="a2", stage="brd", agent="brd",
+                               files={"b.json": "{}"}, message="m")
+        assert len(list(store.repo.iter_commits("main"))) == 1
+
+    def test_adopts_an_existing_history_under_another_branch_name(self, tmp_path):
+        """A remote defaulting to master must not start a parallel history."""
+        repo = Repo.init(tmp_path / "legacy", initial_branch="master")
+        (tmp_path / "legacy" / "x.txt").write_text("x")
+        repo.index.add(["x.txt"])
+        first = repo.index.commit("existing work")
+        store = GitStore(tmp_path / "legacy")
+        store.ensure_base_commit()
+        assert store.repo.heads["main"].commit == first
