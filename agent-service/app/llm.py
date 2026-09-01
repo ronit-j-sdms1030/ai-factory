@@ -27,7 +27,13 @@ import logging
 from typing import Any, TypeVar
 
 from langsmith.wrappers import wrap_openai
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 from pydantic import BaseModel, ValidationError
 
 from . import config
@@ -38,6 +44,17 @@ T = TypeVar("T", bound=BaseModel)
 
 # Field names whose value must never be re-parsed even if it looks like JSON.
 _RAW_TEXT_FIELDS = {"content"}
+
+# Failures worth another sample. A dropped connection, a timeout, a rate limit
+# or a provider 5xx says nothing about the request — the same call a moment
+# later usually succeeds. These were previously uncaught, so a three-second
+# network blip mid-run cost a whole screen: the exception escaped the retry
+# loop entirely and the UI agent recorded the screen as ungeneratable.
+#
+# Deliberately excludes BadRequestError and AuthenticationError. A malformed
+# request or a bad key fails identically on every attempt, and retrying only
+# delays a clear error.
+_TRANSIENT = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
 
 def _client() -> OpenAI:
@@ -125,7 +142,7 @@ def call_structured(
             raw = json.loads(calls[0].function.arguments)
             return schema.model_validate(_unwrap_double_encoded(raw))
 
-        except (ValidationError, json.JSONDecodeError, RuntimeError) as exc:
+        except (ValidationError, json.JSONDecodeError, RuntimeError, *_TRANSIENT) as exc:
             last_error = exc
             log.warning(
                 "structured call to %s failed (attempt %d/%d): %s",

@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from .. import db, jobs
@@ -29,6 +29,8 @@ from ..auth import actor_from, current_user
 from ..config import TIERS, originator_label, resolve_approval_chain
 from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
 from ..publish import publish
+from ..ui_preview import CSP as PREVIEW_CSP
+from ..ui_preview import build_preview
 from ..state_machine import TransitionError, transition
 
 log = logging.getLogger(__name__)
@@ -574,6 +576,23 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
 class ActionBody(BaseModel):
     comment: str | None = None
     finalApproverTier: str | None = None
+
+
+@router.get("/{artifact_id}/ui/preview")
+def ui_preview(artifact_id: str, actor: dict = Depends(current_user)):
+    """The generated screens, assembled into one runnable page.
+
+    Served as HTML rather than JSON because the point is to look at it. The
+    Content-Security-Policy sandboxes the generated code the same way the
+    JavaScript project demo does: it may render and run, but it cannot reach
+    the network or the parent page.
+    """
+    artifact = _load(artifact_id)
+    return Response(
+        content=build_preview(artifact.get("ui") or {}, artifact.get("title") or "Untitled"),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Security-Policy": PREVIEW_CSP, "Cache-Control": "no-store"},
+    )
 
 
 @router.get("/{artifact_id}/jobs")

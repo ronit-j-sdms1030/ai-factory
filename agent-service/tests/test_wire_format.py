@@ -115,3 +115,31 @@ class TestTolerantValidation:
             }
         )
         assert pkg.model_dump(by_alias=True)["dataModel"] == []
+
+
+class TestTransientFailuresAreRetried:
+    """A dropped connection says nothing about the request.
+
+    An APIConnectionError mid-run escaped the retry loop entirely and the UI
+    agent recorded that screen as ungeneratable — a three-second network blip
+    permanently costing a screen, when another sample would have worked.
+    """
+
+    def test_connection_errors_are_retryable(self):
+        from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+
+        from app.llm import _TRANSIENT
+
+        assert APIConnectionError in _TRANSIENT
+        assert APITimeoutError in _TRANSIENT
+        assert RateLimitError in _TRANSIENT
+        assert InternalServerError in _TRANSIENT
+
+    def test_a_bad_request_is_not_retried(self):
+        """Retrying a malformed request or a bad key only delays a clear error."""
+        from openai import AuthenticationError, BadRequestError
+
+        from app.llm import _TRANSIENT
+
+        assert BadRequestError not in _TRANSIENT
+        assert AuthenticationError not in _TRANSIENT
