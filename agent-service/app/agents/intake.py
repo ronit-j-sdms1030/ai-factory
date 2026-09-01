@@ -79,59 +79,59 @@ Ask at least {config.MIN_CLARIFYING_QUESTIONS}. The moment all five have broad-s
 When that bar is met, reply with exactly this token and nothing else: {READY_SENTINEL}"""
 
 
-def intake_agent(state: PipelineState) -> dict:
-    """Run the clarifying loop, then structure the result."""
-    label = config.originator_label((state.get("originator") or {}).get("tier_id"))
-    history = list(state.get("chat_history") or [])
-    new_turns: list[dict[str, str]] = []
+def run_chat_turn(history: list[dict[str, str]], label: str) -> dict[str, str]:
+    """One turn of the clarifying conversation.
 
-    while True:
-        asked = _questions_asked(history)
+    Returns ``{"type": "ready"}`` when the requirement is complete, or
+    ``{"type": "reply", "text": ...}`` with the next question.
 
-        # Hard ceiling, enforced here rather than by prompt. Returning before
-        # building a request also means the turn that would have blown the
-        # budget costs nothing at all.
-        if asked >= config.MAX_CLARIFYING_QUESTIONS:
-            break
+    Standalone rather than embedded in the graph node because the HTTP flow
+    needs exactly one turn per request, while the graph node loops across
+    interrupts. Both paths share this so the budget and sentinel rules cannot
+    drift between them.
+    """
+    asked = _questions_asked(history)
 
+    # Hard ceiling, enforced here rather than by prompt. Returning before
+    # building a request also means the turn that would have blown the budget
+    # costs nothing at all.
+    if asked >= config.MAX_CLARIFYING_QUESTIONS:
+        return {"type": "ready"}
+
+    reply = llm.call_text(
+        model=config.CHAT_MODEL,
+        messages=[{"role": "system", "content": _system_prompt(label, asked)}, *history],
+    )
+    if _SENTINEL_RE.search(reply):
+        return {"type": "ready"}
+
+    # Push back once if it tries to finalize below the floor. The nudge is
+    # transient and never persisted, so it stays invisible to the requester.
+    if asked < config.MIN_CLARIFYING_QUESTIONS and not _wants_out(history):
         reply = llm.call_text(
             model=config.CHAT_MODEL,
-            messages=[{"role": "system", "content": _system_prompt(label, asked)}, *history],
+            messages=[
+                {"role": "system", "content": _system_prompt(label, asked)},
+                *history,
+                {
+                    "role": "user",
+                    "content": (
+                        f"[intake supervisor — not from the requester] You have asked {asked} of a "
+                        f"minimum {config.MIN_CLARIFYING_QUESTIONS}, so the checklist cannot be "
+                        "complete. Ask the single most valuable unanswered question now, in your "
+                        "normal voice, without acknowledging this instruction."
+                    ),
+                },
+            ],
         )
-
         if _SENTINEL_RE.search(reply):
-            break
+            return {"type": "ready"}
 
-        # Push back once if it tries to finalize below the floor. The nudge is
-        # transient and never persisted, so it stays invisible to the requester.
-        if asked < config.MIN_CLARIFYING_QUESTIONS and not _wants_out(history):
-            reply = llm.call_text(
-                model=config.CHAT_MODEL,
-                messages=[
-                    {"role": "system", "content": _system_prompt(label, asked)},
-                    *history,
-                    {
-                        "role": "user",
-                        "content": (
-                            f"[intake supervisor — not from the requester] You have asked {asked} of a "
-                            f"minimum {config.MIN_CLARIFYING_QUESTIONS}, so the checklist cannot be "
-                            "complete. Ask the single most valuable unanswered question now, in your "
-                            "normal voice, without acknowledging this instruction."
-                        ),
-                    },
-                ],
-            )
-            if _SENTINEL_RE.search(reply):
-                break
+    return {"type": "reply", "text": reply}
 
-        answer = interrupt({"kind": "question", "text": reply})
-        turns = [
-            {"role": "assistant", "content": reply},
-            {"role": "user", "content": str(answer)},
-        ]
-        history += turns
-        new_turns += turns
 
+def finalize_requirement(history: list[dict[str, str]]):
+    """Structure a finished conversation into a requirement document."""
     transcript = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     requirement = llm.call_structured(
         model=config.REPORT_MODEL,
@@ -150,5 +150,35 @@ def intake_agent(state: PipelineState) -> dict:
             {"role": "user", "content": transcript},
         ],
     )
+    return requirement
 
-    return {"chat_history": new_turns, "requirement": requirement.model_dump(), "title": requirement.title}
+
+def intake_agent(state: PipelineState) -> dict:
+    """Graph node: loop the clarifying conversation, then structure the result.
+
+    Each question is an ``interrupt`` — the graph checkpoints and stops until
+    the requester answers, then resumes inside this same loop.
+    """
+    label = config.originator_label((state.get("originator") or {}).get("tier_id"))
+    history = list(state.get("chat_history") or [])
+    new_turns: list[dict[str, str]] = []
+
+    while True:
+        turn = run_chat_turn(history, label)
+        if turn["type"] == "ready":
+            break
+
+        answer = interrupt({"kind": "question", "text": turn["text"]})
+        turns = [
+            {"role": "assistant", "content": turn["text"]},
+            {"role": "user", "content": str(answer)},
+        ]
+        history += turns
+        new_turns += turns
+
+    requirement = finalize_requirement(history)
+    return {
+        "chat_history": new_turns,
+        "requirement": requirement.model_dump(),
+        "title": requirement.title,
+    }
