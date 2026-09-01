@@ -89,22 +89,20 @@ def _model(name: str, default: str) -> str:
 
 
 # Conversational. Plain natural language, so a small fast model is right.
-CHAT_MODEL = _model("CHAT_MODEL", "groq/openai/gpt-oss-20b")
+CHAT_MODEL = _model("CHAT_MODEL", "anthropic/claude-haiku-4.5")
 
 # Small structured jobs — finalising intake, applying FSD and package edits.
-REPORT_MODEL = _model("REPORT_MODEL", "groq/openai/gpt-oss-120b")
+REPORT_MODEL = _model("REPORT_MODEL", "openai/gpt-4o-mini")
 
 # The BRD, its critique and its patch: the largest prose-shaped documents in
 # the pipeline, and the screen plan that has to follow a schema exactly.
-DETAILED_REPORT_MODEL = _model("DETAILED_REPORT_MODEL", "groq/openai/gpt-oss-120b")
+DETAILED_REPORT_MODEL = _model("DETAILED_REPORT_MODEL", "deepseek/deepseek-v3.2:nitro")
 
-# Screen sources. Ideally a code-specialised model — qwen3-coder produced the
-# cleanest React of anything tried — but Groq serves no coder model on this
-# account, so the large general model does both here. Kept as its own setting
-# because the right answer differs from the screen plan's: a coder-tuned model
-# failed that call outright, returning its own field names and dropping
-# `purpose` and `keyElements` from every screen.
-UI_MODEL = _model("UI_MODEL", "groq/openai/gpt-oss-120b")
+# Screen sources. Code-specialised, and measurably the best of everything
+# tried: 11 of 12 screens rendered, against 4 of 12 from deepseek-v3.2:nitro,
+# whose output arrived corrupted — digits turned into letters, CJK punctuation
+# in ASCII source, the system prompt written into a CSS value.
+UI_MODEL = _model("UI_MODEL", "qwen/qwen3-coder")
 
 # The screen plan is its own setting because it is its own kind of work, and
 # two different models have now failed it while handling their own stage
@@ -115,7 +113,7 @@ UI_MODEL = _model("UI_MODEL", "groq/openai/gpt-oss-120b")
 # tokens once per run, against ~90,000 for the screens themselves — so leaving
 # it on a model that reliably follows a nested schema costs almost nothing
 # even when the rest of the stage has moved elsewhere to save credits.
-UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "groq/openai/gpt-oss-120b")
+UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "deepseek/deepseek-v3.2")
 
 # The largest schema in the pipeline — work items with dependency edges, plus a
 # package per department carrying its own tech stack, owned data model, phased
@@ -123,7 +121,7 @@ UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "groq/openai/gpt-oss-120b")
 # four packages and zero work items, leaving an empty dependency graph the
 # integrity check reported as clean, and the next dropped `securityDesign`
 # from two packages outright.
-DECOMPOSITION_MODEL = _model("DECOMPOSITION_MODEL", "groq/openai/gpt-oss-120b")
+DECOMPOSITION_MODEL = _model("DECOMPOSITION_MODEL", "deepseek/deepseek-v3.2")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -145,6 +143,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # existing configuration keeps working.
 _BUILTIN_PROVIDERS = {
     "groq": "https://api.groq.com/openai/v1",
+    # Free with a GitHub account, authenticated with a PAT. Carries GPT-4o and
+    # GPT-4o-mini, which no open-model host can, plus DeepSeek and Llama.
+    # If the endpoint has moved, set PROVIDER_GITHUB_BASE_URL.
+    "github": "https://models.inference.ai.azure.com",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "cerebras": "https://api.cerebras.ai/v1",
     "together": "https://api.together.xyz/v1",
