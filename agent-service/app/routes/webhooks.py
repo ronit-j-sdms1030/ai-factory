@@ -54,7 +54,7 @@ async def github_webhook(
     if not event.artifact_id:
         return {"ignored": f"branch {event.branch} is not a requirement branch"}
 
-    artifact = db.artifacts().find_one({"_id": _oid(event.artifact_id)})
+    artifact = _find_artifact(event.artifact_id)
     if not artifact:
         return {"ignored": f"unknown artifact {event.artifact_id}"}
 
@@ -142,6 +142,21 @@ def _may_act(artifact: dict, stage: str | None, tier: str | None) -> bool:
     if index >= len(chain):
         return False
     return tier in (chain[index].get("approverTiers") or [])
+
+
+def _find_artifact(folder: str):
+    """Resolve the requirement a branch belongs to.
+
+    Branches are named after the requirement's ``repoSlug`` — a readable
+    title-plus-short-id, because a raw Mongo id in a branch list identifies
+    nothing. Branches created before that change carry the bare id instead, so
+    those are still resolved; without the fallback every gate on an existing
+    pull request would stop opening the moment the naming changed.
+    """
+    by_slug = db.artifacts().find_one({"repoSlug": folder})
+    if by_slug:
+        return by_slug
+    return db.artifacts().find_one({"_id": _oid(folder)})
 
 
 def _oid(value: str):

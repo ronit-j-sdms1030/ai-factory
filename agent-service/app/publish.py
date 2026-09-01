@@ -18,7 +18,36 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import github_api, reviewers
-from .git_store import GitStore, GitStoreError, open_store
+from .git_store import GitStore, GitStoreError, _slug, open_store
+
+# How much of the title goes into the folder name. Long enough to identify the
+# requirement at a glance in a branch list, short enough to stay readable.
+_TITLE_SEGMENT = 44
+
+
+def repo_folder(artifact: dict[str, Any]) -> str:
+    """The folder and branch segment for one requirement.
+
+    A raw Mongo id tells a reviewer nothing — ``req/6a968da2ee951e14aa09ae1a/brd``
+    is indistinguishable from every other branch at a glance. This pairs the
+    title with a short id suffix, so branches read as
+    ``req/starklogix-warehouse-and-logistics-6a968da2/brd`` and still cannot
+    collide between two requirements sharing a title.
+
+    Computed once and stored on the artifact, never recomputed: the FSD edit
+    chat can rename a requirement mid-pipeline, and a folder that moved would
+    strand every artefact already committed under the old name in a branch
+    nobody looks at again.
+    """
+    existing = artifact.get("repoSlug")
+    if existing:
+        return existing
+
+    short = str(artifact.get("_id"))[-8:]
+    title = _slug(artifact.get("title") or "")[:_TITLE_SEGMENT].strip("-")
+    folder = f"{title}-{short}" if title and title != "unnamed" else f"requirement-{short}"
+    artifact["repoSlug"] = folder
+    return folder
 
 log = logging.getLogger(__name__)
 
@@ -104,7 +133,7 @@ def _publish_locked(
     if store is None:
         return PublishResult()  # Git not configured — silently inert, by design
 
-    artifact_id = str(artifact.get("_id"))
+    artifact_id = repo_folder(artifact)
     spec = STAGES[stage]
 
     try:
