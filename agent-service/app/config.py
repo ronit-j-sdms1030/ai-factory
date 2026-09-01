@@ -79,26 +79,60 @@ MAX_CLARIFYING_QUESTIONS = 10
 
 
 # ── Models ───────────────────────────────────────────────────────────────────
-CHAT_MODEL = "anthropic/claude-haiku-4.5"
-REPORT_MODEL = "openai/gpt-4o-mini"
-DETAILED_REPORT_MODEL = "deepseek/deepseek-v3.2:nitro"
-
-# Screen *sources* get their own model, and a code-specialised one; the
-# screen plan stays on DETAILED_REPORT_MODEL (see _plan_screens). Sharing
-# DETAILED_REPORT_MODEL was convenient but wrong for the workload: the BRD is
-# ~5,300 tokens of prose-heavy JSON and comes back clean, while a screen is
-# ~7,500 tokens of dense JSX and came back corrupted — digits turned into
-# letters ("I8.5" for 18.5), CJK punctuation in ASCII source, the system
-# prompt written into a CSS value, and DeepSeek's own tool-call delimiters
-# inside string literals. Twelve of twelve screens failed to parse.
+# Every model is overridable from the environment, because which one suits a
+# stage is a question answered by running it, not by reading a docs page — and
+# a bad choice should be a one-line .env change rather than a deploy.
 #
-# No ":nitro" here either. That suffix asks OpenRouter for the
-# highest-throughput provider, which is a reasonable trade for prose and a bad
-# one for code: corruption at that level looks far more like an aggressively
-# quantised host than a model that cannot write React.
-UI_MODEL = "qwen/qwen3-coder"
+# A "groq/" prefix routes to Groq; anything else goes to OpenRouter.
+def _model(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+# Conversational. Plain natural language, so a small fast model is right.
+CHAT_MODEL = _model("CHAT_MODEL", "groq/llama-3.3-70b-versatile")
+
+# Small structured jobs — finalising intake, applying FSD and package edits.
+REPORT_MODEL = _model("REPORT_MODEL", "groq/openai/gpt-oss-120b")
+
+# The BRD, its critique and its patch: the largest prose-shaped documents in
+# the pipeline, and the screen plan that has to follow a schema exactly.
+DETAILED_REPORT_MODEL = _model("DETAILED_REPORT_MODEL", "groq/openai/gpt-oss-120b")
+
+# Screen sources only — a code-specialised model. Not the same model as the
+# screen plan: a coder-tuned model failed that call outright, returning its own
+# field names and dropping `purpose` and `keyElements` from every screen.
+UI_MODEL = _model("UI_MODEL", "groq/moonshotai/kimi-k2-instruct")
+
+# The largest schema in the pipeline — work items with dependency edges, plus a
+# package per department carrying its own tech stack, owned data model, phased
+# plan and security design. gpt-4o-mini could not hold it: one run returned
+# four packages and zero work items, leaving an empty dependency graph the
+# integrity check reported as clean, and the next dropped `securityDesign`
+# from two packages outright.
+DECOMPOSITION_MODEL = _model("DECOMPOSITION_MODEL", "groq/openai/gpt-oss-120b")
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Groq speaks the OpenAI chat-completions format too, so a model can be sent
+# there instead by prefixing its id with "groq/". The prefix is stripped
+# before the call — it is routing information for us, not part of the model
+# name Groq knows.
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_PREFIX = "groq/"
+
+
+def provider_for(model: str) -> tuple[str, str, str]:
+    """Where to send this model: (base_url, api_key, model_id)."""
+    if model.startswith(GROQ_PREFIX):
+        return GROQ_BASE_URL, groq_api_key(), model[len(GROQ_PREFIX):]
+    return OPENROUTER_BASE_URL, openrouter_api_key(), model
+
+
+def groq_api_key() -> str:
+    key = os.environ.get("GROQ_API_KEY")
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    return key
 
 
 def openrouter_api_key() -> str:

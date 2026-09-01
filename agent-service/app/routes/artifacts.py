@@ -270,7 +270,7 @@ def _maybe_split(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        result = decomposition_agent({"brd": artifact["detailedReport"]})["workItems"]
+        result = decomposition_agent({"brd": artifact["detailedReport"]})["work_items"]
         artifact["teamReports"] = result.get("packages", [])
         artifact["workItems"] = result.get("workItems", [])
         artifact["workItemIntegrity"] = result.get("integrity", {})

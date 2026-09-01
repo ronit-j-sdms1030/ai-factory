@@ -57,8 +57,13 @@ _RAW_TEXT_FIELDS = {"content"}
 _TRANSIENT = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
 
 
-def _client() -> OpenAI:
-    """The OpenRouter client, wrapped so LangSmith can see the call.
+def _client(model: str) -> tuple[OpenAI, str]:
+    """A client pointed at whichever provider serves ``model``, and its real id.
+
+    Groq and OpenRouter both speak the OpenAI chat-completions format, so the
+    only difference is the base URL and the key. Routing on a "groq/" prefix
+    keeps that choice in configuration next to the model name, rather than in
+    a separate switch someone has to remember to flip.
 
     LangSmith instruments LangChain and LangGraph automatically, and these
     agents use neither — they call the OpenAI SDK directly. Without this
@@ -69,12 +74,8 @@ def _client() -> OpenAI:
     The wrapper is inert unless LANGSMITH_TRACING is enabled, so it costs
     nothing when nobody is watching.
     """
-    return wrap_openai(
-        OpenAI(
-            api_key=config.openrouter_api_key(),
-            base_url=config.OPENROUTER_BASE_URL,
-        )
-    )
+    base_url, api_key, model_id = config.provider_for(model)
+    return wrap_openai(OpenAI(api_key=api_key, base_url=base_url)), model_id
 
 
 def _unwrap_double_encoded(value: Any, key: str | None = None) -> Any:
@@ -123,8 +124,9 @@ def call_structured(
     last_error: Exception | None = None
     for attempt in range(retries + 1):
         try:
-            response = _client().chat.completions.create(
-                model=model,
+            client, model_id = _client(model)
+            response = client.chat.completions.create(
+                model=model_id,
                 messages=messages,  # type: ignore[arg-type]
                 tools=[tool],  # type: ignore[list-item]
                 tool_choice={"type": "function", "function": {"name": schema.__name__}},
@@ -160,8 +162,9 @@ def call_text(
     timeout: float = 60.0,
 ) -> str:
     """Plain completion, used where the reply is conversational rather than structured."""
-    response = _client().chat.completions.create(
-        model=model,
+    client, model_id = _client(model)
+    response = client.chat.completions.create(
+        model=model_id,
         messages=messages,  # type: ignore[arg-type]
         max_tokens=max_tokens,
         timeout=timeout,
