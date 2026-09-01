@@ -8,6 +8,8 @@ model previously got it wrong in a specific, observed way.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from .config import TEAM_DEPARTMENTS
@@ -201,3 +203,35 @@ class Decomposition(BaseModel):
 
     work_items: list[WorkItem]
     packages: list[DepartmentPackage] = Field(description="One per department that has real work. Skip the rest.")
+
+
+# ── Conversational edits ─────────────────────────────────────────────────────
+class EditOperation(BaseModel):
+    target: str = Field(description="'title', 'requirement', or 'detailedReport'.")
+    path: str = Field(
+        default="",
+        description=(
+            "Dot path to the field within the target, e.g. 'objective' or "
+            "'tech_stack.0.choice'. Empty string replaces the whole target. "
+            "Intermediate keys must already exist."
+        ),
+    )
+    value: Any = Field(description="The replacement value for that path.")
+
+
+class FsdEdit(BaseModel):
+    """The requested changes to a requirement or its BRD, as small path-based replacements."""
+
+    change_summary: str = Field(description="One or two sentences describing what changed, for the chat reply.")
+    operations: list[EditOperation] = Field(
+        description="At least one operation. Change only what was asked for; leave everything else untouched."
+    )
+
+
+class TeamReportEdit(BaseModel):
+    """The revised department package after a team lead's requested change."""
+
+    change_summary: str = Field(description="One or two sentences describing what changed.")
+    updated_package: DepartmentPackage = Field(
+        description="The COMPLETE revised package. The team field must not change."
+    )

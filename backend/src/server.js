@@ -6,7 +6,6 @@ const cors = require('cors');
 const connectDB = require('./db/connect');
 const { seedDemoUsers } = require('./seed');
 const authRoutes = require('./routes/auth.routes');
-const artifactRoutes = require('./routes/artifact.routes');
 const codegenRoutes = require('./routes/codegen.routes');
 
 
@@ -36,7 +35,9 @@ app.use(
 );
 
 app.use('/api/auth', authRoutes);
-app.use('/api/artifacts', artifactRoutes);
+// /api/artifacts is served by the Python agent service — see
+// ../../agent-service. Express retains auth (code generation depends on
+// the session) and /api/codegen, which has not been migrated.
 app.use('/api/codegen', codegenRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, service: 'ai-software-factory backend', frontend: FRONTEND_ORIGIN }));

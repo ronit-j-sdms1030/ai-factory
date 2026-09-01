@@ -21,9 +21,11 @@ from pydantic import BaseModel
 from .. import db
 from ..agents.brd import brd_agent
 from ..agents.decomposition import decomposition_agent
+from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit
 from ..agents.intake import finalize_requirement, run_chat_turn
 from ..auth import actor_from, current_user
-from ..config import originator_label, resolve_approval_chain
+from ..config import TIERS, originator_label, resolve_approval_chain
+from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
 from ..state_machine import TransitionError, transition
 
 log = logging.getLogger(__name__)
@@ -418,3 +420,211 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
 
     artifact["teamReports"] = []
     return _maybe_split(artifact)
+
+
+# ── conversational editing and discussion ────────────────────────────────────
+def _has_discussion_access(artifact: dict[str, Any], actor: dict[str, Any]) -> bool:
+    """Mirrors the visibility rules in the list query.
+
+    Shared by the discussion endpoints so access can never drift out of sync
+    with what the list endpoint actually shows someone.
+    """
+    chain = artifact.get("approvalChain") or [{}]
+    return (
+        (artifact.get("originator") or {}).get("userId") == actor["id"]
+        or actor.get("tierId") in (chain[0].get("approverTiers") or [])
+        or (actor.get("tierId") in ("md", "ceo")
+            and (artifact.get("originator") or {}).get("tierId") in ("md", "ceo"))
+        or any(r.get("team") == actor.get("department") for r in artifact.get("teamReports") or [])
+        or actor["id"] in (artifact.get("discussionRecipients") or [])
+    )
+
+
+def _fsd_actor_role(artifact: dict[str, Any], actor: dict[str, Any]) -> str | None:
+    """Who is editing, and in what capacity — or None if the FSD is not open to them."""
+    stage = artifact.get("currentStage")
+    originator = artifact.get("originator") or {}
+    chain = artifact.get("approvalChain") or [{}]
+    tier = actor.get("tierId")
+
+    if originator.get("userId") == actor["id"] and stage == "fsd_pending_client":
+        return "the client" if actor.get("isClient") else "the originator"
+    if not actor.get("isClient") and stage == "fsd_review" and tier in (chain[0].get("approverTiers") or []):
+        return f"the {TIERS.get(tier, tier)} ({str(tier).upper()})"
+    if not actor.get("isClient") and tier == "vp" and stage == "team_revision_requested":
+        return "the Vice President (VP), revising the FSD after Team Lead feedback"
+    # A VP holding a reviewed FSD at gate 1 may edit before releasing it.
+    if (not actor.get("isClient") and tier == "vp" and stage == "pending_approval"
+            and artifact.get("currentApprovalIndex", 0) > 0
+            and originator.get("tierId") in ("md", "ceo", "tl")
+            and artifact.get("detailedReport")):
+        return "the Vice President (VP), editing the FSD before sending it to Team Leads"
+    return None
+
+
+@router.post("/{artifact_id}/fsdChat")
+def fsd_chat(artifact_id: str, message: str = Body(..., embed=True), actor: dict = Depends(current_user)):
+    if not message or not message.strip():
+        raise HTTPException(status_code=400, detail="message is required")
+
+    artifact = _load(artifact_id)
+    actor_role = _fsd_actor_role(artifact, actor)
+    if not actor_role:
+        raise HTTPException(status_code=403, detail="The detailed report is not open for your edits right now")
+
+    artifact.setdefault("fsdChatHistory", []).append({"role": "user", "content": message.strip()})
+
+    try:
+        result = run_fsd_chat_edit(
+            originator_label=originator_label((artifact.get("originator") or {}).get("tierId")),
+            actor_role=actor_role,
+            title=artifact.get("title", ""),
+            requirement=artifact.get("content") or {},
+            detailed_report=artifact.get("detailedReport"),
+            history=[{"role": h["role"], "content": h["content"]} for h in artifact["fsdChatHistory"]],
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"AI edit service error: {exc}")
+
+    if not result.operations:
+        raise HTTPException(status_code=502, detail="AI edit service returned no report changes")
+
+    # Apply to locals first; a rejected operation must not leave the stored
+    # document half-edited.
+    next_title = artifact.get("title")
+    next_requirement = artifact.get("content")
+    next_report = artifact.get("detailedReport")
+    try:
+        for raw in result.operations:
+            op = normalize_operation(raw.model_dump())
+            if op["target"] == "title":
+                if op["path"] or not isinstance(op["value"], str) or not op["value"].strip():
+                    raise EditPathError("A title edit requires a non-empty string and an empty path")
+                next_title = op["value"].strip()
+            elif op["target"] == "requirement":
+                next_requirement = apply_edit_operation(next_requirement, op["path"], op["value"])
+            elif op["target"] == "detailedReport":
+                next_report = apply_edit_operation(next_report, op["path"], op["value"])
+            else:
+                raise EditPathError(f'Unknown edit target: "{op["target"]}"')
+    except (EditPathError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=f"AI edit service produced an invalid change: {exc}")
+
+    artifact["title"] = next_title
+    artifact["content"] = next_requirement
+    artifact["detailedReport"] = next_report
+    artifact["fsdChatHistory"].append({"role": "assistant", "content": result.change_summary})
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return {"reply": result.change_summary, "artifact": _redact(artifact, actor)}
+
+
+@router.post("/{artifact_id}/teamReportChat")
+def team_report_chat(artifact_id: str, message: str = Body(..., embed=True), actor: dict = Depends(current_user)):
+    text = (message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="message is required")
+    if actor.get("isClient") or actor.get("tierId") != "tl" or not actor.get("department"):
+        raise HTTPException(status_code=403, detail="Only an assigned Team Lead can edit a team package")
+
+    artifact = _load(artifact_id)
+    if artifact.get("currentStage") != "approved":
+        raise HTTPException(status_code=400, detail="This package is not currently open for Team Lead edits")
+
+    reports = artifact.get("teamReports") or []
+    index = next((i for i, r in enumerate(reports) if r.get("team") == actor["department"]), -1)
+    if index < 0:
+        raise HTTPException(status_code=403, detail="No package is assigned to your department")
+
+    try:
+        result = run_team_report_chat_edit(
+            department=actor["department"], package=reports[index], message=text
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"AI package edit service error: {exc}")
+
+    # A team lead may revise their own package, never reassign the work.
+    if result.updated_package.team != actor["department"]:
+        raise HTTPException(status_code=502, detail="AI package edit attempted to change the assigned department")
+
+    reports[index] = result.updated_package.model_dump()
+    artifact["teamReports"] = reports
+    artifact.setdefault("teamReportEditHistory", []).extend([
+        {"department": actor["department"], "role": "user", "content": text, "timestamp": _utcnow()},
+        {"department": actor["department"], "role": "assistant", "content": result.change_summary, "timestamp": _utcnow()},
+    ])
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return {"reply": result.change_summary, "artifact": _redact(artifact, actor)}
+
+
+@router.post("/{artifact_id}/shareForDiscussion")
+def share_for_discussion(
+    artifact_id: str,
+    toUserId: str = Body(...),
+    note: str = Body(default=""),
+    actor: dict = Depends(current_user),
+):
+    """Share a team package with another Team Lead.
+
+    Both ends must be a TL. Team packages are TL-only material, so allowing a
+    share to any internal colleague would hand other roles a side channel into
+    content the list endpoint deliberately withholds from them.
+    """
+    artifact = _load(artifact_id)
+    if not _has_discussion_access(artifact, actor):
+        raise HTTPException(status_code=403, detail="You do not have access to this report")
+
+    recipient = db.users().find_one({"_id": _oid(toUserId)})
+    if not recipient or recipient.get("isClient") or recipient.get("tierId") != "tl":
+        raise HTTPException(status_code=400, detail="Recipient must be a Team Lead")
+    if str(recipient["_id"]) == actor["id"]:
+        raise HTTPException(status_code=400, detail="Cannot share a report with yourself")
+
+    recipients = artifact.setdefault("discussionRecipients", [])
+    if toUserId not in recipients:
+        recipients.append(toUserId)
+
+    artifact.setdefault("discussionShares", []).append({
+        "fromUserId": actor["id"], "fromName": actor.get("name"),
+        "toUserId": toUserId, "toName": recipient.get("name"),
+        "sharedTeam": actor.get("department"), "note": (note or "").strip(),
+        "timestamp": _utcnow(),
+    })
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return {"artifact": _redact(artifact, actor)}
+
+
+@router.post("/{artifact_id}/discussionMessage")
+def discussion_message(artifact_id: str, message: str = Body(..., embed=True), actor: dict = Depends(current_user)):
+    """Requirement-level group discussion.
+
+    Discussion never changes workflow state — governed changes still go
+    through Request revision to VP.
+    """
+    text = (message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="message is required")
+    if actor.get("isClient") or actor.get("tierId") not in ("tl", "vp", "ceo", "md"):
+        raise HTTPException(status_code=403, detail="Only assigned Team Leads and leadership can join requirement discussions")
+
+    artifact = _load(artifact_id)
+    is_assigned_tl = (
+        actor.get("tierId") == "tl" and actor.get("department")
+        and any(r.get("team") == actor["department"] for r in artifact.get("teamReports") or [])
+    )
+    leadership_joining_open_thread = (
+        actor.get("tierId") in ("md", "ceo", "vp") and bool(artifact.get("discussionMessages"))
+    )
+    if not is_assigned_tl and not leadership_joining_open_thread:
+        raise HTTPException(status_code=403, detail="An assigned Team Lead must open this discussion first")
+
+    artifact.setdefault("discussionMessages", []).append({
+        "userId": actor["id"], "name": actor.get("name"),
+        "department": actor.get("department") or str(actor.get("tierId")).upper(),
+        "message": text, "timestamp": _utcnow(),
+    })
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return {"artifact": _redact(artifact, actor)}
