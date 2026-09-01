@@ -2462,10 +2462,11 @@
       document.getElementById('comment-input').focus();
     }
 
-    // These actions can trigger an AI call (detailed report or team split
-    // generation) that may take tens of seconds. Each
-    // gets a rough estimated duration to drive a progress bar (capped short
-    // of 100% since we don't actually know when it'll finish).
+    // These actions can trigger an AI call (detailed report, screens or team
+    // split) that may take minutes. The server no longer waits for it — it
+    // commits the approval, returns a jobId, and generates in the background —
+    // so the estimate below only drives the bar until the first poll replaces
+    // the label with the phase the job actually reports.
     var SLOW_ACTIONS = {
       approve: { ms: 60000, label: 'AI is working — generating the detailed report or team split…' },
       giveFinalFsdApproval: { ms: 45000, label: 'AI is working — generating the team split…' },
@@ -2487,20 +2488,25 @@
 
       var progressWrap = actionsEl && actionsEl.parentElement ? actionsEl.parentElement.querySelector('[data-item-progress]') : null;
       var stopTick = function () {};
+      // Replaced by the job's own label once polling starts, so the bar says
+      // "Generating the interface" rather than guessing.
+      var liveLabel = slowSpec ? slowSpec.label : '';
+      var setLiveLabel = function () {};
       if (slowSpec) {
         activeSlowActionCount++;
         if (progressWrap) {
           var progressFill = progressWrap.querySelector('[data-item-progress-fill]');
           var progressPct = progressWrap.querySelector('[data-item-progress-pct]');
           var progressText = progressWrap.querySelector('[data-item-progress-text]');
-          progressText.textContent = slowSpec.label;
+          progressText.textContent = liveLabel;
           progressWrap.classList.add('visible');
+          setLiveLabel = function (label) { liveLabel = label; progressText.textContent = label; };
           var startedAt = new Date().getTime();
           var tick = setInterval(function () {
             var elapsed = new Date().getTime() - startedAt;
             if (elapsed >= slowSpec.ms) {
               progressFill.classList.add('indeterminate');
-              progressText.textContent = slowSpec.label + ' Still working…';
+              progressText.textContent = liveLabel + ' Still working…';
               progressPct.textContent = '';
             } else {
               var pct = Math.round((elapsed / slowSpec.ms) * 90);
@@ -2517,6 +2523,17 @@
         }
       }
 
+      // The action and its generation settle at different times now, so the
+      // bar and the auto-refresh block must be released exactly once —
+      // whichever finishes last.
+      var settled = false;
+      function settle() {
+        if (settled) return;
+        settled = true;
+        stopTick();
+        if (slowSpec) activeSlowActionCount--;
+      }
+
       fetch(window.API_BASE + '/api/artifacts/' + id + '/' + action, {
         method: 'POST',
         credentials: 'include',
@@ -2525,14 +2542,24 @@
       })
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
-          stopTick();
-          if (!result.ok) throw new Error(result.body.error || 'Action failed');
-          if (result.body.detailedReportError) showToast('Approved, but the detailed report failed to generate: ' + result.body.detailedReportError, true);
-          if (result.body.teamSplitError) showToast('Approved, but the team split failed to generate: ' + result.body.teamSplitError, true);
+          if (!result.ok) { settle(); throw new Error(result.body.error || 'Action failed'); }
+          // The approval is already committed. If a document is still being
+          // generated, keep the bar up and follow the job — the old code
+          // learned the outcome from this response, which is exactly what
+          // used to be lost when the proxy timed out at 300s.
+          if (result.body.jobId) {
+            // Deliberately not refreshing here: re-rendering the list replaces
+            // the element this progress bar lives in, and the bar is the only
+            // signal that anything is still happening. The refresh comes when
+            // the job finishes.
+            followGenerationJob(id, result.body.jobId, setLiveLabel, settle);
+            return;
+          }
+          settle();
           loadArtifacts();
         })
         .catch(function (err) {
-          stopTick();
+          settle();
           if (progressWrap) progressWrap.classList.remove('visible');
           showToast(err.message, true);
           siblingButtons.forEach(function (b) { b.disabled = false; });
@@ -2540,10 +2567,34 @@
           // Whatever failed, refresh — the most common cause is someone
           // else already acted on this item and our list was stale.
           loadArtifacts();
-        })
-        .then(function () {
-          if (slowSpec) activeSlowActionCount--;
         });
+    }
+
+    // Watch a background generation to completion. Its result lives in the
+    // database rather than in the response to the action, so a dropped
+    // connection or a closed tab costs the progress bar, not the document.
+    function followGenerationJob(artifactId, jobId, setLabel, done) {
+      var poll = setInterval(function () {
+        fetch(window.API_BASE + '/api/artifacts/' + artifactId + '/jobs', { credentials: 'include' })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var job = (data.jobs || []).filter(function (j) { return j.jobId === jobId; })[0];
+            if (!job) return;                      // not visible yet; keep waiting
+            if (job.status === 'running') { setLabel(job.label + '…'); return; }
+
+            clearInterval(poll);
+            done();
+            if (job.status === 'failed') {
+              var reasons = Object.keys(job.errors || {}).map(function (k) { return job.errors[k]; });
+              showToast(
+                'The approval was recorded, but generation failed: ' +
+                (reasons.join('; ') || 'unknown error') +
+                ' — use Regenerate to retry.', true);
+            }
+            loadArtifacts();
+          })
+          .catch(function () { clearInterval(poll); done(); loadArtifacts(); });
+      }, 3000);
     }
 
     function actOnArtifact(id, action, actionsEl, btn) {

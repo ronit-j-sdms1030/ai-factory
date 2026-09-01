@@ -53,7 +53,7 @@ Requirement-flow diagrams live in [architecture.md §4](architecture.md#4-requir
 
 ---
 
-## 3. UI Agent — **not yet built**
+## 3. UI Agent
 
 **Role.** Generates the application interface from the approved BRD, before any code is written.
 
@@ -64,11 +64,17 @@ Requirement-flow diagrams live in [architecture.md §4](architecture.md#4-requir
 | **Input** | Approved BRD, design-system skill file |
 | **Output** | Working React screens, versioned in Git |
 | **Gate it feeds** | GATE 2 (UI approval) |
-| **Current implementation** | **None.** `runProjectDemoSynthesis` is the nearest equivalent but runs *after* all code generation |
+| **Current implementation** | `ui_agent`, called after BRD approval and before decomposition |
 
 **Function.** Produces production React screens constrained by a design-system skill file carrying tokens, components and accessibility rules. Explicitly named as an agent in SoW 11.0: *"The agent raises clarification requests where the BRD is ambiguous."* That clarification loop is part of its contract, not an optional extra.
 
-**Position is the point.** SoW 12.0 states *"code generation for the affected scope cannot start until UI approval is recorded."* The current build inverts this — the UI artefact is produced as a by-product of code generation, so the thing meant to gate code generation depends on it. This is the single largest structural divergence in the in-scope stages.
+**Planned first, then written one screen at a time.** A plan call names the screens and what belongs on each; a second call per screen writes its source, four at a time. Each screen is told the others' names so cross-screen navigation resolves.
+
+**Failure mode addressed.** The original single call asked for every screen's source at once under a 14,000-token ceiling. A nine-page BRD produces ~44,000 tokens of React — three times the budget — so the JSON truncated mid-string and failed as a parse error rather than a short answer, losing the entire design rather than the last screen. Measured after the split: 9 screens, 174,763 characters, 292s. A screen that still fails now costs one screen and is reported to the reviewer as a clarification, never dropped silently.
+
+**Position is the point.** SoW 12.0 states *"code generation for the affected scope cannot start until UI approval is recorded."* The JavaScript pipeline inverted this — its nearest artefact was produced *by* code generation, so the thing meant to gate it depended on it. The Python pipeline runs the agent in the correct position, but the blocking gate itself is still absent: there is no `ui_review` stage, so approval is recorded rather than required.
+
+**Reviewer.** VP. SoW 11.0 names "UI/UX and Business Analysts", but no such tier exists in `hierarchy.config.js` — the tiers are md, ceo, vp, pm and tl. VP is the closest existing authority and is what the code, CODEOWNERS and webhook all use. Introducing dedicated reviewer roles would be a hierarchy change to agree with the client.
 
 **Note on document conflict.** Proposal §7 lists "UI prototype generation" as a roadmap item, and §11 excludes everything in §7. The SoW response reconciles this by distinguishing **working React screens (Phase 1)** from a **Figma round-trip (add-on)**. Worth confirming with the client.
 
@@ -116,7 +122,7 @@ They live there rather than here to keep a single source of truth: the diagrams 
 | Gate | Approver | Object | Status |
 |---|---|---|---|
 | GATE 1 | Per approval chain | BRD / requirement | ✅ Built |
-| GATE 2 | UI/UX + Business Analyst | UI screens | ❌ Not built |
+| GATE 2 | VP | UI screens | ⚠️ Agent runs and publishes; approval does not yet block |
 | GATE 3 | VP | Work-item dependency graph | ❌ Not built — approval currently implicit in BRD approval |
 | GATE 4 | Owning TL | Department slice | ⚠️ Partial — TLs can edit and request revision, but no explicit approve-before-codegen gate |
 

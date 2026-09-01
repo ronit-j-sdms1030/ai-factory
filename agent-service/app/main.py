@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 load_dotenv()
 
+from . import jobs  # noqa: E402
 from .auth import SESSION_COOKIE, session_secret  # noqa: E402
 from .routes import admin as admin_routes  # noqa: E402
 from .routes import artifacts as artifact_routes  # noqa: E402
@@ -36,6 +37,16 @@ app.include_router(auth_routes.router)
 app.include_router(artifact_routes.router)
 app.include_router(webhook_routes.router)
 app.include_router(admin_routes.router)
+
+
+@app.on_event("startup")
+def _reap_interrupted_jobs():
+    """Generation runs on daemon threads, so a restart kills them mid-flight.
+
+    Those jobs would otherwise stay "running" forever and the UI would wait on
+    something that is never coming back.
+    """
+    jobs.reap_stale()
 
 
 @app.get("/api/health")

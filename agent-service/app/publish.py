@@ -13,6 +13,7 @@ far worse than a missing pull request someone can republish.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -61,6 +62,15 @@ def _pr_body(stage: str, artifact: dict[str, Any], extra: str = "") -> str:
     ).strip()
 
 
+# One repository, one working tree, a branch per requirement — so publishing
+# is not safe to do twice at once. Generation runs on background threads now,
+# and two of them reaching this point together would have one checking out its
+# branch while the other was staging a commit, producing a commit against the
+# wrong branch or a hard failure on the index lock. Model calls are the slow
+# part and happen outside this lock; the git work it serialises is seconds.
+_PUBLISH_LOCK = threading.Lock()
+
+
 def publish(
     *,
     artifact: dict[str, Any],
@@ -73,10 +83,23 @@ def publish(
     ``build_files`` is a callable rather than a dict so the caller can use the
     store's own layout helpers without this module needing to know the shape
     of every artefact.
+
+    Serialised process-wide: see ``_PUBLISH_LOCK``.
     """
     if stage not in STAGES:
         return PublishResult(error=f"unknown stage '{stage}'")
 
+    with _PUBLISH_LOCK:
+        return _publish_locked(artifact=artifact, stage=stage, build_files=build_files, body_extra=body_extra)
+
+
+def _publish_locked(
+    *,
+    artifact: dict[str, Any],
+    stage: str,
+    build_files: Callable[[GitStore], dict[str, str]],
+    body_extra: str = "",
+) -> PublishResult:
     store = open_store()
     if store is None:
         return PublishResult()  # Git not configured — silently inert, by design

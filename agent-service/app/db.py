@@ -35,3 +35,12 @@ def users() -> Collection:
 
 def artifacts() -> Collection:
     return db()["artifacts"]
+
+
+def generation_jobs() -> Collection:
+    """Background BRD/UI/decomposition runs.
+
+    Python-side only — the Express backend has no model for this — so the name
+    does not need to match a Mongoose pluralisation.
+    """
+    return db()["generationJobs"]

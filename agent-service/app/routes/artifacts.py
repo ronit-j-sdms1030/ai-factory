@@ -10,19 +10,21 @@ against either service.
 
 from __future__ import annotations
 
+import copy
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from .. import db
+from .. import db, jobs
 from ..agents.brd import brd_agent
 from ..agents.decomposition import decomposition_agent
 from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit
 from ..agents.intake import finalize_requirement, run_chat_turn
+from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
 from ..config import TIERS, originator_label, resolve_approval_chain
 from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
@@ -61,7 +63,19 @@ def _load(artifact_id: str) -> dict[str, Any]:
 
 
 def _save(artifact: dict[str, Any]) -> None:
-    db.artifacts().replace_one({"_id": artifact["_id"]}, artifact)
+    # Upsert, because ``create`` builds its artifact in memory and never
+    # inserts it separately: a plain replace matched nothing, so the endpoint
+    # returned 201 with an _id that was never written. Every other caller
+    # passes a document already in the collection, where this is a no-op.
+    db.artifacts().replace_one({"_id": artifact["_id"]}, artifact, upsert=True)
+
+
+def _ready_for_report(artifact: dict[str, Any], step_acted_on: dict | None) -> bool:
+    """Has a gate cleared that entitles this requirement to a BRD?"""
+    return _cleared_md_ceo_gate(step_acted_on) or (
+        artifact.get("currentStage") == "approved"
+        and _chain_never_has_md_ceo_gate(artifact.get("approvalChain") or [])
+    )
 
 
 def _cleared_md_ceo_gate(step: dict[str, Any] | None) -> bool:
@@ -118,30 +132,44 @@ def _redact(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _respond(artifact: dict[str, Any], actor: dict[str, Any], errors: dict | None = None) -> dict:
+def _respond(
+    artifact: dict[str, Any],
+    actor: dict[str, Any],
+    errors: dict | None = None,
+    job_id: str | None = None,
+) -> dict:
     payload: dict[str, Any] = {"artifact": _redact(artifact, actor)}
     for key, value in (errors or {}).items():
         if value:
             payload[key] = value
+    if job_id:
+        # The transition is committed; the document it produces is not written
+        # yet. Poll ``GET /{id}/jobs`` for that.
+        payload["jobId"] = job_id
+        payload["generating"] = True
     return payload
 
 
 # ── generation triggers ──────────────────────────────────────────────────────
-def _maybe_generate_report_and_split(artifact: dict[str, Any], step_acted_on: dict | None) -> dict:
+def _maybe_generate_report_and_split(
+    artifact: dict[str, Any],
+    step_acted_on: dict | None,
+    progress: Callable[[str], None] = lambda _: None,
+) -> dict:
     """Generate the BRD once a gate clears, then the split once the chain finishes.
 
     Best-effort: a generation failure is returned to the caller but never
     undoes the approval that already saved, matching the JavaScript. Losing an
     approval because a model call timed out would be far worse than a missing
     document the user can regenerate.
+
+    Runs on a job thread (see ``jobs``), so ``progress`` is how it reports
+    which phase it is in — the caller's HTTP request finished long before.
     """
     errors: dict[str, str] = {}
-    ready_for_report = _cleared_md_ceo_gate(step_acted_on) or (
-        artifact.get("currentStage") == "approved"
-        and _chain_never_has_md_ceo_gate(artifact.get("approvalChain") or [])
-    )
 
-    if not artifact.get("detailedReport") and ready_for_report:
+    if not artifact.get("detailedReport") and _ready_for_report(artifact, step_acted_on):
+        progress("brd")
         try:
             state = {
                 "requirement": artifact.get("content") or {},
@@ -164,10 +192,54 @@ def _maybe_generate_report_and_split(artifact: dict[str, Any], step_acted_on: di
             log.exception("detailed report generation failed")
             errors["detailedReportError"] = str(exc)
 
-    if artifact.get("currentStage") == "approved" and not artifact.get("teamReports"):
-        errors.update(_maybe_split(artifact))
+    if artifact.get("currentStage") == "approved":
+        # Screens before work items: the decomposition is scoped against the
+        # approved interface, per architecture.md §2.3. SoW 12.0 additionally
+        # requires UI approval to *block* code generation — that gate does not
+        # exist in this state machine yet, so the UI is produced and published
+        # for review but does not currently hold anything back.
+        if not artifact.get("ui"):
+            progress("ui")
+            errors.update(_maybe_generate_ui(artifact))
+        if not artifact.get("teamReports"):
+            progress("workitems")
+            errors.update(_maybe_split(artifact))
 
     return errors
+
+
+def _maybe_generate_ui(artifact: dict[str, Any]) -> dict:
+    """Generate the application's screens from the approved BRD."""
+    if not artifact.get("detailedReport"):
+        return {}
+    try:
+        ui = ui_agent({"brd": artifact["detailedReport"]})["ui"]
+        artifact["ui"] = ui
+        artifact["uiGeneratedAt"] = _utcnow()
+        errors: dict[str, str] = {}
+        _record_publish(artifact, errors, "ui",
+                        publish(artifact=artifact, stage="ui",
+                                build_files=lambda store: store.ui_files(ui),
+                                body_extra=_clarifications_summary(ui)))
+        return errors
+    except Exception as exc:  # noqa: BLE001
+        log.exception("UI generation failed")
+        return {"uiError": str(exc)}
+
+
+def _clarifications_summary(ui: dict[str, Any]) -> str:
+    """Put the agent's open questions in the pull request, where a reviewer sees them.
+
+    SoW 11.0 requires the UI agent to raise clarifications where the BRD is
+    ambiguous rather than guessing silently; surfacing them at the point of
+    approval is what makes that useful.
+    """
+    screens = ui.get("screens") or []
+    lines = [f"**Screens** ({len(screens)}): " + ", ".join(s.get("name", "?") for s in screens)]
+    clarifications = ui.get("clarifications") or []
+    if clarifications:
+        lines += ["", "**Clarifications needed**", *(f"- {c}" for c in clarifications)]
+    return "\n".join(lines)
 
 
 def _maybe_split(artifact: dict[str, Any]) -> dict:
@@ -195,10 +267,81 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 
-def _submit_and_maybe_self_approve(artifact: dict[str, Any], actor: dict[str, Any]) -> dict:
+def _pending_phase(artifact: dict[str, Any], step_acted_on: dict | None) -> str | None:
+    """The first thing generation would do, or None if it would do nothing.
+
+    Shares ``_ready_for_report`` with the generator itself so the two cannot
+    disagree about whether there is work — a job that claims to be generating
+    a BRD and then generates nothing is a worse lie than no job at all.
+    """
+    if not artifact.get("detailedReport") and _ready_for_report(artifact, step_acted_on):
+        return "brd"
+    if artifact.get("currentStage") == "approved":
+        if not artifact.get("ui"):
+            return "ui"
+        if not artifact.get("teamReports"):
+            return "workitems"
+    return None
+
+
+def _start_generation(artifact: dict[str, Any], step_acted_on: dict | None) -> str | None:
+    """Run the model work on a background job, returning its id.
+
+    The artifact passed in has already been saved. The job works on a private
+    copy and writes its own results back, because by the time it finishes the
+    request that started it is long gone and this dictionary is stale.
+    """
+    phase = _pending_phase(artifact, step_acted_on)
+    if phase is None:
+        return None
+
+    snapshot = copy.deepcopy(artifact)
+
+    def work(progress: Callable[[str], None]) -> dict[str, str]:
+        working = copy.deepcopy(snapshot)
+        errors = _maybe_generate_report_and_split(working, step_acted_on, progress)
+        _apply_generated(snapshot, working)
+        return errors
+
+    return jobs.start(str(artifact["_id"]), phase, work)
+
+
+def _apply_generated(before: dict[str, Any], after: dict[str, Any]) -> None:
+    """Persist only what generation actually changed.
+
+    A whole-document replace would undo anything that happened while the model
+    was working — a comment, a revision request, another gate — because this
+    job's copy of the artifact predates it. Writing just the changed keys
+    keeps the blast radius to the fields generation owns.
+    """
+    changed = {k: v for k, v in after.items() if k != "_id" and before.get(k) != v}
+    if not changed:
+        return
+    changed["updatedAt"] = _utcnow()
+
+    # The stage is the one field where a late write has governance
+    # consequences, so it is only applied if nobody moved the requirement
+    # while we were generating. Everything else is content and safe to land.
+    stage = changed.pop("currentStage", None)
+    if stage is not None:
+        result = db.artifacts().update_one(
+            {"_id": before["_id"], "currentStage": before.get("currentStage")},
+            {"$set": {**changed, "currentStage": stage}},
+        )
+        if result.matched_count:
+            return
+        log.warning(
+            "artifact %s moved on from %s while generating; keeping the new stage",
+            before["_id"], before.get("currentStage"),
+        )
+
+    db.artifacts().update_one({"_id": before["_id"]}, {"$set": changed})
+
+
+def _submit_and_maybe_self_approve(artifact: dict[str, Any], actor: dict[str, Any]) -> str | None:
     _save(artifact)
     if not _is_self_origin_md_ceo(artifact) or artifact.get("currentStage") != "pending_approval":
-        return {}
+        return None
     step = (artifact.get("approvalChain") or [])[artifact.get("currentApprovalIndex", 0)]
     transition(
         artifact, "approve",
@@ -206,9 +349,7 @@ def _submit_and_maybe_self_approve(artifact: dict[str, Any], actor: dict[str, An
         comment="Self-approved on submission",
     )
     _save(artifact)
-    errors = _maybe_generate_report_and_split(artifact, step)
-    _save(artifact)
-    return errors
+    return _start_generation(artifact, step)
 
 
 
@@ -285,8 +426,8 @@ def create(body: CreateBody, actor: dict = Depends(current_user)):
     except TransitionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    errors = _submit_and_maybe_self_approve(artifact, actor)
-    return _respond(artifact, actor, errors)
+    job_id = _submit_and_maybe_self_approve(artifact, actor)
+    return _respond(artifact, actor, job_id=job_id)
 
 
 @router.get("")
@@ -416,6 +557,18 @@ class ActionBody(BaseModel):
     finalApproverTier: str | None = None
 
 
+@router.get("/{artifact_id}/jobs")
+def artifact_jobs(artifact_id: str, actor: dict = Depends(current_user)):
+    """What is being generated for this requirement, and what failed.
+
+    Declared before the ``/{artifact_id}/{action}`` catch-all so "jobs" is not
+    swallowed as an action name.
+    """
+    _load(artifact_id)  # 404 for an artifact that does not exist
+    found = jobs.for_artifact(artifact_id)
+    return {"jobs": found, "generating": any(j["status"] == "running" for j in found)}
+
+
 @router.post("/{artifact_id}/{action}")
 def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: dict = Depends(current_user)):
     if action not in KNOWN_ACTIONS:
@@ -425,13 +578,20 @@ def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: di
     body = body or ActionBody()
 
     if action in ("regenerateFsd", "regenerateTeamSplit"):
-        errors = _regenerate(artifact, action)
-        artifact["updatedAt"] = _utcnow()
-        _save(artifact)
-        return _respond(artifact, actor, errors)
+        return _respond(artifact, actor, job_id=_start_regeneration(artifact, action))
 
-    step_acted_on = (artifact.get("approvalChain") or [None])[artifact.get("currentApprovalIndex", 0)] \
-        if artifact.get("currentApprovalIndex", 0) < len(artifact.get("approvalChain") or []) else None
+    # Only an approval clears a gate. Without this guard every action was
+    # treated as having cleared whatever step the chain happened to be sitting
+    # on, so *submitting* generated and published the BRD before anyone had
+    # approved it — the JavaScript this ports from gated the same call on
+    # `action === 'approve'`. Actions that finish the chain still generate,
+    # via the `approved` branch rather than via a cleared step.
+    step_acted_on = (
+        (artifact.get("approvalChain") or [None])[artifact.get("currentApprovalIndex", 0)]
+        if action == "approve"
+        and artifact.get("currentApprovalIndex", 0) < len(artifact.get("approvalChain") or [])
+        else None
+    )
 
     try:
         transition(
@@ -442,17 +602,35 @@ def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: di
     except TransitionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    _save(artifact)
-    errors = _maybe_generate_report_and_split(artifact, step_acted_on)
+    # Saved before the job starts, never after: the job writes its own results
+    # and a later full-document save from this request would overwrite them
+    # with the pre-generation copy held here.
     artifact["updatedAt"] = _utcnow()
     _save(artifact)
-    return _respond(artifact, actor, errors)
+    return _respond(artifact, actor, job_id=_start_generation(artifact, step_acted_on))
+
+
+def _start_regeneration(artifact: dict[str, Any], action: str) -> str:
+    """Regeneration is the same model work as a first pass, so it runs the same way."""
+    if action == "regenerateFsd" and not artifact.get("content"):
+        raise HTTPException(status_code=400, detail="No approved requirement to regenerate from")
+
+    snapshot = copy.deepcopy(artifact)
+
+    def work(progress: Callable[[str], None]) -> dict[str, str]:
+        working = copy.deepcopy(snapshot)
+        errors = _regenerate(working, action)
+        _apply_generated(snapshot, working)
+        return errors
+
+    return jobs.start(
+        str(artifact["_id"]), "brd" if action == "regenerateFsd" else "workitems", work
+    )
 
 
 def _regenerate(artifact: dict[str, Any], action: str) -> dict:
     if action == "regenerateFsd":
-        if not artifact.get("content"):
-            raise HTTPException(status_code=400, detail="No approved requirement to regenerate from")
+        errors: dict[str, str] = {}
         try:
             state = {
                 "requirement": artifact["content"],
@@ -469,7 +647,7 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
             # A regenerated FSD invalidates the split derived from the old one.
             artifact["teamReports"] = []
             artifact["teamReportsGeneratedAt"] = None
-            return {}
+            return errors
         except Exception as exc:  # noqa: BLE001
             return {"detailedReportError": str(exc)}
 

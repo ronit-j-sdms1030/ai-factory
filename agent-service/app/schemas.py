@@ -132,6 +132,48 @@ class Critique(BaseModel):
 
 
 # ── UI ───────────────────────────────────────────────────────────────────────
+# Screens are planned first and their source generated one call at a time.
+# Asking for every screen's React source in a single response overflowed the
+# token ceiling and truncated the JSON mid-string, which fails as a parse
+# error rather than as a short answer — so the whole design was lost, not
+# merely the last screen.
+class ScreenOutline(BaseModel):
+    name: str = Field(description="PascalCase component name, e.g. 'ReturnsDashboard'.")
+    route: str = Field(description="URL path, e.g. '/returns'.")
+    purpose: str
+    key_elements: list[str] = Field(
+        description=(
+            "The concrete things on this screen — tables, forms, filters, actions — named "
+            "specifically enough that its source can be written from this alone."
+        )
+    )
+
+
+class UIPlan(BaseModel):
+    """The set of screens to build, decided before any source is written."""
+
+    screens: list[ScreenOutline]
+    clarifications: list[str] = Field(
+        description=(
+            "Questions where the BRD is genuinely ambiguous about interface behaviour. Empty if none. "
+            "These surface to the reviewer rather than being silently guessed."
+        )
+    )
+
+
+class ScreenSource(BaseModel):
+    """One screen's implementation."""
+
+    source: str = Field(
+        description=(
+            "A complete, self-contained React function component. Plain JavaScript with JSX, no "
+            "imports and no export statement — it is assembled into a single-file preview. Every "
+            "interactive element must have a real handler; every component referenced must be "
+            "defined here or be another screen in this set."
+        )
+    )
+
+
 class Screen(BaseModel):
     name: str = Field(description="PascalCase component name, e.g. 'ReturnsDashboard'.")
     route: str = Field(description="URL path, e.g. '/returns'.")
