@@ -158,7 +158,7 @@ flowchart TD
 
 All three depict current behaviour, in which GATE 2 and GATE 3 from §3 do not exist:
 
-- **No UI stage.** Decomposition follows BRD approval directly; §2.3 inserts the UI agent and GATE 2 between them.
+- **UI runs but does not gate.** The UI agent now executes in its specified position — after BRD approval, before decomposition — and publishes its screens as a reviewable pull request. What is missing is the *gate*: SoW 12.0 requires UI approval to block code generation, which needs a `ui_review` stage and transition the state machine does not yet have. Today the artefact is produced and reviewable, but nothing waits for it.
 - **No decomposition gate.** `approved` triggers the split immediately, and `/codegen/start` checks only `currentStage === 'approved'`. §2.2 adds GATE 3.
 - **TL approval is not yet a gate.** TLs can edit a slice and raise `team_revision_requested`, but nothing blocks code generation on their approval.
 
@@ -232,7 +232,7 @@ Each agent commits **once, on completion** — never mid-run.
 |---|---|---|---|---|
 | 1 | `req/<id>/requirement` | `requirement.md` | Per chain gate 0 | Gate 0 |
 | 2 | `req/<id>/brd` | BRD + diagrams | VP | GATE 1 |
-| 3 | `req/<id>/ui` | Screens + skill file | UI/UX + BA | GATE 2 |
+| 3 | `req/<id>/ui` | Screens + skill file | VP | GATE 2 |
 | 4 | `req/<id>/workitems` | `graph.json` only | VP | GATE 3 |
 | 5–8 | `req/<id>/wi-<dept>` | That department's slice | Owning TL | GATE 4 |
 
