@@ -69,7 +69,15 @@ def _is_model_output_error(exc: BaseException) -> bool:
     A 400 about the request itself — an unknown model, a malformed body — will
     fail identically every time, so those are still left alone.
     """
-    return "tool call validation failed" in str(exc).lower()
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "tool call validation failed",      # output did not match the schema
+            "tool_use_failed",                  # Groq's code for the same family
+            "failed to parse tool call",        # arguments were not valid JSON
+        )
+    )
 
 
 def _client(model: str) -> tuple[OpenAI, str]:

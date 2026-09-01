@@ -189,3 +189,39 @@ class TestScreenNamesBecomeIdentifiers:
         from app.agents.ui import _pascal_case
 
         assert _pascal_case("   ") == ""
+
+
+class TestComponentNameDrift:
+    """The plan's name and the source's name are not always the same.
+
+    A screen planned as ClockInOut arrives defining ClockInOutScreen, and
+    looking it up by the planned name reported "compiled, but defined no
+    component called ClockInOut" — for code that was perfectly good.
+    """
+
+    def test_a_differently_named_component_is_found(self):
+        from app.ui_preview import _component_name
+
+        assert _component_name("function ClockInOutScreen() {}", "ClockInOut") == "ClockInOutScreen"
+
+    def test_a_matching_name_is_preferred(self):
+        from app.ui_preview import _component_name
+
+        source = "function Helper() {}\nfunction Dashboard() {}"
+        assert _component_name(source, "Dashboard") == "Dashboard"
+
+    def test_an_arrow_component_is_recognised(self):
+        from app.ui_preview import _component_name
+
+        assert _component_name("const Dashboard = () => {};", "Other") == "Dashboard"
+
+    def test_the_planned_name_is_the_fallback(self):
+        from app.ui_preview import _component_name
+
+        assert _component_name("// nothing declared", "Fallback") == "Fallback"
+
+    def test_the_component_name_reaches_the_page(self):
+        page = build_preview({"screens": [
+            {"name": "ClockInOut", "route": "/c", "source": "function ClockInOutScreen(){ return null; }"}
+        ]}, "t")
+        assert '"component": "ClockInOutScreen"' in page

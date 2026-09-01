@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from typing import Any
 
 # React and Babel are fetched from unpkg, matching the project-demo sandbox's
@@ -69,6 +70,8 @@ _SHELL = """<!doctype html>
 (function () {{
   for (var i = 0; i < __SOURCES.length; i++) {{
     var name = __SOURCES[i].name;
+    // What the source actually calls its component; see _component_name.
+    var declared = __SOURCES[i].component || name;
     try {{
       // The classic runtime, deliberately. Babel's react preset defaults to
       // the automatic one, which *injects* `import {{ jsx }} from
@@ -83,7 +86,7 @@ _SHELL = """<!doctype html>
       // Direct eval, so the screen's own declarations stay in this scope
       // instead of leaking to the page, and the registration line below can
       // still see the component it just defined.
-      eval(compiled + '\\n;__COMPONENTS[' + JSON.stringify(name) + '] = typeof ' + name + " !== 'undefined' ? " + name + ' : null;');
+      eval(compiled + '\\n;__COMPONENTS[' + JSON.stringify(name) + '] = typeof ' + declared + " !== 'undefined' ? " + declared + ' : null;');
       if (!__COMPONENTS[name]) __ERRORS[name] = 'compiled, but defined no component called ' + name;
     }} catch (e) {{
       __ERRORS[name] = String((e && e.message) || e);
@@ -172,8 +175,35 @@ def build_preview(ui: dict[str, Any], title: str = "Untitled") -> str:
         manifest=json.dumps([{"name": s["name"], "route": s.get("route", "")} for s in screens]),
         # Carried as data rather than inlined as code, so a malformed source
         # cannot break the page that is meant to report it as malformed.
-        sources=json.dumps([{"name": s["name"], "source": s["source"]} for s in screens]),
+        sources=json.dumps([
+            {"name": s["name"], "component": _component_name(s["source"], s["name"]), "source": s["source"]}
+            for s in screens
+        ]),
     )
+
+
+# `function Dashboard(`, `const Dashboard = (`, `class Dashboard extends`
+_DECLARES = re.compile(
+    r"^\s*(?:function\s+([A-Z]\w*)\s*\(|"
+    r"(?:const|let|var)\s+([A-Z]\w*)\s*=\s*(?:\(|function|React\.memo|memo)|"
+    r"class\s+([A-Z]\w*)\s+extends)",
+    re.MULTILINE,
+)
+
+
+def _component_name(source: str, planned: str) -> str:
+    """What the source actually calls its component.
+
+    The plan's name and the source's name drift — a screen planned as
+    ClockInOut arrives defining ClockInOutScreen, and looking it up by the
+    planned name found nothing, reporting "compiled, but defined no component
+    called ClockInOut" for code that was perfectly good. The planned name wins
+    when the source agrees or declares nothing recognisable.
+    """
+    declared = [next(g for g in m.groups() if g) for m in _DECLARES.finditer(source)]
+    if planned in declared:
+        return planned
+    return declared[0] if declared else planned
 
 
 def _empty(title: str) -> str:

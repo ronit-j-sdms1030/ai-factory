@@ -167,3 +167,12 @@ class TestProviderSideSchemaRejection:
         assert not _is_model_output_error(
             Exception("Error code: 400 - The model `nope` does not exist")
         )
+
+    def test_unparseable_tool_arguments_are_retried(self):
+        """Groq reports this one differently again, and it is still the model."""
+        from app.llm import _is_model_output_error
+
+        assert _is_model_output_error(
+            Exception("Error code: 400 - {'message': 'Failed to parse tool call arguments as JSON', "
+                      "'code': 'tool_use_failed'}")
+        )
