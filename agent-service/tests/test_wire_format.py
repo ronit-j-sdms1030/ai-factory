@@ -59,9 +59,10 @@ class TestDepartmentPackage:
     """
 
     def test_the_fields_code_generation_reads(self):
-        assert {"team", "objective", "architecture", "techStack", "dataModel", "dependencies"} <= _keys(
-            DepartmentPackage
-        )
+        assert {
+            "team", "objective", "architecture", "techStack", "dataModel",
+            "plan", "securityDesign", "dependencies",
+        } <= _keys(DepartmentPackage)
 
     def test_nothing_is_left_in_snake_case(self):
         assert not [k for k in _keys(DepartmentPackage) if "_" in k]
@@ -93,6 +94,8 @@ class TestTolerantValidation:
                 "architecture": "a",
                 "tech_stack": [],
                 "data_model": [],
+                "plan": [],
+                "security_design": [],
                 "dependencies": [],
             }
         )
@@ -106,6 +109,8 @@ class TestTolerantValidation:
                 "architecture": "a",
                 "techStack": [],
                 "dataModel": [],
+                "plan": [],
+                "securityDesign": [],
                 "dependencies": [],
             }
         )

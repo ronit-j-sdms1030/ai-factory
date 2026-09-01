@@ -14,6 +14,8 @@ def _pkg(team: str, entities: list[tuple[str, bool]]) -> DepartmentPackage:
         architecture="a",
         tech_stack=[],
         data_model=[OwnedEntity(entity=e, fields=["id"], owned_by_this_department=owned) for e, owned in entities],
+        plan=[],
+        security_design=[],
         dependencies=[],
     )
 

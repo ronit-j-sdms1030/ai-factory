@@ -244,6 +244,16 @@ class WorkItem(Artefact):
     )
 
 
+# ``plan`` and ``securityDesign`` exist because runCodeGen reads them —
+# "## Implementation Plan" and "## Security Design" are sections of the prompt
+# that decides which files a department generates. The port omitted both, so
+# each fell back to its `|| []` default and those sections arrived empty.
+class PackagePhase(Artefact):
+    phase: str = Field(description="e.g. 'Phase 1: Schema and migrations'.")
+    description: str
+    tasks: list[str] = Field(description="Concrete pieces of work in this phase.")
+
+
 class DepartmentPackage(Artefact):
     team: str = Field(description=f"Exactly one of: {', '.join(TEAM_DEPARTMENTS)}.")
     objective: str
@@ -255,6 +265,15 @@ class DepartmentPackage(Artefact):
             "Copy each VERBATIM from the BRD — identical name, identical field names, character for "
             "character. Departments generate code independently and never see each other's output, "
             "so these names are the only thing making the finished modules fit together."
+        )
+    )
+    plan: list[PackagePhase] = Field(
+        description="How this department sequences its own work, in delivery order."
+    )
+    security_design: list[str] = Field(
+        description=(
+            "Security obligations this department implements — authentication, authorisation, "
+            "encryption, audit, input validation. Only what this department is responsible for."
         )
     )
     dependencies: list[str] = Field(
