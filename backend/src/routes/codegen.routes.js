@@ -371,9 +371,12 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
   // built alongside it (consistent naming/API conventions), and lets the
   // frontend-owning department's sandbox demo represent the whole project's
   // planned features (mocked), not just this department's own slice.
+  // dataModel travels with each package so a department can see which
+  // entities another department OWNS, and reference them by their exact
+  // agreed names instead of inventing a parallel incompatible definition.
   const otherDepartments = (artifact.teamReports || [])
     .filter((t) => t.team !== actor.department)
-    .map((t) => ({ team: t.team, objective: t.objective, architecture: t.architecture }));
+    .map((t) => ({ team: t.team, objective: t.objective, architecture: t.architecture, dataModel: t.dataModel }));
 
   // Locked once a job exists and hasn't errored — starting a second job
   // over a generating/done one would silently orphan it (nothing else in

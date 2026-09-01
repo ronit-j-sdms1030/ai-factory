@@ -209,7 +209,15 @@ function mapSemgrepSeverity(sev) {
 }
 
 async function runSemgrepScan(dir) {
-  const args = ['--json', '--quiet', '--timeout', '60'];
+  // --no-git-ignore is load-bearing, not a tweak. Semgrep honours .gitignore
+  // by default, and the scan directory lives under backend/.runtime/, which
+  // .gitignore excludes — so without this flag Semgrep walked into the
+  // directory, matched every file against the ignore rules, scanned nothing,
+  // and exited successfully reporting "0 issues found". Every scan passed
+  // because none of them ever looked at any code. Verified directly: the
+  // same file with a live Stripe key yields 0 findings under .runtime/ and 1
+  // finding from /tmp/.
+  const args = ['--json', '--quiet', '--no-git-ignore', '--timeout', '60'];
   SEMGREP_CONFIGS.forEach((c) => args.push('--config', c));
   args.push(dir);
 

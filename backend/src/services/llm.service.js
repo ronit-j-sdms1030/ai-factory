@@ -58,12 +58,15 @@ const READY_SENTINEL = 'READY_TO_FINALIZE';
 // below because a model that decides it has "enough" will otherwise emit the
 // sentinel early, and the coverage checklist in the system prompt, which is
 // what makes those questions substantive rather than generic form-filling.
-const MIN_CLARIFYING_QUESTIONS = 4;
-
-// The floor is a quality guard, not a trap — an explicit request to stop
-// always wins over it, so nobody gets held in an interrogation they've asked
-// to end.
-const FINALIZE_INTENT = /\b(finali[sz]e|wrap (it )?up|that'?s (all|it)|i'?m done|we'?re done|submit it|go ahead|just proceed|enough (questions|detail|info)|no more questions|stop asking)\b/i;
+// How long a guided intake may run, and how its length is measured — see
+// intakeBudget.js. Kept out of this file so the bounds can be unit tested
+// without loading the API clients or @babel/core.
+const {
+  MIN_CLARIFYING_QUESTIONS,
+  MAX_CLARIFYING_QUESTIONS,
+  countQuestionsAsked,
+  userAskedToWrapUp,
+} = require('./intakeBudget');
 
 const FINALIZE_TOOL = {
   type: 'function',
@@ -147,7 +150,12 @@ const DETAILED_REPORT_TOOL = {
             properties: {
               layer: { type: 'string', description: "e.g. 'Frontend', 'Backend/API', 'Database', 'Hosting/Infrastructure', 'Authentication', 'CI/CD'." },
               choice: { type: 'string', description: TECH_STACK_CHOICE_DESCRIPTION },
-              rationale: { type: 'string', description: 'Why this choice fits the requirement, in one sentence.' },
+              rationale: {
+                type: 'string',
+                description:
+                  'Why this choice fits THIS requirement specifically, then the leading alternative you considered and why you rejected it, then the main limitation or failure mode of the option you picked in this particular operating environment. ' +
+                  'Three short sentences, not one. A rationale that only praises the choice is incomplete — every real engineering decision has a trade-off, and naming it here is what makes the document reviewable.',
+              },
             },
             required: ['layer', 'choice', 'rationale'],
           },
@@ -254,7 +262,13 @@ WHAT TO COVER — track these and do not finalize while any is still blank:
 5. Separately from any AI features in the product: which AI model they want Stark Digital's factory to use to GENERATE THE CODE for this build. "No preference" is a valid answer.
 
 WHEN TO STOP
-You have asked ${questionsAsked} question${questionsAsked === 1 ? '' : 's'} so far. Ask at least ${MIN_CLARIFYING_QUESTIONS}, and do not finalize while any checklist item above is unanswered — but the moment all five have a broad-strokes answer, stop asking and finalize. Do not keep going in search of more precision once the checklist is covered.
+You have a hard budget of ${MAX_CLARIFYING_QUESTIONS} questions for this entire conversation. You have asked ${questionsAsked}, so ${Math.max(0, MAX_CLARIFYING_QUESTIONS - questionsAsked)} remain. When the budget runs out the conversation ends automatically and the requirement is written from whatever you have gathered by then — so an item you never got to is simply missing from the finished document.
+
+Plan against that budget from your very first question. Five checklist items across ${MAX_CLARIFYING_QUESTIONS} questions means roughly two questions per item, which is enough to cover scope properly but leaves no room to waste: do not spend a question on pleasantries, on restating something already answered, or on sharpening a detail that already has a broad-strokes answer. If at any point you have more unanswered items left than questions remaining, stop going one-by-one and cover several items in a single question — a slightly broad answer on every item beats a precise answer on half of them and silence on the rest.
+
+Ask at least ${MIN_CLARIFYING_QUESTIONS}. Do not finalize while any checklist item above is still blank — but the moment all five have a broad-strokes answer, finalize immediately even if budget remains. Leftover budget is not something to spend; asking further questions once the checklist is covered adds cost and fatigue without improving the requirement.
+
+Track the budget silently. This is for your own planning only — never mention it, never count down, and never signal how many questions are left (see the rule above about countdown language).
 ${userWantsOut ? 'The requester has asked to wrap up. Honour that — finalize now even if items remain unanswered.\n' : ''}Only once that bar is met, reply with EXACTLY this and nothing else — no punctuation, no extra words: ${READY_SENTINEL}`;
 }
 
@@ -266,26 +280,20 @@ When filling preferredCodeGenModel: this is about which model generates the CODE
 Call finalize_requirement exactly once, structuring the full conversation as best you can — do not ask further questions.`;
 }
 
-// history[0] is the hardcoded opener the route seeds the session with, not
-// something the model generated, so it does not count toward the floor.
-function countQuestionsAsked(history) {
-  const assistantTurns = history.filter((h) => h.role === 'assistant').length;
-  const seededOpener = history.length && history[0].role === 'assistant' ? 1 : 0;
-  return Math.max(0, assistantTurns - seededOpener);
-}
-
-function userAskedToWrapUp(history) {
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].role === 'user') return FINALIZE_INTENT.test(history[i].content || '');
-  }
-  return false;
-}
-
 // Turn N of the conversation. Returns either a follow-up question to show
 // the user, or a signal that enough information has been gathered.
 async function runChatTurn({ originatorLabel, history }) {
   const questionsAsked = countQuestionsAsked(history);
   const userWantsOut = userAskedToWrapUp(history);
+
+  // The ceiling is enforced here, not left to the prompt. Every soft
+  // instruction in this pipeline has eventually been ignored by some model
+  // on some input, and this one has a real bill attached: a conversation
+  // that overruns re-sends its whole transcript every turn. Returning before
+  // building any request also means the turn that would have blown the
+  // budget costs nothing at all, rather than paying for a question we then
+  // discard.
+  if (questionsAsked >= MAX_CLARIFYING_QUESTIONS) return { type: 'ready' };
 
   const messages = [
     { role: 'system', content: buildChatSystemPrompt(originatorLabel, questionsAsked, userWantsOut) },
@@ -303,7 +311,19 @@ async function runChatTurn({ originatorLabel, history }) {
     return ((choice.message && choice.message.content) || '').trim();
   };
 
-  const isSentinel = (text) => text.toUpperCase().replace(/[^A-Z_]/g, '') === READY_SENTINEL;
+  // Requiring the WHOLE reply to equal the sentinel exactly is brittle —
+  // reproduced live: after a long, derailed conversation, the model tried to
+  // signal ready but wrapped the token in a full sentence ("...with a budget
+  // range for your project. READY_TO_FINALIZE") instead of replying with
+  // only the token as instructed. The strict equality check missed that
+  // entirely, so the route just displayed the leaked sentinel as normal chat
+  // text and the conversation never transitioned — it looped in confused
+  // pleasantries for 30+ turns until the requester explicitly typed
+  // "finalize" themselves. A whole-word match anywhere in the reply catches
+  // this: the token is distinctive enough (all-caps, underscored) that it
+  // essentially never appears by accident, so leniency here has no
+  // meaningful false-positive risk.
+  const isSentinel = (text) => new RegExp('\\b' + READY_SENTINEL + '\\b', 'i').test(text);
 
   let text = await ask();
 
@@ -511,6 +531,13 @@ Specifically:
 - dbSchemaDiagram must be a real, valid Mermaid erDiagram covering every entity in dataModel and the relationships between them (use ||--o{, ||--||, etc. as appropriate) — mirror the entities/fields already described in dataModel rather than inventing new ones.
 - timeline must have real durations that sum to a realistic total delivery timeline.
 - deploymentAndOperations must cover how this actually runs in production: environments, CI/CD, monitoring, backups, rollback — not just how it's built.
+
+DESIGN RIGOUR — being specific is not the same as being correct, and a confidently-named wrong component is worse than a vague one. Before committing to any technology, work through these:
+- Fitness for THIS environment, not generic suitability. Ask how the component behaves under this build's actual physical conditions, scale, duty cycle, and real user behaviour. A part that is the obvious choice in one setting is often the wrong choice one setting over, and the difference is usually a property of the environment the requirement already told you about.
+- Name the standard. If an established industry standard, protocol, or published specification already governs this problem domain, either build on it or state explicitly why you are not. Reaching for a general-purpose or hobbyist-tier component where a mature domain standard exists is a serious design error, not a cost saving.
+- Deliver what was actually promised. Re-read the approved summary and check each capability it promises is genuinely delivered by this design — not a weaker cousin of it. If the design can only deliver a reduced version, do not quietly narrow the scope: say so plainly in openQuestions.
+- No fictional precision. Every field in dataModel must be something the chosen hardware, service, or data source can actually produce. Inventing a field the design has no way to populate makes the whole document untrustworthy.
+- Failure and safety. State what happens when the system fails or loses power, and what the safe state is. Where the build touches physical systems, public spaces, money, or regulated data, name the specific safety or compliance constraint that applies and how the design honours it.
 Call generate_detailed_report exactly once.`;
 }
 
@@ -551,12 +578,170 @@ async function runDetailedReport({ originatorLabel, summary, history }) {
   // schema fits comfortably below this budget. Disable extended reasoning
   // because the full structured FSD itself is already a large output, and
   // keep one bounded attempt instead of multiplying latency with retries.
-  return callForcedTool({
+  let report = await callForcedTool({
     model: DETAILED_REPORT_MODEL,
     messages,
     tool: DETAILED_REPORT_TOOL,
     maxTokens: 10000,
     retries: 0,
+    timeoutMs: 90000,
+    reasoning: { enabled: false },
+  });
+
+  // Prompt instructions alone don't reliably produce a domain-appropriate
+  // design — the same lesson as scanAndAutoFix and checkFrontendCoverage
+  // above. A single generation pass is under pressure to commit to
+  // something specific for every layer, which reliably yields confidently
+  // named components that are wrong for the operating environment (observed
+  // live: PIR motion sensors specified for a banquet hall, where guests sit
+  // still through dinner and PIR reports the room empty). Reviewing the
+  // finished document in a FRESH call is what catches that: the critic sees
+  // only the artifact, with none of the reasoning that produced it, so it
+  // reads the design the way an outside engineer would.
+  const MAX_CRITIQUE_ROUNDS = 2;
+  let previousFindingCount = Infinity;
+  for (let round = 1; round <= MAX_CRITIQUE_ROUNDS; round++) {
+    let critique;
+    try {
+      critique = await runDesignCritique({ summary, report });
+    } catch (err) {
+      break; // a failed review must never cost us the report we already have
+    }
+    const actionable = (critique.findings || []).filter((f) => f.severity === 'high' || f.severity === 'medium');
+    if (!actionable.length) break;
+    // Plateau guard, same shape scanAndAutoFix uses, so a critic that keeps
+    // restating the same objection can't loop forever.
+    if (actionable.length >= previousFindingCount) {
+      report = withUnresolvedFindings(report, actionable);
+      break;
+    }
+    previousFindingCount = actionable.length;
+    try {
+      const patched = await patchDetailedReport({ summary, report, findings: actionable });
+      // callForcedTool already rejects a response missing required fields,
+      // so anything returned here is structurally complete.
+      if (patched && patched.objective) report = patched;
+    } catch (err) {
+      report = withUnresolvedFindings(report, actionable);
+      break;
+    }
+  }
+  return report;
+}
+
+// A failed auto-fix must degrade to "flagged for a human" rather than
+// "silently dropped". The rewrite step returns the whole document at once,
+// and a large structured payload occasionally comes back with malformed
+// JSON escaping (observed live, on a report carrying two escape-heavy
+// Mermaid diagrams) — but the findings themselves are real and already
+// paid for, so they go where a reviewer will actually read them.
+function withUnresolvedFindings(report, findings) {
+  const notes = findings.map(
+    (f) => 'Unresolved design review finding (' + f.severity + ', ' + f.section + '): ' + f.issue + ' Suggested fix: ' + f.recommendation
+  );
+  return { ...report, openQuestions: (report.openQuestions || []).concat(notes) };
+}
+
+const DESIGN_CRITIQUE_TOOL = {
+  type: 'function',
+  function: {
+    name: 'report_design_critique',
+    description: 'Report fitness-for-purpose defects in a proposed technical design, judged against the requirement it is meant to satisfy.',
+    parameters: {
+      type: 'object',
+      properties: {
+        findings: {
+          type: 'array',
+          description: 'One entry per real defect. Empty if the design is genuinely sound — do not invent findings to appear thorough.',
+          items: {
+            type: 'object',
+            properties: {
+              section: { type: 'string', description: "Which part of the report is wrong, by field name — e.g. 'techStack', 'architecture', 'dataModel', 'securityDesign'." },
+              severity: {
+                type: 'string',
+                description: "'high' = the design will fail at its core job, misses a governing industry standard, or omits a safety/compliance obligation. 'medium' = it works but a materially better-fitting approach exists, or a promised capability is only partly delivered. 'low' = cosmetic or stylistic; these are ignored, so only use it for genuinely minor notes.",
+              },
+              issue: { type: 'string', description: 'The specific defect and the concrete circumstance under which it bites — name the real-world condition that breaks it, not a generic concern.' },
+              recommendation: { type: 'string', description: 'The specific change to make, naming the replacement approach, standard, or component.' },
+            },
+            required: ['section', 'severity', 'issue', 'recommendation'],
+          },
+        },
+      },
+      required: ['findings'],
+    },
+  },
+};
+
+// Deliberately given ONLY the requirement and the finished document — no
+// intake transcript, no generation context. Judging the artifact cold is
+// the entire point; a critic carrying the author's reasoning tends to
+// ratify it.
+async function runDesignCritique({ summary, report }) {
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are a senior engineer with deep domain experience, reviewing a proposed technical design before it goes to a build team. You did not write it. Your job is to find where it will fail in the real world — not to praise it, and not to nitpick wording. ' +
+        'Judge it on fitness for purpose, specifically: (1) will each chosen component actually work under this build\'s real operating conditions — the physical environment, scale, duty cycle, and user behaviour the requirement describes? (2) does an established industry standard, protocol, or published specification already govern this problem domain, and has the design ignored it in favour of a general-purpose or hobbyist-tier substitute? (3) does the design genuinely deliver every capability the requirement promises, or has a promise been quietly downgraded to something weaker? (4) does the data model claim fields the chosen components physically cannot produce? (5) where the build touches physical systems, public spaces, money, or regulated data, has it defined failure/safe-state behaviour and named the applicable safety or compliance constraint? ' +
+        'Report only defects you can tie to a concrete failure circumstance. If the design is genuinely sound, return an empty findings array — a clean review is a valid outcome and inventing filler findings is worse than none. ' +
+        'Call report_design_critique exactly once.',
+    },
+    {
+      role: 'user',
+      content:
+        'Requirement this design must satisfy:\n' + JSON.stringify(summary, null, 2) +
+        '\n\nProposed design to review:\n' + JSON.stringify(report, null, 2),
+    },
+  ];
+  return callForcedTool({
+    model: DETAILED_REPORT_MODEL,
+    messages,
+    tool: DESIGN_CRITIQUE_TOOL,
+    maxTokens: 2500,
+    retries: 0,
+    timeoutMs: 60000,
+    reasoning: { enabled: false },
+  });
+}
+
+// Reuses DETAILED_REPORT_TOOL rather than defining a patch-shaped schema,
+// so a revised report is structurally identical to a freshly generated one
+// and needs no special handling downstream.
+async function patchDetailedReport({ summary, report, findings }) {
+  const findingsText = findings
+    .map((f) => '- [' + f.severity + '] ' + f.section + ': ' + f.issue + '\n  Fix: ' + f.recommendation)
+    .join('\n');
+  const messages = [
+    {
+      role: 'system',
+      content:
+        'You are revising a technical design document to resolve defects a senior reviewer found in it. Return the COMPLETE corrected document by calling generate_detailed_report — every field, not just the ones you changed. ' +
+        'Apply each finding properly rather than superficially: if a component is being replaced, update every place it appears — architecture prose, architectureDiagram, techStack, dataModel, timeline, and deploymentAndOperations must all stay consistent with each other afterwards. A document that swaps a component in one section and leaves the old one referenced elsewhere is worse than the original. ' +
+        'Preserve everything the reviewer did not object to, exactly as written. ' +
+        'Where a finding cannot be fully resolved without information nobody has yet — a site survey, a hardware specification, a client decision — make the best-supported choice available and record what still needs confirming in openQuestions. Never silently drop a finding: anything you could not fully address must be visible in openQuestions or assumptions. ' +
+        'Keep the same trade-off discipline as the original: each techStack rationale still needs the alternative considered and the limitation of the choice made.',
+    },
+    {
+      role: 'user',
+      content:
+        'Requirement this design must satisfy:\n' + JSON.stringify(summary, null, 2) +
+        '\n\nCurrent design:\n' + JSON.stringify(report, null, 2) +
+        '\n\nReviewer findings to resolve:\n' + findingsText +
+        '\n\nReturn the complete corrected document now by calling generate_detailed_report.',
+    },
+  ];
+  // One retry, unlike the initial generation: this payload is the whole
+  // document including both Mermaid diagrams, and a bad JSON escape
+  // anywhere in it fails the parse (seen live). A resample usually doesn't
+  // repeat the same escaping mistake, and losing the rewrite entirely is
+  // the worse outcome.
+  return callForcedTool({
+    model: DETAILED_REPORT_MODEL,
+    messages,
+    tool: DETAILED_REPORT_TOOL,
+    maxTokens: 10000,
+    retries: 1,
     timeoutMs: 90000,
     reasoning: { enabled: false },
   });
@@ -734,9 +919,25 @@ const TEAM_SPLIT_TOOL = {
                   required: ['phase', 'tasks'],
                 },
               },
-              dependencies: { type: 'array', items: { type: 'string' }, description: 'What this department needs from another department, external vendor, or approval before it can start, if any.' },
+              dataModel: {
+                type: 'array',
+                description:
+                  'Every entity this department reads or writes — including ones another department owns, not just the ones it creates. ' +
+                  'Copy each entity VERBATIM from the approved FSD\'s dataModel: identical entity name, identical field names, identical spelling and casing, character for character. Do not rename, re-case, pluralise, abbreviate, or "tidy" anything, and do not invent an entity the FSD does not define. ' +
+                  'Departments generate their code independently and never see each other\'s output, so these names are the only thing making the finished modules fit together — if two departments describe the same entity differently, their code will not combine.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    entity: { type: 'string', description: "The entity name exactly as the FSD's dataModel spells it." },
+                    fields: { type: 'array', items: { type: 'string' }, description: 'The field names exactly as the FSD spells them — at minimum every field this department touches, plus the identifier other departments join on.' },
+                    ownedByThisDepartment: { type: 'boolean', description: 'True if this department creates and owns the entity; false if it only reads or references an entity another department owns.' },
+                  },
+                  required: ['entity', 'fields', 'ownedByThisDepartment'],
+                },
+              },
+              dependencies: { type: 'array', items: { type: 'string' }, description: 'What this department needs from another department, external vendor, or approval before it can start. Name the specific interface where one exists — the endpoint, entity, or event, using the same names as the FSD. Empty array only if this department genuinely depends on nothing.' },
             },
-            required: ['team', 'objective', 'architecture', 'techStack', 'plan'],
+            required: ['team', 'objective', 'architecture', 'techStack', 'plan', 'dataModel', 'dependencies'],
           },
         },
       },
@@ -750,7 +951,13 @@ function buildTeamSplitSystemPrompt(originatorLabel) {
 
 Stark Digital has exactly five departments: ${TEAM_DEPARTMENTS.join(', ')}. Assign work to whichever of these five actually have something to do — skip any with nothing to do, but never invent a department outside this list.
 
-Each department's entry is an execution-focused mini-FSD: provide its objective, scoped architecture, concrete tech stack, phased implementation plan (3-6 sequential phases with actionable tasks), and cross-department dependencies. Keep each package concise and specific to that department. The complete approved FSD already contains the shared diagrams, data model, pages, and security design, so do not duplicate those large sections into every package.
+Each department's entry is an execution-focused mini-FSD: provide its objective, scoped architecture, concrete tech stack, phased implementation plan (3-6 sequential phases with actionable tasks), the data model it touches, and cross-department dependencies. Keep each package concise and specific to that department — the approved FSD already holds the shared diagrams, pages, and security design, so do not copy those large sections into every package.
+
+THESE PACKAGES MUST RECOMBINE INTO ONE WORKING PRODUCT. Each department will generate its code from its own package alone, in isolation, never seeing another department's package or output. Whatever you write here is the only thing keeping the finished modules compatible, so:
+- Shared entities must be described identically everywhere. If two departments both touch an entity, its name and field names must match character for character in both packages, copied verbatim from the FSD's dataModel. "Return_Items" in one package and "ReturnItems" in another produces two modules whose foreign keys do not resolve — a broken build, not a cosmetic mismatch.
+- Include entities a department only reads. A department that consumes another's data still needs that entity in its dataModel, marked as not owned by it, or it will invent its own incompatible version of the same thing.
+- Every entity needs exactly one owner — never zero. Set ownedByThisDepartment true in precisely one package and false everywhere else. An entity marked read-only in every package is the worst outcome: every department assumes someone else creates that table, so nobody generates its schema and the combined build has no such table at all. Before you finish, check each distinct entity you have mentioned anywhere and confirm exactly one package claims it.
+- Name the seams. Where one department calls another's API, consumes its events, or reads its tables, state that in dependencies using the same endpoint and entity names both sides will use.
 Call split_team_reports exactly once.`;
 }
 
@@ -765,7 +972,7 @@ async function runTeamSplit({ originatorLabel, detailedReport }) {
   // Five department-scoped mini-FSDs need headroom, but this remains an
   // interactive production-release action. Bound it to one request so a
   // provider stall cannot hold the VP/TL handoff for several minutes.
-  return callForcedTool({
+  const result = await callForcedTool({
     model: REPORT_MODEL,
     messages,
     tool: TEAM_SPLIT_TOOL,
@@ -773,6 +980,45 @@ async function runTeamSplit({ originatorLabel, detailedReport }) {
     retries: 1,
     timeoutMs: 90000,
   });
+  result.teamReports = normalizeEntityOwnership(result.teamReports || []);
+  return result;
+}
+
+// Ownership has to come out of the split with exactly one owner per entity,
+// and the prompt asking for that is not enough on its own (observed live:
+// four entities every department listed as read-only and none claimed).
+// Both failure modes break the combined build in the same way — an entity
+// nobody owns means nobody generates its schema, and one two departments
+// both own means two conflicting definitions of the same table — so both
+// are repaired here deterministically rather than spending another model
+// call on it.
+function normalizeEntityOwnership(teamReports) {
+  const entriesFor = (entity) =>
+    teamReports.flatMap((t) => (t.dataModel || []).filter((e) => e.entity === entity).map((e) => ({ team: t.team, entry: e })));
+
+  const allEntities = [...new Set(teamReports.flatMap((t) => (t.dataModel || []).map((e) => e.entity).filter(Boolean)))];
+
+  for (const entity of allEntities) {
+    const rows = entriesFor(entity);
+    const owners = rows.filter((r) => r.entry.ownedByThisDepartment);
+
+    if (owners.length === 1) continue;
+
+    if (owners.length > 1) {
+      // Keep the first claim, demote the rest.
+      owners.slice(1).forEach((r) => { r.entry.ownedByThisDepartment = false; });
+      continue;
+    }
+
+    // Unowned. Development owns the product's core application and database
+    // in this taxonomy, so it is the sensible default when it touches the
+    // entity at all; otherwise fall back to whichever department listed it
+    // first, which at least guarantees the schema gets generated once.
+    const chosen = rows.find((r) => r.team === FRONTEND_OWNING_DEPARTMENT) || rows[0];
+    if (chosen) chosen.entry.ownedByThisDepartment = true;
+  }
+
+  return teamReports;
 }
 
 const TEAM_REPORT_EDIT_TOOL = {
@@ -950,9 +1196,25 @@ function buildFrontendSandboxInstructions(otherDepartments) {
 // still only builds its own scope; this just steers HOW it builds it.
 function buildCrossDepartmentConsistencyInstructions(otherDepartments) {
   if (!otherDepartments || !otherDepartments.length) return '';
+
+  // The entities other departments OWN. Style rules alone were not enough:
+  // agreeing on camelCase does not stop one department creating a table
+  // "Return_Items" while another writes a foreign key against
+  // "ReturnItems" (observed live — the two modules could not be combined).
+  // Naming the owned entities explicitly is what removes the ambiguity.
+  const ownedElsewhere = otherDepartments.flatMap((d) =>
+    (d.dataModel || [])
+      .filter((e) => e.ownedByThisDepartment && e.entity)
+      .map((e) => '- ' + e.entity + ' (owned by ' + d.team + ')' + (e.fields && e.fields.length ? ', fields: ' + e.fields.join(', ') : ''))
+  );
+
   return '\n\nThis department\'s code is one piece of a single combined product, not a standalone project — the other departments building the rest of it are:\n' +
     otherDepartments.map((d) => '- ' + d.team + ': ' + (d.objective || '') + (d.architecture ? ' — ' + d.architecture : '')).join('\n') +
-    '\nWrite this department\'s own code so it could realistically interoperate with theirs later: use the same conventions a reasonable engineering team would agree on across the whole product — consistent naming (e.g. camelCase JSON field names, an "id" field on every entity, timestamps as ISO 8601) for any concept another department would plausibly also reference (shared entities like users/orders/products, if applicable), and standard REST conventions (resource-based paths, JSON bodies, conventional HTTP status codes) for any API this department exposes. Do not invent a bespoke, incompatible convention purely for this one module\'s own convenience.';
+    (ownedElsewhere.length
+      ? '\n\nThese entities are OWNED AND DEFINED BY ANOTHER DEPARTMENT. Reference them by exactly these names and field names — character for character — and do NOT emit your own schema, migration, or CREATE TABLE for them; that department is already generating it, and a second conflicting definition breaks the combined build:\n' +
+        ownedElsewhere.join('\n')
+      : '') +
+    '\nWrite this department\'s own code so it genuinely interoperates with theirs: reuse the exact entity and field names given in your own data model rather than re-spelling them, and follow the conventions a reasonable engineering team would agree on across the whole product — consistent naming (camelCase JSON fields, an "id" field on every entity, timestamps as ISO 8601) and standard REST conventions (resource-based paths, JSON bodies, conventional HTTP status codes) for any API this department exposes. Do not invent a bespoke, incompatible convention purely for this one module\'s own convenience.';
 }
 
 const FRONTEND_COVERAGE_CHECK_TOOL = {
@@ -1233,8 +1495,14 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
     if (onFileProgress) onFileProgress({ index: i, total: files.length, path: fileSpec.path, status: 'generating' });
 
     // This call sees only this one file's own prompt — it never sees the
-    // planning step's instructions — so the CDN/Babel/mock-data spec has
-    // to be repeated in full here too, specifically for this file.
+    // planning step's instructions — so anything that must shape the actual
+    // code has to be repeated in full here too, specifically for this file.
+    // That includes the cross-department integration rules: the planning
+    // step knowing about the other departments is worth nothing if the step
+    // that actually writes the lines does not, and this is the step that
+    // decides real table names, real field spellings, and real endpoint
+    // paths. Leaving it out is how one department ends up creating
+    // "Return_Items" while another writes a foreign key to "ReturnItems".
     const isSandboxEntryFile = isFrontendOwner && fileSpec.path === 'frontend/index.html';
 
     const fileMessages = [
@@ -1245,6 +1513,7 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
           'for the file specified below. Output ONLY the raw file content — no markdown fences, ' +
           'no explanations, no commentary. The output must be valid, runnable code exactly as it ' +
           'would appear saved to disk.' +
+          consistencyInstructions +
           (isSandboxEntryFile ? '\n\n' + frontendSandboxInstructions : ''),
       },
       {
@@ -1255,8 +1524,13 @@ async function runCodeGen({ teamReport, artifact, model, onFileProgress, otherDe
           '## File to generate\n' +
           'Path: ' + fileSpec.path + '\n' +
           'Purpose: ' + (fileSpec.description || '') + '\n\n' +
-          '## Context (data model)\n' + JSON.stringify(teamReport.dataModel || [], null, 2) + '\n\n' +
+          // ownedByThisDepartment travels with each entity: false means
+          // another department generates that schema, and this file must
+          // reference it rather than define a second, conflicting one.
+          '## Context (data model — entities marked ownedByThisDepartment:false are defined by another department; reference them, never redeclare their schema)\n' +
+          JSON.stringify(teamReport.dataModel || [], null, 2) + '\n\n' +
           '## Context (architecture)\n' + (teamReport.architecture || '') + '\n\n' +
+          '## Context (integration points this department must honour)\n' + JSON.stringify(teamReport.dependencies || [], null, 2) + '\n\n' +
           'Generate the complete contents of this file now:',
       },
     ];
