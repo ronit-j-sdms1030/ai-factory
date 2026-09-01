@@ -116,7 +116,13 @@ def _run(
 
     try:
         errors = work(progress) or {}
-        _finish(job_id, "failed" if errors else "done", errors)
+        # A failed publish is not a failed generation. The BRD, screens or
+        # packages exist and are on the artifact; what did not happen is a
+        # pull request or a reviewer assignment. Reporting that as "failed"
+        # sent people looking for a missing document that was sitting right
+        # there — so it is recorded as done, with the warning kept.
+        blocking = {k: v for k, v in errors.items() if not k.endswith("PublishError")}
+        _finish(job_id, "failed" if blocking else "done", errors)
     except Exception as exc:  # noqa: BLE001 — the job's whole purpose is to record this
         log.exception("generation job %s (%s) failed", job_id, kind)
         _finish(job_id, "failed", {kind: str(exc)})

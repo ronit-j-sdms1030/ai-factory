@@ -33,9 +33,13 @@ from ..state import PipelineState
 
 log = logging.getLogger(__name__)
 
-# Screens are independent calls, so they overlap. Capped because they share
-# the provider's rate limit with whatever else the factory is running.
-_MAX_CONCURRENT_SCREENS = 4
+# Screens are independent calls, so they overlap. The cap sets how many waves
+# the run takes: at 4, an eight-screen design is two waves of ~110s each, and
+# the wall time is dominated by waiting rather than by generating. Raised to 8
+# because nothing in a screen depends on another screen — the roster of names
+# is computed up front — so the only real constraint is the provider's rate
+# limit, which this is still well inside.
+_MAX_CONCURRENT_SCREENS = 8
 
 # Concrete visual expectations, because "make it nice" measurably does not
 # work — the recurring failure was code that ran but looked like a wireframe.
@@ -144,7 +148,11 @@ def _write_screen(brd: dict, outline, roster: str) -> str | None:
         result = llm.call_structured(
             model=config.DETAILED_REPORT_MODEL,
             schema=ScreenSource,
-            max_tokens=8000,
+            # A screen that reaches this ceiling truncates mid-JSON and fails
+            # as a parse error, costing a full silent retry — observed at
+            # exactly 8000 completion tokens on a real run. A dense screen
+            # (tables, forms, modals) legitimately needs more than that.
+            max_tokens=12000,
             retries=1,
             timeout=180.0,
             messages=[

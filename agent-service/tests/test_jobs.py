@@ -117,3 +117,25 @@ class TestListing:
     def test_active_kinds_reports_what_is_running(self, collection):
         threading_safe_job(collection)
         assert jobs.active_kinds("art1") == {"brd"}
+
+
+class TestPublishFailuresAreNotGenerationFailures:
+    """A pull request that did not open is not a document that does not exist.
+
+    The BRD generates, publishing fails because no approver has a GitHub
+    account mapped, and the job used to report "failed" — sending someone to
+    look for a missing FSD that was already on the artifact.
+    """
+
+    def test_a_publish_only_failure_still_counts_as_done(self, collection):
+        job = _settle(jobs.start("art1", "brd", lambda p: {"brdPublishError": "no reviewer could be assigned"}))
+        assert job["status"] == "done"
+        assert job["errors"]["brdPublishError"]      # the warning is kept, not swallowed
+
+    def test_a_generation_failure_still_fails(self, collection):
+        job = _settle(jobs.start("art1", "brd", lambda p: {"detailedReportError": "model returned nothing"}))
+        assert job["status"] == "failed"
+
+    def test_a_generation_failure_alongside_a_publish_one_fails(self, collection):
+        job = _settle(jobs.start("art1", "ui", lambda p: {"uiError": "no screens", "uiPublishError": "no reviewer"}))
+        assert job["status"] == "failed"
