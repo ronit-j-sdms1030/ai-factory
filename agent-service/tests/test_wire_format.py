@@ -176,3 +176,26 @@ class TestProviderSideSchemaRejection:
             Exception("Error code: 400 - {'message': 'Failed to parse tool call arguments as JSON', "
                       "'code': 'tool_use_failed'}")
         )
+
+
+class TestQuotaCeilings:
+    """A request bigger than the per-minute budget cannot be retried into working."""
+
+    def test_an_over_ceiling_request_is_explained(self):
+        from app.llm import _quota_ceiling
+
+        msg = _quota_ceiling(Exception(
+            "Error code: 413 - Request too large for model `openai/gpt-oss-120b` on tokens "
+            "per minute (TPM): Limit 8000, Requested 11634 ... 'code': 'rate_limit_exceeded'"))
+        assert msg and "8000" in msg and "11634" in msg
+
+    def test_an_ordinary_rate_limit_says_try_again(self):
+        from app.llm import _quota_ceiling
+
+        msg = _quota_ceiling(Exception("429 rate_limit_exceeded: slow down"))
+        assert msg and "try again" in msg
+
+    def test_unrelated_errors_are_not_claimed(self):
+        from app.llm import _quota_ceiling
+
+        assert _quota_ceiling(Exception("500 internal server error")) is None

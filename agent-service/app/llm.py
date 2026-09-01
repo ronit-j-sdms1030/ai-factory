@@ -29,6 +29,7 @@ from typing import Any, TypeVar
 from langsmith.wrappers import wrap_openai
 from openai import (
     APIConnectionError,
+    APIStatusError,
     APITimeoutError,
     BadRequestError,
     InternalServerError,
@@ -56,6 +57,33 @@ _RAW_TEXT_FIELDS = {"content"}
 # request or a bad key fails identically on every attempt, and retrying only
 # delays a clear error.
 _TRANSIENT = (APIConnectionError, APITimeoutError, RateLimitError, InternalServerError)
+
+
+def _quota_ceiling(exc: BaseException) -> str | None:
+    """A limit no retry can get under, explained in one line.
+
+    Groq's free tier caps tokens-per-minute, and it counts a request as its
+    prompt *plus* the tokens it is allowed to write. A stage asking for an
+    8,000-token document against a 8,000 TPM ceiling therefore fails every
+    time, immediately — retrying is not slow, it is pointless. Worth saying
+    plainly, because the raw provider error is a wall of JSON that reads like
+    a transient blip.
+    """
+    message = str(exc)
+    if "rate_limit_exceeded" not in message and "Request too large" not in message:
+        return None
+
+    import re as _re
+
+    limit = _re.search(r"Limit (\d+)", message)
+    wanted = _re.search(r"Requested (\d+)", message)
+    if limit and wanted and int(wanted.group(1)) > int(limit.group(1)):
+        return (
+            f"this request needs {wanted.group(1)} tokens but the account's "
+            f"per-minute ceiling is {limit.group(1)}, so it cannot succeed as sent — "
+            "lower the stage's max_tokens, or raise the provider's limit"
+        )
+    return "the provider's rate limit was reached; try again shortly"
 
 
 def _is_model_output_error(exc: BaseException) -> bool:
@@ -167,8 +195,12 @@ def call_structured(
             raw = json.loads(calls[0].function.arguments)
             return schema.model_validate(_unwrap_double_encoded(raw))
 
-        except BadRequestError as exc:
-            if not _is_model_output_error(exc):
+        except APIStatusError as exc:
+            ceiling = _quota_ceiling(exc)
+            if ceiling:
+                # Deliberately not retried: the same request fails identically.
+                raise RuntimeError(f"{model} cannot serve this request — {ceiling}") from exc
+            if not (isinstance(exc, BadRequestError) and _is_model_output_error(exc)):
                 raise
             last_error = exc
             log.warning(
