@@ -113,6 +113,27 @@ def _visible_team_reports(artifact: dict[str, Any], actor: dict[str, Any]) -> li
     ]
 
 
+def _ui_summary(ui: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The screens without their source.
+
+    A generated design is around 300KB of React, and the list endpoint returns
+    every artifact the viewer can see — so sending the source meant a few
+    requirements made the workspace's own page load slower than the pipeline
+    that produced them. Nothing in the list needs the code; it needs to know
+    the screens exist and what they are called. The source is served by the
+    preview endpoint, once, when somebody actually looks at it.
+    """
+    if not ui:
+        return None
+    return {
+        "screens": [
+            {"name": s.get("name"), "route": s.get("route"), "purpose": s.get("purpose")}
+            for s in ui.get("screens") or []
+        ],
+        "clarifications": ui.get("clarifications") or [],
+    }
+
+
 def _redact(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
     out = dict(artifact)
     out["_id"] = str(artifact["_id"])
@@ -125,6 +146,7 @@ def _redact(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
         )
     )
 
+    out["ui"] = _ui_summary(artifact.get("ui"))
     out["teamReports"] = _visible_team_reports(artifact, actor)
     out["teamReportEditHistory"] = (
         [e for e in artifact.get("teamReportEditHistory") or [] if e.get("department") == actor.get("department")]
@@ -221,7 +243,7 @@ def _maybe_generate_ui(artifact: dict[str, Any]) -> dict:
         errors: dict[str, str] = {}
         _record_publish(artifact, errors, "ui",
                         publish(artifact=artifact, stage="ui",
-                                build_files=lambda store: store.ui_files(ui),
+                                build_files=lambda store: store.ui_files(ui, artifact.get("title") or "Untitled"),
                                 body_extra=_clarifications_summary(ui)))
         return errors
     except Exception as exc:  # noqa: BLE001

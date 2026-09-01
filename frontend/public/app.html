@@ -840,6 +840,17 @@
         buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
+      // The generated screens are what GATE 2 is meant to be about, so the
+      // people who approve the requirement have to be able to look at them:
+      // the originator, MD/CEO on the chain, and VP. Opens the preview rather
+      // than posting an action — it is a view, not a decision.
+      if (artifact.ui && artifact.ui.screens && artifact.ui.screens.length && !me.isClient &&
+          (isOriginator || me.tierId === 'vp' ||
+           artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1)) {
+        buttons.push({ href: window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/preview',
+                       label: 'View UI (' + artifact.ui.screens.length + ')' });
+      }
+
       // Code generation — available to the TL whose department package is
       // ready. Once a job already exists, lock this behind reopening that
       // same job's IDE instead of the start-new-job modal — otherwise
@@ -917,6 +928,14 @@
         badgesEl.appendChild(b);
       }
       if (artifact.detailedReport) addBadge('FSD ready — open View');
+      if (artifact.ui && artifact.ui.screens && artifact.ui.screens.length) {
+        var broken = artifact.ui.clarifications && artifact.ui.clarifications.filter(function (c) {
+          return /could not be generated/.test(c);
+        }).length;
+        addBadge('UI ready — ' + artifact.ui.screens.length + ' screen' +
+                 (artifact.ui.screens.length === 1 ? '' : 's') +
+                 (broken ? ' (some need another pass)' : ''));
+      }
       if (artifact.teamReports && artifact.teamReports.length) {
         addBadge(artifact.teamReports.length + ' team package' + (artifact.teamReports.length === 1 ? '' : 's'), true);
       }
@@ -947,6 +966,9 @@
         btn.className = 'btn' + (btnDef.secondary ? ' secondary' : '') + (btnDef.danger ? ' danger' : '');
         btn.textContent = btnDef.label;
         btn.addEventListener('click', function () {
+          // A plain link, not an action: opens in its own tab because the
+          // generated screens run in a sandbox and must not share this page.
+          if (btnDef.href) return window.open(btnDef.href, '_blank', 'noopener');
           if (btnDef.modal === 'proposeChanges') return openProposeChangesModal(artifact);
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);

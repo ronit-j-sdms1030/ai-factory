@@ -179,12 +179,21 @@ class GitStore:
             files["brd/diagrams/schema.mmd"] = brd["dbSchemaDiagram"]
         return files
 
-    def ui_files(self, ui: dict[str, Any]) -> dict[str, str]:
+    def ui_files(self, ui: dict[str, Any], title: str = "Untitled") -> dict[str, str]:
         files: dict[str, str] = {}
         for screen in ui.get("screens") or []:
             files[f"ui/screens/{_slug(screen.get('name', 'screen'))}.jsx"] = screen.get("source", "")
         if ui.get("clarifications"):
             files["ui/clarifications.md"] = "\n".join(f"- {c}" for c in ui["clarifications"])
+        if ui.get("screens"):
+            # The assembled page goes in the commit too, so the pull request
+            # carries something a reviewer can open rather than a folder of
+            # components they would have to wire up themselves. It is a single
+            # self-contained file, so it also works from GitHub Pages or from
+            # a local checkout with no server at all.
+            from .ui_preview import build_preview
+
+            files["ui/preview.html"] = build_preview(ui, title)
         return files
 
     def workitem_files(self, decomposition: dict[str, Any]) -> dict[str, str]:
