@@ -69,6 +69,7 @@ def ui_agent(state: PipelineState) -> dict:
     plan = _plan_screens(brd)
     if not plan.screens:
         raise RuntimeError("the UI agent planned no screens")
+    _fill_blanks(plan)
 
     # Every screen is told what the others are called, so a cross-screen
     # reference resolves to something that exists. Without it each call is
@@ -148,6 +149,36 @@ def strip_module_syntax(source: str) -> str:
     return "\n".join(kept)
 
 
+def _pascal_case(name: str) -> str:
+    """'Leave Request' -> 'LeaveRequest'. Anything unusable becomes empty."""
+    parts = re.findall(r"[A-Za-z][A-Za-z0-9]*", name or "")
+    joined = "".join(p[:1].upper() + p[1:] for p in parts)
+    return joined if joined.isidentifier() else ""
+
+
+def _fill_blanks(plan: UIPlan) -> None:
+    """Supply what a thin plan left out.
+
+    Every field but ``name`` is optional, because requiring them lost whole
+    plans to a 400. That trade means a model can hand back names and nothing
+    else — gpt-oss-120b returns exactly that — so the route is derived here
+    rather than left empty. Purpose and key elements cannot be invented
+    honestly; a screen without them is still written from the BRD's objective,
+    data model and the roster of its siblings.
+    """
+    for screen in plan.screens:
+        # The name becomes a JavaScript identifier — it is how the preview
+        # registers and looks up the component. Models return "Leave Request"
+        # despite being asked for PascalCase, and an invalid identifier means
+        # the screen is silently dropped from the preview it was generated for.
+        screen.name = _pascal_case(screen.name) or "Screen"
+        if not screen.route:
+            # ReturnsDashboard -> /returns-dashboard
+            screen.route = "/" + re.sub(r"(?<!^)(?=[A-Z])", "-", screen.name).lower()
+        if not screen.purpose:
+            screen.purpose = f"The {screen.name} screen."
+
+
 def _plan_screens(brd: dict) -> UIPlan:
     """Decide the screen set. Small output, so this call is cheap and reliable.
 
@@ -168,6 +199,9 @@ def _plan_screens(brd: dict) -> UIPlan:
                     "You are the UI agent inside Stark Digital's AI Software Factory. Plan the screens "
                     "for this approved BRD, before any backend code exists. Do not write any code yet — "
                     "name the screens and say what is on each.\n\n"
+                    "Fill EVERY field for EVERY screen: name, route, purpose, and keyElements. A screen "
+                    "with only a name cannot be built from — keyElements in particular is what the next "
+                    "step writes the code against, so name the real tables, forms, filters and actions.\n\n"
                     "Derive them from pageBehavior and dataModel.\n\n"
                     f"{_PRODUCT_SHAPE}\n\n"
                     "Where the BRD is genuinely ambiguous about interface behaviour, record a "

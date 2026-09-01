@@ -135,3 +135,57 @@ class TestJsxRuntime:
     def test_react_is_global_for_createElement(self):
         page = build_preview(SCREENS, "t")
         assert "react@18/umd/react.development.js" in page
+
+
+class TestThinPlansAreUsable:
+    """A model may return screen names and nothing else, and often does.
+
+    Requiring route/purpose/keyElements lost entire plans to a provider-side
+    400, so they are optional — which means the agent has to cope when they
+    arrive empty rather than generating screens with no route at all.
+    """
+
+    def test_a_route_is_derived_from_the_name(self):
+        from app.agents.ui import _fill_blanks
+        from app.schemas import ScreenOutline, UIPlan
+
+        plan = UIPlan(screens=[ScreenOutline(name="ReturnsDashboard")], clarifications=[])
+        _fill_blanks(plan)
+        assert plan.screens[0].route == "/returns-dashboard"
+
+    def test_an_existing_route_is_left_alone(self):
+        from app.agents.ui import _fill_blanks
+        from app.schemas import ScreenOutline, UIPlan
+
+        plan = UIPlan(screens=[ScreenOutline(name="X", route="/custom")], clarifications=[])
+        _fill_blanks(plan)
+        assert plan.screens[0].route == "/custom"
+
+
+class TestScreenNamesBecomeIdentifiers:
+    """The name is a JavaScript identifier, not a label.
+
+    The preview registers and looks up each component by name, so "Leave
+    Request" — which models return despite being asked for PascalCase — is
+    dropped from the very preview it was generated for.
+    """
+
+    def test_spaces_are_removed(self):
+        from app.agents.ui import _pascal_case
+
+        assert _pascal_case("Leave Request") == "LeaveRequest"
+
+    def test_punctuation_is_removed(self):
+        from app.agents.ui import _pascal_case
+
+        assert _pascal_case("My-Leave (v2)") == "MyLeaveV2"
+
+    def test_an_already_valid_name_is_unchanged(self):
+        from app.agents.ui import _pascal_case
+
+        assert _pascal_case("ClockInOut") == "ClockInOut"
+
+    def test_an_unusable_name_becomes_empty_rather_than_invalid(self):
+        from app.agents.ui import _pascal_case
+
+        assert _pascal_case("   ") == ""

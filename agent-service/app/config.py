@@ -115,7 +115,7 @@ UI_MODEL = _model("UI_MODEL", "groq/openai/gpt-oss-120b")
 # tokens once per run, against ~90,000 for the screens themselves — so leaving
 # it on a model that reliably follows a nested schema costs almost nothing
 # even when the rest of the stage has moved elsewhere to save credits.
-UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "deepseek/deepseek-v3.2")
+UI_PLAN_MODEL = _model("UI_PLAN_MODEL", "groq/openai/gpt-oss-120b")
 
 # The largest schema in the pipeline — work items with dependency edges, plus a
 # package per department carrying its own tech stack, owned data model, phased

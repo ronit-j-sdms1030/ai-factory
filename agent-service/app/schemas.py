@@ -160,14 +160,26 @@ class Critique(Artefact):
 # error rather than as a short answer — so the whole design was lost, not
 # merely the last screen.
 class ScreenOutline(Artefact):
+    """One planned screen.
+
+    Only ``name`` is required. Every other field is asked for and defaulted if
+    missing, because four required fields per item is more than several models
+    reliably deliver: gpt-oss-120b and gpt-oss-20b both dropped route, purpose
+    and keyElements from every screen, and Groq rejects that server-side with
+    a 400 — so one omission lost the entire plan and with it the whole design.
+    A screen described only by its name still generates; a plan that never
+    validates does not.
+    """
+
     name: str = Field(description="PascalCase component name, e.g. 'ReturnsDashboard'.")
-    route: str = Field(description="URL path, e.g. '/returns'.")
-    purpose: str
+    route: str = Field(default="", description="URL path, e.g. '/returns'.")
+    purpose: str = Field(default="", description="What this screen is for, in one line.")
     key_elements: list[str] = Field(
+        default_factory=list,
         description=(
             "The concrete things on this screen — tables, forms, filters, actions — named "
             "specifically enough that its source can be written from this alone."
-        )
+        ),
     )
 
 
