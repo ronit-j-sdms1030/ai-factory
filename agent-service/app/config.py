@@ -131,22 +131,61 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # there instead by prefixing its id with "groq/". The prefix is stripped
 # before the call — it is routing information for us, not part of the model
 # name Groq knows.
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-GROQ_PREFIX = "groq/"
+# Providers are declared in the environment, not in code. Every one worth
+# using speaks the OpenAI chat-completions format, so supporting a new one is
+# a base URL and a key — and which provider a stage runs on is a question
+# answered by cost and rate limits on the day, not by a deploy.
+#
+#   PROVIDER_GROQ_BASE_URL=https://api.groq.com/openai/v1
+#   PROVIDER_GROQ_API_KEY=gsk_...
+#   UI_MODEL=groq/openai/gpt-oss-120b
+#
+# The prefix before the first "/" selects the provider and is stripped before
+# the call. An unprefixed model goes to OpenRouter, which stays the default so
+# existing configuration keeps working.
+_BUILTIN_PROVIDERS = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "cerebras": "https://api.cerebras.ai/v1",
+    "together": "https://api.together.xyz/v1",
+    "fireworks": "https://api.fireworks.ai/inference/v1",
+    "deepinfra": "https://api.deepinfra.com/v1/openai",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
+}
 
 
 def provider_for(model: str) -> tuple[str, str, str]:
-    """Where to send this model: (base_url, api_key, model_id)."""
-    if model.startswith(GROQ_PREFIX):
-        return GROQ_BASE_URL, groq_api_key(), model[len(GROQ_PREFIX):]
-    return OPENROUTER_BASE_URL, openrouter_api_key(), model
+    """Where to send this model: (base_url, api_key, model_id).
+
+    Unprefixed models go to OpenRouter. A "<name>/" prefix routes elsewhere,
+    provided PROVIDER_<NAME>_API_KEY is set — the base URL comes from
+    PROVIDER_<NAME>_BASE_URL, or from the built-in table for the common ones.
+    """
+    prefix, _, rest = model.partition("/")
+    name = prefix.upper()
+    key = os.environ.get(f"PROVIDER_{name}_API_KEY")
+    if not rest or not key:
+        return OPENROUTER_BASE_URL, openrouter_api_key(), model
+
+    base_url = os.environ.get(f"PROVIDER_{name}_BASE_URL") or _BUILTIN_PROVIDERS.get(prefix.lower())
+    if not base_url:
+        raise RuntimeError(
+            f"PROVIDER_{name}_API_KEY is set but there is no base URL for '{prefix}' — "
+            f"add PROVIDER_{name}_BASE_URL"
+        )
+    return base_url, key, rest
 
 
-def groq_api_key() -> str:
-    key = os.environ.get("GROQ_API_KEY")
-    if not key:
-        raise RuntimeError("GROQ_API_KEY is not set")
-    return key
+
+
+def _alias_legacy_keys() -> None:
+    """GROQ_API_KEY was the first provider key; keep it working."""
+    legacy = os.environ.get("GROQ_API_KEY")
+    if legacy and not os.environ.get("PROVIDER_GROQ_API_KEY"):
+        os.environ["PROVIDER_GROQ_API_KEY"] = legacy
+
+
+_alias_legacy_keys()
 
 
 def openrouter_api_key() -> str:
