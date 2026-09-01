@@ -127,10 +127,33 @@ class GitHubClient:
 
     # ── pull requests ────────────────────────────────────────────────────────
     def open_pull_request(self, *, branch: str, title: str, body: str, base: str = "main") -> dict:
-        return self._request(
-            "POST", f"/repos/{self.config.repo}/pulls",
-            json={"title": title, "head": branch, "base": base, "body": body},
+        """Open the pull request for a branch, or return the one already open.
+
+        Republishing a stage — after a revision, or a retry following a failed
+        push — must be idempotent. GitHub rejects a duplicate with a 422, which
+        is not an error condition here: the gate already exists and the branch
+        has just been updated to point at the new commit.
+        """
+        try:
+            return self._request(
+                "POST", f"/repos/{self.config.repo}/pulls",
+                json={"title": title, "head": branch, "base": base, "body": body},
+            )
+        except GitHubError as exc:
+            if "already exists" not in str(exc):
+                raise
+            existing = self.pull_request_for(branch)
+            if existing is None:
+                raise
+            return existing
+
+    def pull_request_for(self, branch: str) -> dict | None:
+        """The open pull request whose head is ``branch``, if there is one."""
+        found = self._request(
+            "GET", f"/repos/{self.config.repo}/pulls",
+            params={"state": "open", "head": f"{self.config.owner}:{branch}"},
         )
+        return found[0] if found else None
 
     def request_reviewers(self, number: int, *, teams: list[str] | None = None, users: list[str] | None = None) -> dict:
         """Ask the tier that owns the current gate to review.

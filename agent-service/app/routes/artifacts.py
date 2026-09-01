@@ -26,6 +26,7 @@ from ..agents.intake import finalize_requirement, run_chat_turn
 from ..auth import actor_from, current_user
 from ..config import TIERS, originator_label, resolve_approval_chain
 from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
+from ..publish import publish
 from ..state_machine import TransitionError, transition
 
 log = logging.getLogger(__name__)
@@ -148,8 +149,12 @@ def _maybe_generate_report_and_split(artifact: dict[str, Any], step_acted_on: di
                     {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
                 ],
             }
-            artifact["detailedReport"] = brd_agent(state)["brd"]
+            brd = brd_agent(state)["brd"]
+            artifact["detailedReport"] = brd
             artifact["detailedReportGeneratedAt"] = _utcnow()
+            _record_publish(artifact, errors, "brd",
+                            publish(artifact=artifact, stage="brd",
+                                    build_files=lambda store: store.brd_files(brd)))
             # Every requirement goes through the FSD review loop, including a
             # self-originated MD/CEO one — that stage is the only place "Edit
             # FSD" is reachable, so skipping it would strand the originator
@@ -174,7 +179,12 @@ def _maybe_split(artifact: dict[str, Any]) -> dict:
         artifact["workItems"] = result.get("work_items", [])
         artifact["workItemIntegrity"] = result.get("integrity", {})
         artifact["teamReportsGeneratedAt"] = _utcnow()
-        return {}
+        errors: dict[str, str] = {}
+        _record_publish(artifact, errors, "workitems",
+                        publish(artifact=artifact, stage="workitems",
+                                build_files=lambda store: store.workitem_files(result),
+                                body_extra=_integrity_summary(result.get("integrity") or {})))
+        return errors
     except Exception as exc:  # noqa: BLE001
         log.exception("team split failed")
         return {"teamSplitError": str(exc)}
@@ -199,6 +209,39 @@ def _submit_and_maybe_self_approve(artifact: dict[str, Any], actor: dict[str, An
     errors = _maybe_generate_report_and_split(artifact, step)
     _save(artifact)
     return errors
+
+
+
+def _record_publish(artifact: dict[str, Any], errors: dict[str, str], stage: str, result) -> None:
+    """Attach the pull request to the artifact, or surface why there isn't one.
+
+    Publishing is best-effort — the artefact is already saved in Mongo, and the
+    approval flow must not stall because GitHub was unreachable. A failure is
+    reported to the caller rather than raised.
+    """
+    if result.pull_request_url:
+        artifact.setdefault("pullRequests", {})[stage] = result.pull_request_url
+    if result.branch:
+        artifact.setdefault("gitBranches", {})[stage] = result.branch
+    if result.error:
+        errors[f"{stage}PublishError"] = result.error
+        log.warning("publish of %s failed: %s", stage, result.error)
+
+
+def _integrity_summary(integrity: dict[str, Any]) -> str:
+    """Surface decomposition defects in the pull request body, where a reviewer sees them."""
+    problems = []
+    if integrity.get("unowned"):
+        problems.append(f"- Entities owned by nobody: {', '.join(integrity['unowned'])}")
+    if integrity.get("multiply_owned"):
+        problems.append(f"- Entities with multiple owners: {', '.join(integrity['multiply_owned'])}")
+    if integrity.get("inconsistent_spelling"):
+        problems.append(f"- Inconsistent entity spelling: {'; '.join(integrity['inconsistent_spelling'])}")
+    if integrity.get("cycles"):
+        problems.append(f"- Dependency cycles: {integrity['cycles']}")
+    if integrity.get("dangling"):
+        problems.append(f"- Dangling dependencies: {', '.join(integrity['dangling'])}")
+    return "**Integrity checks**\n" + ("\n".join(problems) if problems else "- All checks passed.")
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────
@@ -357,7 +400,15 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
     artifact["content"] = requirement.model_dump()
     artifact["updatedAt"] = _utcnow()
     _save(artifact)
-    return {"type": "ready", "artifact": _redact(artifact, actor)}
+
+    published: dict[str, str] = {}
+    _record_publish(artifact, published, "requirement",
+                    publish(artifact=artifact, stage="requirement",
+                            build_files=lambda store: store.requirement_files(
+                                artifact["content"],
+                                "\n".join(f"{m['role']}: {m['content']}" for m in artifact.get("chatHistory") or []),
+                            )))
+    return {"type": "ready", "artifact": _redact(artifact, actor), **published}
 
 
 class ActionBody(BaseModel):
@@ -409,8 +460,12 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
                     {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
                 ],
             }
-            artifact["detailedReport"] = brd_agent(state)["brd"]
+            brd = brd_agent(state)["brd"]
+            artifact["detailedReport"] = brd
             artifact["detailedReportGeneratedAt"] = _utcnow()
+            _record_publish(artifact, errors, "brd",
+                            publish(artifact=artifact, stage="brd",
+                                    build_files=lambda store: store.brd_files(brd)))
             # A regenerated FSD invalidates the split derived from the old one.
             artifact["teamReports"] = []
             artifact["teamReportsGeneratedAt"] = None
