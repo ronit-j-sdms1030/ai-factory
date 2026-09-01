@@ -116,7 +116,7 @@ def _plan_screens(brd: dict) -> UIPlan:
                     "You are the UI agent inside Stark Digital's AI Software Factory. Plan the screens "
                     "for this approved BRD, before any backend code exists. Do not write any code yet — "
                     "name the screens and say what is on each.\n\n"
-                    "Derive them from page_behavior and data_model.\n\n"
+                    "Derive them from pageBehavior and dataModel.\n\n"
                     f"{_PRODUCT_SHAPE}\n\n"
                     "Where the BRD is genuinely ambiguous about interface behaviour, record a "
                     "clarification rather than guessing silently."
@@ -126,9 +126,9 @@ def _plan_screens(brd: dict) -> UIPlan:
                 "role": "user",
                 "content": (
                     f"Objective:\n{brd['objective']}\n\n"
-                    f"Pages:\n{json.dumps(brd['page_behavior'], indent=2)}\n\n"
-                    f"Data model:\n{json.dumps(brd['data_model'], indent=2)}\n\n"
-                    f"User flow:\n{json.dumps(brd['user_flow'], indent=2)}"
+                    f"Pages:\n{json.dumps(brd['pageBehavior'], indent=2)}\n\n"
+                    f"Data model:\n{json.dumps(brd['dataModel'], indent=2)}\n\n"
+                    f"User flow:\n{json.dumps(brd['userFlow'], indent=2)}"
                 ),
             },
         ],
@@ -167,7 +167,7 @@ def _write_screen(brd: dict, outline, roster: str) -> str | None:
                         f"It must contain: {json.dumps(outline.key_elements, indent=2)}\n\n"
                         f"Other screens in this application: {roster}\n\n"
                         f"Product objective:\n{brd['objective']}\n\n"
-                        f"Data model:\n{json.dumps(brd['data_model'], indent=2)}"
+                        f"Data model:\n{json.dumps(brd['dataModel'], indent=2)}"
                     ),
                 },
             ],

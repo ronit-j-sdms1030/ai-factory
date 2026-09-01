@@ -20,8 +20,8 @@ def store(tmp_path):
 
 BRD = {
     "objective": "Automate returns",
-    "architecture_diagram": "flowchart TD\n  A --> B",
-    "db_schema_diagram": "erDiagram\n  RETURN ||--o{ ITEM : has",
+    "architectureDiagram": "flowchart TD\n  A --> B",
+    "dbSchemaDiagram": "erDiagram\n  RETURN ||--o{ ITEM : has",
     "tech_stack": [{"layer": "Backend", "choice": "FastAPI", "rationale": "r"}],
 }
 

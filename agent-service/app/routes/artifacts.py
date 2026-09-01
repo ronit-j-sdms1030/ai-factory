@@ -246,9 +246,9 @@ def _maybe_split(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        result = decomposition_agent({"brd": artifact["detailedReport"]})["work_items"]
+        result = decomposition_agent({"brd": artifact["detailedReport"]})["workItems"]
         artifact["teamReports"] = result.get("packages", [])
-        artifact["workItems"] = result.get("work_items", [])
+        artifact["workItems"] = result.get("workItems", [])
         artifact["workItemIntegrity"] = result.get("integrity", {})
         artifact["teamReportsGeneratedAt"] = _utcnow()
         errors: dict[str, str] = {}
@@ -541,7 +541,7 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
         raise HTTPException(status_code=502, detail=str(exc))
 
     artifact["title"] = requirement.title
-    artifact["content"] = requirement.model_dump()
+    artifact["content"] = requirement.model_dump(by_alias=True)
     # Recorded in the transcript as well as shown, so reopening the session
     # does not lose the closing message. Stays in 'clarifying': the originator
     # reviews this summary and sends it explicitly via /submit.
@@ -742,7 +742,7 @@ def fsd_chat(artifact_id: str, message: str = Body(..., embed=True), actor: dict
     next_report = artifact.get("detailedReport")
     try:
         for raw in result.operations:
-            op = normalize_operation(raw.model_dump())
+            op = normalize_operation(raw.model_dump(by_alias=True))
             if op["target"] == "title":
                 if op["path"] or not isinstance(op["value"], str) or not op["value"].strip():
                     raise EditPathError("A title edit requires a non-empty string and an empty path")
@@ -793,7 +793,7 @@ def team_report_chat(artifact_id: str, message: str = Body(..., embed=True), act
     if result.updated_package.team != actor["department"]:
         raise HTTPException(status_code=502, detail="AI package edit attempted to change the assigned department")
 
-    reports[index] = result.updated_package.model_dump()
+    reports[index] = result.updated_package.model_dump(by_alias=True)
     artifact["teamReports"] = reports
     artifact.setdefault("teamReportEditHistory", []).extend([
         {"department": actor["department"], "role": "user", "content": text, "timestamp": _utcnow()},

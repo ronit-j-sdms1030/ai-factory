@@ -65,8 +65,8 @@ def decomposition_agent(state: PipelineState) -> dict:
                 "content": (
                     f"Objective:\n{brd['objective']}\n\n"
                     f"Architecture:\n{brd['architecture']}\n\n"
-                    f"Tech stack:\n{json.dumps(brd['tech_stack'], indent=2)}\n\n"
-                    f"Data model:\n{json.dumps(brd['data_model'], indent=2)}\n\n"
+                    f"Tech stack:\n{json.dumps(brd['techStack'], indent=2)}\n\n"
+                    f"Data model:\n{json.dumps(brd['dataModel'], indent=2)}\n\n"
                     f"Timeline:\n{json.dumps(brd['timeline'], indent=2)}"
                 ),
             },
@@ -90,7 +90,7 @@ def decomposition_agent(state: PipelineState) -> dict:
 
     return {
         "work_items": {
-            **decomposition.model_dump(),
+            **decomposition.model_dump(by_alias=True),
             "integrity": {**report, "cycles": cycles, "dangling": dangling},
         }
     }

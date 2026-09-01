@@ -173,10 +173,10 @@ class GitStore:
     def brd_files(self, brd: dict[str, Any]) -> dict[str, str]:
         """The BRD, with diagrams split out so CI can lint them independently."""
         files = {"brd/brd.json": json.dumps(brd, indent=2, default=str)}
-        if brd.get("architecture_diagram"):
-            files["brd/diagrams/architecture.mmd"] = brd["architecture_diagram"]
-        if brd.get("db_schema_diagram"):
-            files["brd/diagrams/schema.mmd"] = brd["db_schema_diagram"]
+        if brd.get("architectureDiagram"):
+            files["brd/diagrams/architecture.mmd"] = brd["architectureDiagram"]
+        if brd.get("dbSchemaDiagram"):
+            files["brd/diagrams/schema.mmd"] = brd["dbSchemaDiagram"]
         return files
 
     def ui_files(self, ui: dict[str, Any]) -> dict[str, str]:
@@ -197,7 +197,7 @@ class GitStore:
         files = {
             "workitems/graph.json": json.dumps(
                 {
-                    "work_items": decomposition.get("work_items") or [],
+                    "work_items": decomposition.get("workItems") or [],
                     "integrity": decomposition.get("integrity") or {},
                 },
                 indent=2,

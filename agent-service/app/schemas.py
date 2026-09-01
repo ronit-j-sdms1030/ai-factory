@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 from .config import TEAM_DEPARTMENTS
 
@@ -25,7 +26,28 @@ _REAL_TECHNOLOGY = (
 
 
 # ── Intake ───────────────────────────────────────────────────────────────────
-class Requirement(BaseModel):
+
+class Artefact(BaseModel):
+    """Base for everything an agent produces and the system stores.
+
+    Field names stay snake_case in Python and serialise to camelCase. That is
+    not a style preference: the frontend, the retained JavaScript
+    code-generation service, and every artifact written before this port all
+    use camelCase, and both services share one Mongo collection. A snake_case
+    document is not a differently-formatted document — it is one the rest of
+    the system reads as absent. The port emitted `data_model` where code
+    generation reads `dataModel`, so a work package arrived carrying no schema
+    at all, and the requirement review screen showed "None specified" for
+    every field.
+
+    ``populate_by_name`` keeps validation tolerant of either spelling, so a
+    model that answers in snake_case still parses.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class Requirement(Artefact):
     """The finished intake conversation, structured for approval."""
 
     title: str = Field(description="Short title, under 80 characters.")
@@ -46,7 +68,7 @@ class Requirement(BaseModel):
 
 
 # ── BRD ──────────────────────────────────────────────────────────────────────
-class TechChoice(BaseModel):
+class TechChoice(Artefact):
     layer: str = Field(description="e.g. 'Frontend', 'Backend/API', 'Database', 'Hosting', 'Auth', 'CI/CD'.")
     choice: str = Field(description=_REAL_TECHNOLOGY)
     rationale: str = Field(
@@ -59,24 +81,24 @@ class TechChoice(BaseModel):
     )
 
 
-class Entity(BaseModel):
+class Entity(Artefact):
     name: str = Field(description="Entity name, e.g. 'Return', 'Customer'.")
     fields: list[str] = Field(description="Field names on this entity.")
     description: str
 
 
-class Page(BaseModel):
+class Page(Artefact):
     page: str
     description: str
 
 
-class Phase(BaseModel):
+class Phase(Artefact):
     phase: str
     duration: str = Field(description="e.g. '2 weeks'.")
     description: str
 
 
-class BRD(BaseModel):
+class BRD(Artefact):
     """A production-ready business requirements document."""
 
     objective: str
@@ -86,7 +108,7 @@ class BRD(BaseModel):
     architecture_diagram: str = Field(
         description=(
             "A valid Mermaid flowchart (starting 'flowchart TD' or 'graph LR') with a node for "
-            "every component in tech_stack and labelled arrows for the real data flow. No code fence."
+            "every component in techStack and labelled arrows for the real data flow. No code fence."
         )
     )
     tech_stack: list[TechChoice]
@@ -94,8 +116,8 @@ class BRD(BaseModel):
     data_model: list[Entity]
     db_schema_diagram: str = Field(
         description=(
-            "A valid Mermaid erDiagram covering every entity in data_model and the relationships "
-            "between them. Mirror data_model rather than inventing entities. No code fence."
+            "A valid Mermaid erDiagram covering every entity in dataModel and the relationships "
+            "between them. Mirror dataModel rather than inventing entities. No code fence."
         )
     )
     page_behavior: list[Page]
@@ -109,8 +131,8 @@ class BRD(BaseModel):
 
 
 # ── Design critique ──────────────────────────────────────────────────────────
-class Finding(BaseModel):
-    section: str = Field(description="Which BRD field is wrong, e.g. 'tech_stack', 'data_model'.")
+class Finding(Artefact):
+    section: str = Field(description="Which BRD field is wrong, e.g. 'techStack', 'dataModel'.")
     severity: str = Field(
         description=(
             "'high' — the design fails at its core job, misses a governing standard, or omits a "
@@ -123,7 +145,7 @@ class Finding(BaseModel):
     recommendation: str = Field(description="The specific change, naming the replacement approach or component.")
 
 
-class Critique(BaseModel):
+class Critique(Artefact):
     """Fitness-for-purpose defects found in a proposed design."""
 
     findings: list[Finding] = Field(
@@ -137,7 +159,7 @@ class Critique(BaseModel):
 # token ceiling and truncated the JSON mid-string, which fails as a parse
 # error rather than as a short answer — so the whole design was lost, not
 # merely the last screen.
-class ScreenOutline(BaseModel):
+class ScreenOutline(Artefact):
     name: str = Field(description="PascalCase component name, e.g. 'ReturnsDashboard'.")
     route: str = Field(description="URL path, e.g. '/returns'.")
     purpose: str
@@ -149,7 +171,7 @@ class ScreenOutline(BaseModel):
     )
 
 
-class UIPlan(BaseModel):
+class UIPlan(Artefact):
     """The set of screens to build, decided before any source is written."""
 
     screens: list[ScreenOutline]
@@ -161,7 +183,7 @@ class UIPlan(BaseModel):
     )
 
 
-class ScreenSource(BaseModel):
+class ScreenSource(Artefact):
     """One screen's implementation."""
 
     source: str = Field(
@@ -174,7 +196,7 @@ class ScreenSource(BaseModel):
     )
 
 
-class Screen(BaseModel):
+class Screen(Artefact):
     name: str = Field(description="PascalCase component name, e.g. 'ReturnsDashboard'.")
     route: str = Field(description="URL path, e.g. '/returns'.")
     purpose: str
@@ -188,7 +210,7 @@ class Screen(BaseModel):
     )
 
 
-class UIDesign(BaseModel):
+class UIDesign(Artefact):
     """The application interface, generated before any code."""
 
     screens: list[Screen]
@@ -201,8 +223,8 @@ class UIDesign(BaseModel):
 
 
 # ── Decomposition ────────────────────────────────────────────────────────────
-class OwnedEntity(BaseModel):
-    entity: str = Field(description="Entity name exactly as the BRD's data_model spells it.")
+class OwnedEntity(Artefact):
+    entity: str = Field(description="Entity name exactly as the BRD's dataModel spells it.")
     fields: list[str] = Field(description="Field names exactly as the BRD spells them.")
     owned_by_this_department: bool = Field(
         description=(
@@ -212,7 +234,7 @@ class OwnedEntity(BaseModel):
     )
 
 
-class WorkItem(BaseModel):
+class WorkItem(Artefact):
     id: str = Field(description="Short stable identifier, e.g. 'WI-01'.")
     title: str
     department: str = Field(description=f"Owning department, one of: {', '.join(TEAM_DEPARTMENTS)}.")
@@ -222,7 +244,7 @@ class WorkItem(BaseModel):
     )
 
 
-class DepartmentPackage(BaseModel):
+class DepartmentPackage(Artefact):
     team: str = Field(description=f"Exactly one of: {', '.join(TEAM_DEPARTMENTS)}.")
     objective: str
     architecture: str = Field(description="The slice of the system this department owns, in prose.")
@@ -240,7 +262,7 @@ class DepartmentPackage(BaseModel):
     )
 
 
-class Decomposition(BaseModel):
+class Decomposition(Artefact):
     """An approved BRD broken into dependency-ordered work items and department packages."""
 
     work_items: list[WorkItem]
@@ -248,20 +270,20 @@ class Decomposition(BaseModel):
 
 
 # ── Conversational edits ─────────────────────────────────────────────────────
-class EditOperation(BaseModel):
+class EditOperation(Artefact):
     target: str = Field(description="'title', 'requirement', or 'detailedReport'.")
     path: str = Field(
         default="",
         description=(
             "Dot path to the field within the target, e.g. 'objective' or "
-            "'tech_stack.0.choice'. Empty string replaces the whole target. "
+            "'techStack.0.choice'. Empty string replaces the whole target. "
             "Intermediate keys must already exist."
         ),
     )
     value: Any = Field(description="The replacement value for that path.")
 
 
-class FsdEdit(BaseModel):
+class FsdEdit(Artefact):
     """The requested changes to a requirement or its BRD, as small path-based replacements."""
 
     change_summary: str = Field(description="One or two sentences describing what changed, for the chat reply.")
@@ -270,7 +292,7 @@ class FsdEdit(BaseModel):
     )
 
 
-class TeamReportEdit(BaseModel):
+class TeamReportEdit(Artefact):
     """The revised department package after a team lead's requested change."""
 
     change_summary: str = Field(description="One or two sentences describing what changed.")

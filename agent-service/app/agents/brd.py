@@ -28,8 +28,8 @@ _DESIGN_RIGOUR = """
 DESIGN RIGOUR — work through each of these before committing to any technology:
 - Fitness for THIS environment, not generic suitability. How does the component behave under this build's actual physical conditions, scale, duty cycle and real user behaviour? A part that is obvious in one setting is often wrong one setting over, and the difference is usually a property of the environment the requirement already described.
 - Name the standard. If an established industry standard or published specification governs this problem domain, build on it or state explicitly why not. Reaching for a general-purpose or hobbyist-tier component where a mature domain standard exists is a design error, not a cost saving.
-- Deliver what was promised. Check each capability the requirement promises is genuinely delivered, not a weaker cousin of it. If the design can only deliver a reduced version, say so in open_questions rather than quietly narrowing scope.
-- No fictional precision. Every field in data_model must be something the chosen components can actually produce. Inventing a field nothing can populate makes the whole document untrustworthy.
+- Deliver what was promised. Check each capability the requirement promises is genuinely delivered, not a weaker cousin of it. If the design can only deliver a reduced version, say so in openQuestions rather than quietly narrowing scope.
+- No fictional precision. Every field in dataModel must be something the chosen components can actually produce. Inventing a field nothing can populate makes the whole document untrustworthy.
 - Failure and safety. State what happens when the system fails or loses power, and what the safe state is. Where the build touches physical systems, public spaces, money or regulated data, name the applicable safety or compliance constraint and how the design honours it.
 """.strip()
 
@@ -114,7 +114,7 @@ def _patch(requirement: dict, brd: BRD, findings: list) -> BRD:
                     "is worse than the original.\n\n"
                     "Preserve everything the reviewer did not object to. Where a finding cannot be "
                     "fully resolved without information nobody has yet, make the best-supported choice "
-                    "and record what still needs confirming in open_questions. Never silently drop a "
+                    "and record what still needs confirming in openQuestions. Never silently drop a "
                     "finding."
                 ),
             },
@@ -161,7 +161,7 @@ def brd_agent(state: PipelineState) -> dict:
             brd.open_questions += [_unresolved(f) for f in actionable]
             break
 
-    return {"brd": brd.model_dump(), "critique_rounds": rounds}
+    return {"brd": brd.model_dump(by_alias=True), "critique_rounds": rounds}
 
 
 def _unresolved(finding) -> str:

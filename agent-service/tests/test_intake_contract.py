@@ -99,5 +99,5 @@ class TestChatMessage:
 class _Requirement:
     title = "Warehouse Tool"
 
-    def model_dump(self):
+    def model_dump(self, **_):
         return {"title": self.title, "summary": "A warehouse tool."}

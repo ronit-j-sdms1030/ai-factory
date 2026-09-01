@@ -179,6 +179,6 @@ def intake_agent(state: PipelineState) -> dict:
     requirement = finalize_requirement(history)
     return {
         "chat_history": new_turns,
-        "requirement": requirement.model_dump(),
+        "requirement": requirement.model_dump(by_alias=True),
         "title": requirement.title,
     }
