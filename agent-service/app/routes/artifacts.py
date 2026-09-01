@@ -588,47 +588,6 @@ def artifact_jobs(artifact_id: str, actor: dict = Depends(current_user)):
     return {"jobs": found, "generating": any(j["status"] == "running" for j in found)}
 
 
-@router.post("/{artifact_id}/{action}")
-def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: dict = Depends(current_user)):
-    if action not in KNOWN_ACTIONS:
-        raise HTTPException(status_code=400, detail="Unknown action")
-
-    artifact = _load(artifact_id)
-    body = body or ActionBody()
-
-    if action in ("regenerateFsd", "regenerateTeamSplit"):
-        return _respond(artifact, actor, job_id=_start_regeneration(artifact, action))
-
-    # Only an approval clears a gate. Without this guard every action was
-    # treated as having cleared whatever step the chain happened to be sitting
-    # on, so *submitting* generated and published the BRD before anyone had
-    # approved it — the JavaScript this ports from gated the same call on
-    # `action === 'approve'`. Actions that finish the chain still generate,
-    # via the `approved` branch rather than via a cleared step.
-    step_acted_on = (
-        (artifact.get("approvalChain") or [None])[artifact.get("currentApprovalIndex", 0)]
-        if action == "approve"
-        and artifact.get("currentApprovalIndex", 0) < len(artifact.get("approvalChain") or [])
-        else None
-    )
-
-    try:
-        transition(
-            artifact, action, actor_from(actor),
-            comment=body.comment or "",
-            final_approver_tier=body.finalApproverTier,
-        )
-    except TransitionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    # Saved before the job starts, never after: the job writes its own results
-    # and a later full-document save from this request would overwrite them
-    # with the pre-generation copy held here.
-    artifact["updatedAt"] = _utcnow()
-    _save(artifact)
-    return _respond(artifact, actor, job_id=_start_generation(artifact, step_acted_on))
-
-
 def _start_regeneration(artifact: dict[str, Any], action: str) -> str:
     """Regeneration is the same model work as a first pass, so it runs the same way."""
     if action == "regenerateFsd" and not artifact.get("content"):
@@ -880,3 +839,52 @@ def discussion_message(artifact_id: str, message: str = Body(..., embed=True), a
     artifact["updatedAt"] = _utcnow()
     _save(artifact)
     return {"artifact": _redact(artifact, actor)}
+
+
+# ── the generic action route ─────────────────────────────────────────────────
+# Declared last, deliberately. "/{artifact_id}/{action}" matches the same URLs
+# as /fsdChat, /teamReportChat, /shareForDiscussion and /discussionMessage, and
+# FastAPI resolves in declaration order — so registering it earlier swallowed
+# all four, which returned 400 "Unknown action" because none of them is in
+# KNOWN_ACTIONS. The JavaScript carried the same warning: "Registered ahead of
+# the generic /:id/:action route since both patterns would otherwise match the
+# same URL."
+@router.post("/{artifact_id}/{action}")
+def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: dict = Depends(current_user)):
+    if action not in KNOWN_ACTIONS:
+        raise HTTPException(status_code=400, detail="Unknown action")
+
+    artifact = _load(artifact_id)
+    body = body or ActionBody()
+
+    if action in ("regenerateFsd", "regenerateTeamSplit"):
+        return _respond(artifact, actor, job_id=_start_regeneration(artifact, action))
+
+    # Only an approval clears a gate. Without this guard every action was
+    # treated as having cleared whatever step the chain happened to be sitting
+    # on, so *submitting* generated and published the BRD before anyone had
+    # approved it — the JavaScript this ports from gated the same call on
+    # `action === 'approve'`. Actions that finish the chain still generate,
+    # via the `approved` branch rather than via a cleared step.
+    step_acted_on = (
+        (artifact.get("approvalChain") or [None])[artifact.get("currentApprovalIndex", 0)]
+        if action == "approve"
+        and artifact.get("currentApprovalIndex", 0) < len(artifact.get("approvalChain") or [])
+        else None
+    )
+
+    try:
+        transition(
+            artifact, action, actor_from(actor),
+            comment=body.comment or "",
+            final_approver_tier=body.finalApproverTier,
+        )
+    except TransitionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Saved before the job starts, never after: the job writes its own results
+    # and a later full-document save from this request would overwrite them
+    # with the pre-generation copy held here.
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return _respond(artifact, actor, job_id=_start_generation(artifact, step_acted_on))

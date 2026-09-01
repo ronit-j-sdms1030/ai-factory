@@ -125,9 +125,42 @@ def _patch(requirement: dict, brd: BRD, findings: list) -> BRD:
     )
 
 
+# The finalised requirement already distills the conversation's substance, so
+# the transcript is supporting context rather than the primary source. An
+# unusually long intake should not blow up prompt size and generation time in
+# proportion to it.
+MAX_HISTORY_MESSAGES = 30
+
+
+def cap_history(history: list[dict], maximum: int = MAX_HISTORY_MESSAGES) -> list[dict]:
+    """Keep the opening and closing messages, drop the middle.
+
+    Trimming from one end loses something either way: the start sets the
+    original framing, and the end holds the refined final answers. The middle
+    is where the conversation is most redundant, so that is what goes.
+
+    The gap is marked rather than closed silently — the same rule
+    ``buildFilesContext`` follows when it drops files from a review. Splicing
+    two halves together invisibly hands the model a transcript that reads as
+    continuous when it is not.
+    """
+    if len(history) <= maximum:
+        return history
+    keep_start = maximum // 5
+    keep_end = maximum - keep_start
+    omitted = len(history) - maximum
+    return [
+        *history[:keep_start],
+        {"role": "user", "content": f"({omitted} earlier messages omitted for length.)"},
+        *history[len(history) - keep_end:],
+    ]
+
+
 def brd_agent(state: PipelineState) -> dict:
     requirement = state["requirement"]
-    transcript = "\n".join(f"{m['role']}: {m['content']}" for m in state.get("chat_history") or [])
+    transcript = "\n".join(
+        f"{m['role']}: {m['content']}" for m in cap_history(state.get("chat_history") or [])
+    )
 
     brd = _generate(requirement, transcript)
 
