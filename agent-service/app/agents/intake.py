@@ -12,6 +12,8 @@ import re
 
 from langgraph.types import interrupt
 
+from langsmith import traceable
+
 from .. import config, llm
 from ..schemas import Requirement
 from ..state import PipelineState
@@ -79,6 +81,7 @@ Ask at least {config.MIN_CLARIFYING_QUESTIONS}. The moment all five have broad-s
 When that bar is met, reply with exactly this token and nothing else: {READY_SENTINEL}"""
 
 
+@traceable(name="Intake Agent — turn")
 def run_chat_turn(history: list[dict[str, str]], label: str) -> dict[str, str]:
     """One turn of the clarifying conversation.
 
@@ -130,6 +133,7 @@ def run_chat_turn(history: list[dict[str, str]], label: str) -> dict[str, str]:
     return {"type": "reply", "text": reply}
 
 
+@traceable(name="Intake Agent — finalize")
 def finalize_requirement(history: list[dict[str, str]]):
     """Structure a finished conversation into a requirement document."""
     transcript = "\n".join(f"{m['role']}: {m['content']}" for m in history)

@@ -25,6 +25,8 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
+from langsmith import traceable
+
 from .. import config, llm
 from ..schemas import ScreenSource, UIPlan
 from ..state import PipelineState
@@ -55,6 +57,7 @@ _PRODUCT_SHAPE = (
 )
 
 
+@traceable(name="UI Agent")
 def ui_agent(state: PipelineState) -> dict:
     brd = state["brd"]
 

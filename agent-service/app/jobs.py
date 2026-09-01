@@ -33,6 +33,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from langsmith import traceable
+
 from . import db
 
 log = logging.getLogger(__name__)
@@ -87,11 +89,25 @@ def start(artifact_id: str, kind: str, work: Callable[[Callable[[str], None]], d
     # with the process and `reap_stale` reports it as interrupted on the next
     # boot — which is true, and better than a job that claims to be running
     # forever.
-    threading.Thread(target=_run, args=(job_id, kind, work), daemon=True).start()
+    threading.Thread(target=_run, args=(job_id, artifact_id, kind, work), daemon=True).start()
     return job_id
 
 
-def _run(job_id: str, kind: str, work: Callable[[Callable[[str], None]], dict[str, str]]) -> None:
+def _run(
+    job_id: str,
+    artifact_id: str,
+    kind: str,
+    work: Callable[[Callable[[str], None]], dict[str, str]],
+) -> None:
+    # One LangSmith trace per generation, tagged with the requirement it
+    # belongs to. Without a root here every agent call arrives as its own
+    # orphan run, and finding what a particular approval did means guessing
+    # from timestamps.
+    work = traceable(
+        name=f"Generation — {LABELS.get(kind, kind)}",
+        metadata={"job_id": job_id, "artifact_id": artifact_id, "kind": kind},
+    )(work)
+
     def progress(phase: str) -> None:
         db.generation_jobs().update_one(
             {"_id": job_id},

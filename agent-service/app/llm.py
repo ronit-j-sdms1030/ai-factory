@@ -26,6 +26,7 @@ import json
 import logging
 from typing import Any, TypeVar
 
+from langsmith.wrappers import wrap_openai
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
@@ -40,9 +41,22 @@ _RAW_TEXT_FIELDS = {"content"}
 
 
 def _client() -> OpenAI:
-    return OpenAI(
-        api_key=config.openrouter_api_key(),
-        base_url=config.OPENROUTER_BASE_URL,
+    """The OpenRouter client, wrapped so LangSmith can see the call.
+
+    LangSmith instruments LangChain and LangGraph automatically, and these
+    agents use neither — they call the OpenAI SDK directly. Without this
+    wrapper, setting LANGSMITH_API_KEY produces a working Studio login and not
+    a single trace from the pipeline, which is a confusing way to discover
+    that tracing was never wired up.
+
+    The wrapper is inert unless LANGSMITH_TRACING is enabled, so it costs
+    nothing when nobody is watching.
+    """
+    return wrap_openai(
+        OpenAI(
+            api_key=config.openrouter_api_key(),
+            base_url=config.OPENROUTER_BASE_URL,
+        )
     )
 
 

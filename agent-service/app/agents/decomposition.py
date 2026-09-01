@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import logging
 
+from langsmith import traceable
+
 from .. import config, invariants, llm
 from ..schemas import Decomposition
 from ..state import PipelineState
@@ -25,6 +27,7 @@ from ..state import PipelineState
 log = logging.getLogger(__name__)
 
 
+@traceable(name="Decomposition Agent")
 def decomposition_agent(state: PipelineState) -> dict:
     brd = state["brd"]
 

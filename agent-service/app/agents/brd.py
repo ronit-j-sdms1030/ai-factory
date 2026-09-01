@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 
+from langsmith import traceable
+
 from .. import config, llm
 from ..schemas import BRD, Critique
 from ..state import PipelineState
@@ -156,6 +158,7 @@ def cap_history(history: list[dict], maximum: int = MAX_HISTORY_MESSAGES) -> lis
     ]
 
 
+@traceable(name="BRD Agent")
 def brd_agent(state: PipelineState) -> dict:
     requirement = state["requirement"]
     transcript = "\n".join(
