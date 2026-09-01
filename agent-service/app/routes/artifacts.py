@@ -562,6 +562,12 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
                                 artifact["content"],
                                 "\n".join(f"{m['role']}: {m['content']}" for m in artifact.get("chatHistory") or []),
                             )))
+    # _record_publish writes the branch and pull request onto the artifact, so
+    # it has to be saved again. Without this the requirement was committed,
+    # pushed and opened as a pull request, and the artifact still showed no
+    # Git links at all — the record existed everywhere except the one place
+    # anyone looks.
+    _save(artifact)
     return {"reviewReady": True, "artifact": _redact(artifact, actor), **published}
 
 

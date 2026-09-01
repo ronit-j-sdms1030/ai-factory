@@ -22,10 +22,11 @@ MD = {"id": "u1", "tierId": "md", "isClient": False, "department": None}
 
 
 class _Published:
-    """Stands in for PublishResult — git is not under test here."""
+    """Stands in for PublishResult."""
 
-    pull_request_url = None
-    branch = None
+    pull_request_url = "https://github.com/org/repo/pull/13"
+    pull_request_number = 13
+    branch = "req/abc/requirement"
     commit = None
     error = None
 
@@ -101,3 +102,24 @@ class _Requirement:
 
     def model_dump(self, **_):
         return {"title": self.title, "summary": "A warehouse tool."}
+
+
+class TestRequirementIsLinkedToGit:
+    """The pull request opened at finalisation must survive on the artifact.
+
+    Publishing happens after the artifact is saved, so the branch and pull
+    request it records need a second save. Without one the requirement was
+    committed, pushed and opened as a PR while the artifact showed no Git
+    links — the record existed everywhere except where anyone looks.
+    """
+
+    def test_the_pull_request_is_persisted(self, collection, monkeypatch):
+        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
+        monkeypatch.setattr(routes, "finalize_requirement", lambda *a, **k: _Requirement())
+        artifact_id = routes.chat_start(actor=MD)["artifactId"]
+
+        routes.chat_message(artifact_id, message="done", actor=MD)
+
+        stored = collection.find_one({})
+        assert stored["pullRequests"]["requirement"].endswith("/pull/13")
+        assert stored["gitBranches"]["requirement"] == "req/abc/requirement"
