@@ -501,7 +501,10 @@ def chat_start(actor: dict = Depends(current_user)):
         "createdAt": _utcnow(), "updatedAt": _utcnow(),
     }
     db.artifacts().insert_one(artifact)
-    return {"artifactId": str(artifact["_id"]), "message": opener}
+    # "reply", not "message": the frontend reads `body.reply`, and assigning
+    # its undefined result to textContent renders an empty bubble rather than
+    # an error — so a renamed key here is silently invisible.
+    return {"artifactId": str(artifact["_id"]), "reply": opener}
 
 
 @router.post("/chat/{artifact_id}/message")
@@ -530,7 +533,7 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
         )
         artifact["updatedAt"] = _utcnow()
         _save(artifact)
-        return {"type": "reply", "message": turn["text"]}
+        return {"done": False, "reply": turn["text"]}
 
     try:
         requirement = finalize_requirement(history)
@@ -539,6 +542,16 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
 
     artifact["title"] = requirement.title
     artifact["content"] = requirement.model_dump()
+    # Recorded in the transcript as well as shown, so reopening the session
+    # does not lose the closing message. Stays in 'clarifying': the originator
+    # reviews this summary and sends it explicitly via /submit.
+    artifact["chatHistory"].append(
+        {
+            "role": "assistant",
+            "content": "Here's a summary of what I've captured. Review it below and send it when you're ready.",
+            "timestamp": _utcnow(),
+        }
+    )
     artifact["updatedAt"] = _utcnow()
     _save(artifact)
 
@@ -549,7 +562,7 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
                                 artifact["content"],
                                 "\n".join(f"{m['role']}: {m['content']}" for m in artifact.get("chatHistory") or []),
                             )))
-    return {"type": "ready", "artifact": _redact(artifact, actor), **published}
+    return {"reviewReady": True, "artifact": _redact(artifact, actor), **published}
 
 
 class ActionBody(BaseModel):
