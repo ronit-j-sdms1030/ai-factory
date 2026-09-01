@@ -2487,41 +2487,52 @@
       if (btn) btn.textContent = slowSpec ? 'Working…' : 'Working...';
 
       var progressWrap = actionsEl && actionsEl.parentElement ? actionsEl.parentElement.querySelector('[data-item-progress]') : null;
-      var stopTick = function () {};
+      var progressFill = progressWrap ? progressWrap.querySelector('[data-item-progress-fill]') : null;
+      var progressPct = progressWrap ? progressWrap.querySelector('[data-item-progress-pct]') : null;
+      var progressText = progressWrap ? progressWrap.querySelector('[data-item-progress-text]') : null;
+
       // Replaced by the job's own label once polling starts, so the bar says
       // "Generating the interface" rather than guessing.
-      var liveLabel = slowSpec ? slowSpec.label : '';
-      var setLiveLabel = function () {};
-      if (slowSpec) {
-        activeSlowActionCount++;
-        if (progressWrap) {
-          var progressFill = progressWrap.querySelector('[data-item-progress-fill]');
-          var progressPct = progressWrap.querySelector('[data-item-progress-pct]');
-          var progressText = progressWrap.querySelector('[data-item-progress-text]');
-          progressText.textContent = liveLabel;
-          progressWrap.classList.add('visible');
-          setLiveLabel = function (label) { liveLabel = label; progressText.textContent = label; };
-          var startedAt = new Date().getTime();
-          var tick = setInterval(function () {
-            var elapsed = new Date().getTime() - startedAt;
-            if (elapsed >= slowSpec.ms) {
-              progressFill.classList.add('indeterminate');
-              progressText.textContent = liveLabel + ' Still working…';
-              progressPct.textContent = '';
-            } else {
-              var pct = Math.round((elapsed / slowSpec.ms) * 90);
-              progressFill.style.width = pct + '%';
-              progressPct.textContent = pct + '%';
-            }
-          }, 300);
-          stopTick = function () {
-            clearInterval(tick);
-            progressFill.classList.remove('indeterminate');
-            progressFill.style.width = '100%';
-            progressPct.textContent = '100%';
-          };
-        }
+      var liveLabel = slowSpec ? slowSpec.label : 'Working…';
+      var tick = null;
+      var barShown = false;
+      var blockingRefresh = false;
+
+      function setLiveLabel(label) {
+        liveLabel = label;
+        if (progressText) progressText.textContent = label;
       }
+
+      // `estimate` drives the filling animation when we have a duration to
+      // guess at; without one the bar goes straight to indeterminate.
+      function showProgress(estimate) {
+        if (!progressWrap || barShown) return;
+        barShown = true;
+        if (!blockingRefresh) { blockingRefresh = true; activeSlowActionCount++; }
+        progressText.textContent = liveLabel;
+        progressWrap.classList.add('visible');
+
+        if (!estimate) {
+          progressFill.classList.add('indeterminate');
+          progressPct.textContent = '';
+          return;
+        }
+        var startedAt = new Date().getTime();
+        tick = setInterval(function () {
+          var elapsed = new Date().getTime() - startedAt;
+          if (elapsed >= estimate) {
+            progressFill.classList.add('indeterminate');
+            progressText.textContent = liveLabel + ' Still working…';
+            progressPct.textContent = '';
+          } else {
+            var pct = Math.round((elapsed / estimate) * 90);
+            progressFill.style.width = pct + '%';
+            progressPct.textContent = pct + '%';
+          }
+        }, 300);
+      }
+
+      if (slowSpec) showProgress(slowSpec.ms);
 
       // The action and its generation settle at different times now, so the
       // bar and the auto-refresh block must be released exactly once —
@@ -2530,8 +2541,13 @@
       function settle() {
         if (settled) return;
         settled = true;
-        stopTick();
-        if (slowSpec) activeSlowActionCount--;
+        if (tick) clearInterval(tick);
+        if (progressFill) {
+          progressFill.classList.remove('indeterminate');
+          progressFill.style.width = '100%';
+          if (progressPct) progressPct.textContent = '100%';
+        }
+        if (blockingRefresh) activeSlowActionCount--;
       }
 
       fetch(window.API_BASE + '/api/artifacts/' + id + '/' + action, {
@@ -2548,10 +2564,16 @@
           // learned the outcome from this response, which is exactly what
           // used to be lost when the proxy timed out at 300s.
           if (result.body.jobId) {
-            // Deliberately not refreshing here: re-rendering the list replaces
-            // the element this progress bar lives in, and the bar is the only
-            // signal that anything is still happening. The refresh comes when
-            // the job finishes.
+            // The server is the authority on whether generation started, not
+            // the SLOW_ACTIONS guess: approveFsd and sendFsdToClient can both
+            // land on 'approved', which kicks off the UI agent and the split —
+            // the longest run in the pipeline — and neither is on that list.
+            // Showing the bar here means every generating action reports
+            // itself, whether or not we predicted it would be slow.
+            showProgress(null);
+            // Deliberately not refreshing: re-rendering the list replaces the
+            // element this bar lives in, and the bar is the only signal that
+            // anything is still happening. The refresh comes when it finishes.
             followGenerationJob(id, result.body.jobId, setLiveLabel, settle);
             return;
           }
