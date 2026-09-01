@@ -151,3 +151,35 @@ class TestOnlyApprovalsClearGates:
         """giveFinalFsdApproval and approveFsd end the chain without clearing a step."""
         artifact = {"currentStage": "approved", "detailedReport": {"objective": "x"}, "approvalChain": self.CHAIN}
         assert routes._pending_phase(artifact, None) == "ui"
+
+
+class TestRegenerateUi:
+    """Re-running the UI agent, which had no retry path at all.
+
+    Screens could fail — and did, twelve out of twelve — with regenerateFsd
+    and regenerateTeamSplit available but nothing to re-run the UI. The
+    failure was visible in the job record and not actionable.
+    """
+
+    def test_regenerate_ui_is_a_known_action(self):
+        assert "regenerateUi" in routes.KNOWN_ACTIONS
+
+    def test_it_runs_as_a_ui_job(self):
+        assert routes._REGENERATION_KINDS["regenerateUi"] == "ui"
+
+    def test_it_needs_an_fsd_to_work_from(self):
+        import pytest
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            routes._start_regeneration({"_id": "a1", "detailedReport": None}, "regenerateUi")
+        assert exc.value.status_code == 400
+
+    def test_the_old_screens_are_cleared_before_regenerating(self, monkeypatch):
+        """A failed rerun must not leave last attempt's screens looking current."""
+        artifact = {"_id": "a1", "detailedReport": {"objective": "x"}, "ui": {"screens": [{"name": "Old"}]}}
+        monkeypatch.setattr(routes, "_maybe_generate_ui", lambda a: {"uiError": "boom"})
+
+        routes._regenerate(artifact, "regenerateUi")
+
+        assert artifact["ui"] is None

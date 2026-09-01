@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
@@ -108,8 +109,54 @@ def ui_agent(state: PipelineState) -> dict:
     return {"ui": {"screens": screens, "clarifications": clarifications}}
 
 
+# A screen arrives as a real file would — `import React from 'react'` at the
+# top, sometimes `export default` at the bottom. The prompt says not to, and a
+# code-specialised model does it anyway: every one of eleven screens failed
+# with "Cannot use import statement outside a module" while the React itself
+# was clean. Instructing harder is the losing move here; these models are
+# trained on files that always have imports.
+def strip_module_syntax(source: str) -> str:
+    """Remove import/export syntax from a generated screen.
+
+    Only lines that *begin* with import/export are touched, so a string or
+    comment mentioning either word survives. Declarations are always kept —
+    ``export default function Dashboard()`` becomes ``function Dashboard()``,
+    because deleting that line would take the component with it. Only a bare
+    ``export default Dashboard;`` is dropped outright, the preview having
+    already found the component by name.
+    """
+    kept: list[str] = []
+    for line in source.splitlines():
+        stripped = line.lstrip()
+
+        if stripped.startswith(("import ", "import{", "import(")):
+            continue
+
+        if stripped.startswith("export default"):
+            rest = stripped[len("export default"):].lstrip()
+            # A declaration must keep its body; a bare re-export is noise.
+            if rest.startswith(("function", "class", "async")):
+                indent = line[: len(line) - len(stripped)]
+                kept.append(indent + rest)
+            continue
+
+        if stripped.startswith("export "):
+            line = line.replace("export ", "", 1)
+
+        kept.append(line)
+
+    return "\n".join(kept)
+
+
 def _plan_screens(brd: dict) -> UIPlan:
-    """Decide the screen set. Small output, so this call is cheap and reliable."""
+    """Decide the screen set. Small output, so this call is cheap and reliable.
+
+    Deliberately not UI_MODEL. Planning is a schema-following task, not a
+    coding one, and the coder-tuned model failed it outright — it returned
+    screens with its own field names and dropped `purpose` and `keyElements`
+    on every one, 22 validation errors before a single screen was written.
+    The report model handles this shape reliably and always has.
+    """
     return llm.call_structured(
         model=config.DETAILED_REPORT_MODEL,
         schema=UIPlan,
@@ -146,7 +193,7 @@ def _write_screen(brd: dict, outline, roster: str) -> str | None:
     """Generate one screen's source. Returns None so one failure costs one screen."""
     try:
         result = llm.call_structured(
-            model=config.DETAILED_REPORT_MODEL,
+            model=config.UI_MODEL,
             schema=ScreenSource,
             # A screen that reaches this ceiling truncates mid-JSON and fails
             # as a parse error, costing a full silent retry — observed at
@@ -183,7 +230,7 @@ def _write_screen(brd: dict, outline, roster: str) -> str | None:
                 },
             ],
         )
-        return result.source
+        return strip_module_syntax(result.source)
     except Exception:  # noqa: BLE001 — reported as a clarification, never fatal
         log.exception("screen %s failed to generate", outline.name)
         return None

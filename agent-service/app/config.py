@@ -83,6 +83,21 @@ CHAT_MODEL = "anthropic/claude-haiku-4.5"
 REPORT_MODEL = "openai/gpt-4o-mini"
 DETAILED_REPORT_MODEL = "deepseek/deepseek-v3.2:nitro"
 
+# Screen *sources* get their own model, and a code-specialised one; the
+# screen plan stays on DETAILED_REPORT_MODEL (see _plan_screens). Sharing
+# DETAILED_REPORT_MODEL was convenient but wrong for the workload: the BRD is
+# ~5,300 tokens of prose-heavy JSON and comes back clean, while a screen is
+# ~7,500 tokens of dense JSX and came back corrupted — digits turned into
+# letters ("I8.5" for 18.5), CJK punctuation in ASCII source, the system
+# prompt written into a CSS value, and DeepSeek's own tool-call delimiters
+# inside string literals. Twelve of twelve screens failed to parse.
+#
+# No ":nitro" here either. That suffix asks OpenRouter for the
+# highest-throughput provider, which is a reasonable trade for prose and a bad
+# one for code: corruption at that level looks far more like an aggressively
+# quantised host than a model that cannot write React.
+UI_MODEL = "qwen/qwen3-coder"
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 

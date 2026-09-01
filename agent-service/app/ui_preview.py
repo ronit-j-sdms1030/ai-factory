@@ -70,7 +70,16 @@ _SHELL = """<!doctype html>
   for (var i = 0; i < __SOURCES.length; i++) {{
     var name = __SOURCES[i].name;
     try {{
-      var compiled = Babel.transform(__SOURCES[i].source, {{ presets: ['react'] }}).code;
+      // The classic runtime, deliberately. Babel's react preset defaults to
+      // the automatic one, which *injects* `import {{ jsx }} from
+      // "react/jsx-runtime"` into its own output — and eval of an import is
+      // "Cannot use import statement outside a module". Every screen that
+      // compiled perfectly then failed on that, making good screens look
+      // identical to broken ones. Classic emits React.createElement, and
+      // React is already global here.
+      var compiled = Babel.transform(__SOURCES[i].source, {{
+        presets: [['react', {{ runtime: 'classic' }}]]
+      }}).code;
       // Direct eval, so the screen's own declarations stay in this scope
       // instead of leaking to the page, and the registration line below can
       // still see the component it just defined.

@@ -45,7 +45,7 @@ KNOWN_ACTIONS = {
     "approve", "reject", "requestRevision", "resubmit", "submit",
     "proposeChanges", "acceptChanges", "editFsd", "sendFsdToClient",
     "approveFsd", "giveFinalFsdApproval", "regenerateFsd",
-    "regenerateTeamSplit", "requestTeamRevision",
+    "regenerateTeamSplit", "regenerateUi", "requestTeamRevision",
 }
 
 
@@ -629,10 +629,15 @@ def artifact_jobs(artifact_id: str, actor: dict = Depends(current_user)):
     return {"jobs": found, "generating": any(j["status"] == "running" for j in found)}
 
 
+_REGENERATION_KINDS = {"regenerateFsd": "brd", "regenerateUi": "ui", "regenerateTeamSplit": "workitems"}
+
+
 def _start_regeneration(artifact: dict[str, Any], action: str) -> str:
     """Regeneration is the same model work as a first pass, so it runs the same way."""
     if action == "regenerateFsd" and not artifact.get("content"):
         raise HTTPException(status_code=400, detail="No approved requirement to regenerate from")
+    if action in ("regenerateUi", "regenerateTeamSplit") and not artifact.get("detailedReport"):
+        raise HTTPException(status_code=400, detail="No approved FSD to regenerate from")
 
     snapshot = copy.deepcopy(artifact)
 
@@ -642,9 +647,7 @@ def _start_regeneration(artifact: dict[str, Any], action: str) -> str:
         _apply_generated(snapshot, working)
         return errors
 
-    return jobs.start(
-        str(artifact["_id"]), "brd" if action == "regenerateFsd" else "workitems", work
-    )
+    return jobs.start(str(artifact["_id"]), _REGENERATION_KINDS[action], work)
 
 
 def _regenerate(artifact: dict[str, Any], action: str) -> dict:
@@ -669,6 +672,14 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
             return errors
         except Exception as exc:  # noqa: BLE001
             return {"detailedReportError": str(exc)}
+
+    if action == "regenerateUi":
+        # Cleared first so a failed regeneration leaves nothing behind
+        # pretending to be current — the previous screens were the reason for
+        # rerunning, and keeping them on a failure is how a stale design gets
+        # approved by mistake.
+        artifact["ui"] = None
+        return _maybe_generate_ui(artifact)
 
     artifact["teamReports"] = []
     return _maybe_split(artifact)
@@ -898,7 +909,7 @@ def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: di
     artifact = _load(artifact_id)
     body = body or ActionBody()
 
-    if action in ("regenerateFsd", "regenerateTeamSplit"):
+    if action in ("regenerateFsd", "regenerateTeamSplit", "regenerateUi"):
         return _respond(artifact, actor, job_id=_start_regeneration(artifact, action))
 
     # Only an approval clears a gate. Without this guard every action was

@@ -116,3 +116,22 @@ class TestOneBrokenScreenIsContained:
         ]}
         page = build_preview(broken, "t")
         assert '"name": "ClockInterface"' in page and '"name": "Truncated"' in page
+
+
+class TestJsxRuntime:
+    """Babel must not inject an import into its own output.
+
+    The react preset defaults to the automatic JSX runtime, which emits
+    `import { jsx } from "react/jsx-runtime"` at the top of the compiled code.
+    Evaluating that throws "Cannot use import statement outside a module", so
+    every screen that compiled *correctly* failed anyway — and looked exactly
+    like a screen that was genuinely broken.
+    """
+
+    def test_the_classic_runtime_is_requested(self):
+        page = build_preview(SCREENS, "t")
+        assert "runtime: 'classic'" in page
+
+    def test_react_is_global_for_createElement(self):
+        page = build_preview(SCREENS, "t")
+        assert "react@18/umd/react.development.js" in page
