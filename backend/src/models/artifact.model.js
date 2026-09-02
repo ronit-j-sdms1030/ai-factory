@@ -93,6 +93,17 @@ const artifactSchema = new Schema(
     // correctly but stripped on save because the schema didn't know them.
     teamReports: [Schema.Types.Mixed],
     teamReportsGeneratedAt: Date,
+    // Written by the Python agent service, read here to enforce SoW 12.0's
+    // hard gate on code generation. Declared even though this service never
+    // writes them: under Mongoose's default strict mode an undeclared path
+    // does not hydrate, so `artifact.ui` read back as `undefined` on a
+    // document whose `_doc.ui` held fourteen screens — and a gate reading
+    // `undefined` is a gate that never fires. Mixed for the same reason
+    // teamReports is: the agent owns the shape.
+    ui: Schema.Types.Mixed,
+    uiGeneratedAt: Date,
+    uiApprovedAt: Date,
+    uiApprovedBy: Schema.Types.Mixed,
     // A single synthesized demo combining all departments' actual generated
     // code into one cohesive, self-contained preview — distinct from any one
     // department's own generated frontend. Only meaningful once every

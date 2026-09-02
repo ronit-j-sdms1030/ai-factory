@@ -361,6 +361,18 @@ router.post('/:artifactId/start', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Code can only be generated for fully approved requirements' });
   }
 
+  // SoW 12.0: "code generation for the affected scope cannot start until UI
+  // approval is recorded". Checked here, on the action the sentence names,
+  // rather than relied on transitively. It did hold by sequencing — the
+  // decomposition is gated on uiApprovedAt and this route needs the package
+  // that decomposition produces — but that chain breaks the moment a team
+  // package arrives by any other route (a repair, a re-run, a future
+  // endpoint), and it would break silently, with nothing recording that code
+  // was generated against an interface nobody signed off.
+  if (artifact.ui && (artifact.ui.screens || []).length && !artifact.uiApprovedAt) {
+    return res.status(400).json({ error: 'The UI must be approved before code generation can start' });
+  }
+
   const teamReport = (artifact.teamReports || []).find((t) => t.team === actor.department);
   if (!teamReport) {
     return res.status(403).json({ error: 'No team work package found for your department' });
