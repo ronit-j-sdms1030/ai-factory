@@ -29,15 +29,27 @@ A note on interpretation: agents 1–4 produce documents rather than code, so "C
 ## 2. System shape
 
 ```mermaid
-flowchart LR
-    U[Browser<br/>app.html] --> E[Express backend<br/>proxy + code generation]
-    E --> P[FastAPI agent service<br/>agents 1-4]
-    P --> M[(MongoDB<br/>working state)]
+flowchart TB
+    U[Browser<br/>app.html] --> E[Express backend<br/>proxy · agents 5-8]
+    E -->|artifact, settings,<br/>webhook routes| P[FastAPI agent service]
+    P --> GR[pipeline_graph<br/>sequences agents 1-4]
+
+    E --> M[(MongoDB · ai_factory<br/>shared by both services)]
+    P --> M
+    GR -.->|checkpoints| M
+
+    E --> OR[OpenRouter]
+    GR --> OR
+
     P --> G[Governance repo<br/>GitPython]
     G --> H[GitHub<br/>pull requests]
     H -.->|pull_request_review<br/>webhook| P
     P -.->|traces| L[LangSmith]
 ```
+
+**Both services share one database.** Express reads artifacts the Python service writes, which is why fields written by the agents must be declared on the Mongoose model — under its default strict mode an undeclared path does not hydrate, so a gate reading `artifact.ui` saw `undefined` on a document that held fourteen screens.
+
+**Both services call models independently.** Agents 1–4 go through the graph; agents 5–8 call OpenRouter from `llm.service.js` without touching the Python service at all. Only the Python side is traced by LangSmith.
 
 | Component | Holds | Language |
 |---|---|---|
