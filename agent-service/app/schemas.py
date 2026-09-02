@@ -195,6 +195,19 @@ class UIPlan(Artefact):
     )
 
 
+class ScreenEditResult(Artefact):
+    """One screen rewritten to satisfy a reviewer's request."""
+
+    source: str = Field(
+        description=(
+            "The COMPLETE revised component, same rules as the original: plain JavaScript with "
+            "JSX, no imports, no exports, and the same component name. Not a diff and not a "
+            "fragment — the whole file, because it replaces the file."
+        )
+    )
+    summary: str = Field(description="One line saying what changed, for the reviewer.")
+
+
 class ScreenSource(Artefact):
     """One screen's implementation."""
 

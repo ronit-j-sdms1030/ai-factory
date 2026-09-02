@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from .. import config, llm
-from ..schemas import FsdEdit, TeamReportEdit
+from ..schemas import FsdEdit, ScreenEditResult, TeamReportEdit
 
 
 def run_fsd_chat_edit(
@@ -83,5 +83,46 @@ def run_team_report_chat_edit(*, department: str, package: dict, message: str) -
             },
             {"role": "user", "content": f"Current package:\n{json.dumps(package, indent=2, default=str)}"},
             {"role": "user", "content": f"Requested change:\n{message}"},
+        ],
+    )
+
+
+def run_ui_screen_edit(*, screen: dict, instruction: str, roster: str, objective: str) -> ScreenEditResult:
+    """Rewrite one screen to satisfy a plain-language request.
+
+    A whole-file rewrite rather than the path-based edits the BRD and package
+    editors use: those documents are trees of named fields, where a path
+    identifies exactly what to change. A screen is one string of source, so
+    there is nothing to address but the whole of it.
+
+    Scoped to a single screen deliberately. Regenerating the design is the
+    blunt alternative and produces a different set of screens rather than the
+    same set with one changed, so a reviewer fixing one thing would gamble
+    every screen that was already right.
+    """
+    return llm.call_structured(
+        model=config.UI_MODEL,
+        schema=ScreenEditResult,
+        max_tokens=12000,
+        retries=1,
+        timeout=180.0,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are the UI agent inside Stark Digital's AI Software Factory, revising ONE "
+                    "screen a reviewer has asked you to change.\n\n"
+                    "Return the complete revised component. It stays a self-contained React function "
+                    "component in plain JavaScript with JSX — no imports, no exports, no build step — "
+                    "keeping the SAME component name, because the preview looks it up by name.\n\n"
+                    "Change what was asked for and leave the rest alone. A reviewer asking for a "
+                    "column to be added has not asked for the styling to be reworked, and a screen "
+                    "that comes back subtly different everywhere cannot be reviewed."
+                ),
+            },
+            {"role": "user", "content": f"Product objective:\n{objective}"},
+            {"role": "user", "content": f"Other screens in this application: {roster}"},
+            {"role": "user", "content": f"Current source of {screen.get('name')}:\n{screen.get('source')}"},
+            {"role": "user", "content": f"The change requested:\n{instruction}"},
         ],
     )

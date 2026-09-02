@@ -2396,40 +2396,60 @@
 
 
     // ── UI editor ────────────────────────────────────────────────────────────
-    // Editing one screen rather than regenerating the design: a rerun produces
-    // a different set of screens, not the same set with one fixed, so a
-    // reviewer who spots a single broken screen would otherwise gamble the
-    // ones that were fine. The preview re-renders from the editor's own text,
-    // so a change is visible before it is saved.
+    // Three ways to change a screen, because they fail at different things:
+    //
+    //   * Click the preview and type. Direct, and covers the common case —
+    //     labels, headings, mock values. It rewrites the string literal in the
+    //     source, so it cannot move or add elements.
+    //   * Describe it and let the UI agent rewrite the screen. Handles
+    //     structure, which text editing cannot.
+    //   * Edit the source. Nothing is off-limits, but you are writing React.
+    //
+    // Regenerating the design is the blunt alternative to all three: it
+    // returns a different set of screens rather than the same set with one
+    // changed, so fixing one thing gambles every screen that was already right.
     function openUiEditorModal(artifact) {
       document.getElementById('modal-title').textContent = 'Edit UI — ' + artifact.title;
       document.getElementById('modal-body').innerHTML =
-        '<div style="display:flex;gap:0.75rem;height:70vh;min-height:420px;">' +
-          '<div id="ui-screen-list" style="width:190px;overflow-y:auto;border:1px solid var(--line);' +
-               'border-radius:8px;padding:0.4rem;flex:none;"></div>' +
-          '<div style="flex:1;display:flex;flex-direction:column;gap:0.5rem;min-width:0;">' +
-            '<textarea id="ui-source" spellcheck="false" style="flex:1;font:12px/1.5 ui-monospace,monospace;' +
-                 'resize:none;padding:0.6rem;border:1px solid var(--line);border-radius:8px;"></textarea>' +
-            '<div style="display:flex;gap:0.5rem;align-items:center;">' +
-              '<button class="btn" id="ui-save" type="button">Save screen</button>' +
-              '<button class="btn secondary" id="ui-refresh" type="button">Refresh preview</button>' +
-              '<span id="ui-status" style="font-size:0.82rem;color:var(--muted);"></span>' +
+        '<div style="display:flex;gap:0.6rem;height:74vh;min-height:460px;">' +
+          '<div id="ui-screen-list" style="width:170px;overflow-y:auto;border:1px solid var(--line);' +
+               'border-radius:8px;padding:0.35rem;flex:none;"></div>' +
+          '<div style="flex:1.35;display:flex;flex-direction:column;gap:0.45rem;min-width:0;">' +
+            '<div style="display:flex;gap:0.4rem;align-items:center;font-size:0.8rem;">' +
+              '<label style="display:flex;gap:0.3rem;align-items:center;cursor:pointer;">' +
+                '<input type="checkbox" id="ui-direct"> Click text to edit</label>' +
+              '<span id="ui-status" style="color:var(--muted);margin-left:auto;"></span>' +
+            '</div>' +
+            '<iframe id="ui-preview" sandbox="allow-scripts allow-same-origin" style="flex:1;border:1px solid var(--line);' +
+                 'border-radius:8px;background:#fff;"></iframe>' +
+            '<div style="display:flex;gap:0.4rem;">' +
+              '<input id="ui-prompt" placeholder="Describe a change — &quot;add a status column&quot;" ' +
+                   'style="flex:1;font:inherit;font-size:0.85rem;padding:0.45rem 0.6rem;' +
+                   'border:1px solid var(--line);border-radius:8px;">' +
+              '<button class="btn secondary" id="ui-ask" type="button">Ask agent</button>' +
             '</div>' +
           '</div>' +
-          '<iframe id="ui-preview" sandbox="allow-scripts" style="flex:1;min-width:0;border:1px solid var(--line);' +
-               'border-radius:8px;background:#fff;"></iframe>' +
+          '<div style="flex:1;display:flex;flex-direction:column;gap:0.45rem;min-width:0;">' +
+            '<textarea id="ui-source" spellcheck="false" style="flex:1;font:11.5px/1.5 ui-monospace,monospace;' +
+                 'resize:none;padding:0.5rem;border:1px solid var(--line);border-radius:8px;"></textarea>' +
+            '<div style="display:flex;gap:0.4rem;">' +
+              '<button class="btn" id="ui-save" type="button">Save screen</button>' +
+              '<button class="btn secondary" id="ui-refresh" type="button">Refresh preview</button>' +
+            '</div>' +
+          '</div>' +
         '</div>';
       document.getElementById('modal-overlay').classList.add('open');
 
       var listEl = document.getElementById('ui-screen-list');
       var sourceEl = document.getElementById('ui-source');
       var statusEl = document.getElementById('ui-status');
+      var frame = document.getElementById('ui-preview');
       var screens = [];
       var current = 0;
 
       function status(text, bad) {
         statusEl.textContent = text;
-        statusEl.style.color = bad ? 'var(--danger, #a33)' : 'var(--muted)';
+        statusEl.style.color = bad ? '#a33' : 'var(--muted)';
       }
 
       function renderList() {
@@ -2438,8 +2458,8 @@
           var b = document.createElement('button');
           b.type = 'button';
           b.textContent = s.name;
-          b.style.cssText = 'display:block;width:100%;text-align:left;font:inherit;font-size:0.82rem;' +
-            'padding:0.35rem 0.5rem;margin-bottom:0.15rem;border-radius:6px;cursor:pointer;border:1px solid ' +
+          b.style.cssText = 'display:block;width:100%;text-align:left;font:inherit;font-size:0.8rem;' +
+            'padding:0.32rem 0.45rem;margin-bottom:0.12rem;border-radius:6px;cursor:pointer;border:1px solid ' +
             (i === current ? 'var(--accent-strong);background:var(--accent-soft);' : 'transparent;background:none;');
           b.addEventListener('click', function () {
             screens[current].source = sourceEl.value;   // keep unsaved edits when switching
@@ -2452,26 +2472,83 @@
         });
       }
 
-      // Rendered from the textarea, not from the server, so the preview shows
-      // what you are about to save rather than what is already saved.
+      // Rendered from the textarea rather than the server, so the preview
+      // shows what is about to be saved and not what already is.
       function renderPreview() {
         var s = screens[current];
         if (!s) return;
-        var frame = document.getElementById('ui-preview');
-        var src = sourceEl.value;
+        var direct = document.getElementById('ui-direct').checked;
         frame.srcdoc =
           '<!doctype html><meta charset="utf-8">' +
           '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>' +
           '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>' +
           '<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>' +
-          '<body style="margin:0"><div id="root"></div><pre id="err" style="color:#a33;' +
-             'font:12px ui-monospace,monospace;white-space:pre-wrap;padding:1rem"></pre>' +
+          '<style>body{margin:0}' +
+            (direct ? '[data-edit]:hover{outline:2px dashed #c2603f;outline-offset:1px;cursor:text}' +
+                      '[data-edit]:focus{outline:2px solid #c2603f}' : '') +
+          '</style>' +
+          '<body><div id="root"></div><pre id="err" style="color:#a33;font:12px ui-monospace,monospace;' +
+             'white-space:pre-wrap;padding:1rem"></pre>' +
           '<script>(function(){try{' +
-            'var code=Babel.transform(' + JSON.stringify(src) + ',{presets:[["react",{runtime:"classic"}]]}).code;' +
+            'var code=Babel.transform(' + JSON.stringify(sourceEl.value) +
+              ',{presets:[["react",{runtime:"classic"}]]}).code;' +
             'eval(code+"\\n;window.__C=typeof ' + s.name + '!==\'undefined\'?' + s.name + ':null;");' +
             'if(!window.__C){document.getElementById("err").textContent="No component called ' + s.name + '";return;}' +
             'ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__C));' +
+            (direct ? 'setTimeout(function(){' +
+              // Only leaf elements holding a single text node: editing a node
+              // with children would rewrite markup, not a string.
+              'document.querySelectorAll("#root *").forEach(function(el){' +
+                'if(el.children.length===0&&el.textContent.trim()){' +
+                  'el.setAttribute("data-edit","1");el.contentEditable="true";' +
+                  'el.dataset.before=el.textContent;' +
+                  'el.addEventListener("blur",function(){' +
+                    'if(el.textContent!==el.dataset.before){' +
+                      'parent.postMessage({t:"edit",from:el.dataset.before,to:el.textContent},"*");' +
+                      'el.dataset.before=el.textContent;}});}});' +
+              '},250);' : '') +
           '}catch(e){document.getElementById("err").textContent=String(e&&e.message||e);}})();<\/script>';
+      }
+
+      // A direct edit rewrites the string literal it came from. Only when that
+      // text appears exactly once — replacing an ambiguous match would change
+      // a line the editor never touched.
+      function onDirectEdit(from, to) {
+        var src = sourceEl.value;
+        var count = src.split(from).length - 1;
+        if (count === 0) return status('Could not find that text in the source — edit it there instead', true);
+        if (count > 1) return status('"' + from.slice(0, 24) + '" appears ' + count + ' times; edit the source', true);
+        sourceEl.value = src.replace(from, to);
+        status('Updated — not saved yet');
+      }
+
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.t === 'edit') onDirectEdit(e.data.from, e.data.to);
+      });
+
+      function askAgent() {
+        var input = document.getElementById('ui-prompt');
+        var btn = document.getElementById('ui-ask');
+        if (!input.value.trim()) return;
+        btn.disabled = true;
+        status('Asking the UI agent…');
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen/agent', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: screens[current].name, instruction: input.value }),
+        })
+          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.body.detail || 'The agent could not apply that');
+            // Loaded into the editor, not saved: the reviewer looks first.
+            sourceEl.value = r.body.source;
+            renderPreview();
+            status(r.body.summary + ' — review it, then Save');
+            input.value = '';
+          })
+          .catch(function (e) { status(e.message, true); })
+          .then(function () { btn.disabled = false; });
       }
 
       function save() {
@@ -2488,8 +2565,6 @@
           .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
           .then(function (r) {
             if (!r.ok) throw new Error(r.body.detail || r.body.error || 'Save failed');
-            // Saving withdraws the VP's approval, so the card behind the modal
-            // is now stale — refresh it rather than leave a stale Approve button.
             status('Saved. Approval withdrawn — the screens changed since it was given.');
             loadArtifacts();
           })
@@ -2499,6 +2574,11 @@
 
       document.getElementById('ui-save').addEventListener('click', save);
       document.getElementById('ui-refresh').addEventListener('click', renderPreview);
+      document.getElementById('ui-ask').addEventListener('click', askAgent);
+      document.getElementById('ui-direct').addEventListener('change', renderPreview);
+      document.getElementById('ui-prompt').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') askAgent();
+      });
       sourceEl.addEventListener('input', function () { status('Unsaved changes'); });
 
       status('Loading screens…');

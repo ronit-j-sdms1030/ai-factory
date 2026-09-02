@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from .. import db, jobs
 from ..agents.brd import brd_agent
 from ..agents.decomposition import decomposition_agent
-from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit
+from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit, run_ui_screen_edit
 from ..agents.intake import finalize_requirement, run_chat_turn
 from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
@@ -665,6 +665,48 @@ def ui_screens(artifact_id: str, actor: dict = Depends(current_user)):
     if not _may_edit_ui(artifact, actor):
         raise HTTPException(status_code=403, detail="The screens are not open for your edits right now")
     return {"screens": (artifact.get("ui") or {}).get("screens") or []}
+
+
+class ScreenPrompt(BaseModel):
+    name: str
+    instruction: str
+
+
+@router.post("/{artifact_id}/ui/screen/agent")
+def ui_screen_agent_edit(artifact_id: str, body: ScreenPrompt, actor: dict = Depends(current_user)):
+    """Ask the UI agent to change one screen, in plain language.
+
+    Scoped to a single screen: regenerating the design is the blunt
+    alternative and returns a different set of screens rather than the same
+    set with one changed, so fixing one thing would gamble every screen that
+    was already right.
+    """
+    artifact = _load(artifact_id)
+    if not _may_edit_ui(artifact, actor):
+        raise HTTPException(status_code=403, detail="The screens are not open for your edits right now")
+    if not body.instruction.strip():
+        raise HTTPException(status_code=400, detail="Describe the change you want")
+
+    screens = (artifact.get("ui") or {}).get("screens") or []
+    index = next((i for i, s in enumerate(screens) if s.get("name") == body.name), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail=f"No screen called {body.name}")
+
+    try:
+        result = run_ui_screen_edit(
+            screen=screens[index],
+            instruction=body.instruction,
+            roster=", ".join(f"{s.get('name')} ({s.get('route')})" for s in screens),
+            objective=(artifact.get("detailedReport") or {}).get("objective", ""),
+        )
+    except Exception as exc:  # noqa: BLE001 — surfaced to the reviewer, never fatal
+        log.exception("UI screen edit failed")
+        raise HTTPException(status_code=502, detail=f"The UI agent could not apply that: {exc}")
+
+    # Returned, not saved. The reviewer sees it in the preview and decides —
+    # an agent editing the artefact directly would put unreviewed source
+    # behind a gate whose whole purpose is that somebody looked.
+    return {"name": body.name, "source": result.source, "summary": result.summary}
 
 
 class ScreenEdit(BaseModel):
