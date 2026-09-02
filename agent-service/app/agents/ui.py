@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
-from .. import config, llm
+from .. import config, llm, prompts
 from . import model_for
 from ..schemas import ScreenSource, UIPlan
 from ..state import PipelineState
@@ -43,24 +43,7 @@ log = logging.getLogger(__name__)
 # limit, which this is still well inside.
 _MAX_CONCURRENT_SCREENS = 8
 
-# Concrete visual expectations, because "make it nice" measurably does not
-# work — the recurring failure was code that ran but looked like a wireframe.
-_VISUAL_POLISH = (
-    "Make these look like a real, professionally designed product rather than a wireframe: a proper "
-    "layout (sidebar or top nav, content area with real spacing), a cohesive palette of two or three "
-    "colours plus neutrals, readable typography with clear hierarchy, and styled interactive elements. "
-    "Every number, name, date and status shown must be a specific plausible value — never a literal "
-    "placeholder like '---', 'N/A' or 'TBD'. Invent realistic mock content instead."
-)
 
-# Organise around what a user does, not around who built it. Asked to
-# represent several departments, models otherwise emit one nav tab per
-# internal team, which reads as an org chart rather than a product.
-_PRODUCT_SHAPE = (
-    "Organise navigation around real user-facing workflows for this product. Never create a screen or "
-    "nav item named after an internal department or team. Internal engineering concerns belong folded "
-    "into a single clearly-internal area, not given equal billing beside real product features."
-)
 
 
 @traceable(name="UI Agent")
@@ -79,8 +62,20 @@ def ui_agent(state: PipelineState) -> dict:
     roster = ", ".join(f"{s.name} ({s.route})" for s in plan.screens)
     screen_model = model_for(state, "ui")
 
+    # Both read once for the whole generation rather than once per screen
+    # call, so every screen in this run is written against the exact same
+    # design system and rule set — and so the versions recorded below are the
+    # ones that actually applied.
+    learned_text, learned_ids = _learned()
+    skill_text, skill_version = _skill_file()
+
     with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SCREENS) as pool:
-        sources = list(pool.map(lambda s: _write_screen(brd, s, roster, screen_model), plan.screens))
+        sources = list(
+            pool.map(
+                lambda s: _write_screen(brd, s, roster, screen_model, learned_text, skill_text),
+                plan.screens,
+            )
+        )
 
     screens: list[dict] = []
     failed: list[str] = []
@@ -109,7 +104,22 @@ def ui_agent(state: PipelineState) -> dict:
             "These screens could not be generated and need another pass: " + ", ".join(failed)
         )
 
-    return {"ui": {"screens": screens, "clarifications": clarifications}}
+    return {
+        "ui": {
+            "screens": screens,
+            "clarifications": clarifications,
+            "learnedRuleIds": learned_ids,
+            "skillFileVersion": skill_version,
+            "skillFile": skill_text,
+            # SoW 7.0 audit fields, recorded where they cannot drift from what
+            # actually ran: the models used and the prompt versions in force.
+            "provenance": {
+                "planModel": model_for(state, "uiPlan"),
+                "screenModel": screen_model,
+                "promptVersions": prompts.versions("ui"),
+            },
+        }
+    }
 
 
 # A screen arrives as a real file would — `import React from 'react'` at the
@@ -205,7 +215,8 @@ def _plan_screens(brd: dict, model: str) -> UIPlan:
                     "with only a name cannot be built from — keyElements in particular is what the next "
                     "step writes the code against, so name the real tables, forms, filters and actions.\n\n"
                     "Derive them from pageBehavior and dataModel.\n\n"
-                    f"{_PRODUCT_SHAPE}\n\n"
+                    + prompts.text("ui.productShape")
+                    + "\n\n"
                     "Where the BRD is genuinely ambiguous about interface behaviour, record a "
                     "clarification rather than guessing silently."
                 ),
@@ -223,24 +234,52 @@ def _plan_screens(brd: dict, model: str) -> UIPlan:
     )
 
 
-def _learned() -> str:
+def _learned() -> tuple[str, list[str]]:
     """Rules reviewers have already taught this agent, as a prompt fragment.
+
+    Returns the fragment alongside the ids it was built from, so the caller
+    can record exactly which instructions produced a given generation rather
+    than only that "some rules" applied — the active set moves on, but an
+    approved screen should not silently change what it is attributed to.
 
     Best-effort by design: a screen that generates without its accumulated
     house style is worth far more than no screen at all, so a failure to read
     them is logged and ignored.
     """
     try:
-        from ..lessons import prompt_section
+        from ..lessons import active_ids, prompt_section
 
         section = prompt_section("ui")
-        return f"\n\n{section}" if section else ""
+        if not section:
+            return "", []
+        return f"\n\n{section}", active_ids("ui")
     except Exception as exc:  # noqa: BLE001
         log.warning("could not load learned rules: %s", exc)
-        return ""
+        return "", []
 
 
-def _write_screen(brd: dict, outline, roster: str, model: str) -> str | None:
+def _skill_file() -> tuple[str, int]:
+    """The design system every screen in this run must follow, and its version.
+
+    Best-effort in the same way learned rules are, but with a stronger
+    fallback: an unreachable database returns the built-in default rather than
+    an empty string, because generating screens with no design system at all
+    is the failure this replaces.
+    """
+    try:
+        from ..design_system import DEFAULT_SKILL, current, prompt_section
+
+        return prompt_section(), current()["version"]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not load the design-system skill file: %s", exc)
+        from ..design_system import DEFAULT_SKILL
+
+        return DEFAULT_SKILL, 0
+
+
+def _write_screen(
+    brd: dict, outline, roster: str, model: str, learned_text: str = "", skill_text: str = ""
+) -> str | None:
     """Generate one screen's source. Returns None so one failure costs one screen."""
     try:
         result = llm.call_structured(
@@ -265,8 +304,10 @@ def _write_screen(brd: dict, outline, roster: str, model: str) -> str | None:
                         "Every interactive element needs a real handler that does something observable; "
                         "every component you reference must be defined in this source or be one of the "
                         "other screens listed. Use in-memory mock data only — no network calls.\n\n"
-                        f"{_VISUAL_POLISH}"
-                        + _learned()
+                        + prompts.text("ui.visualPolish")
+                        + "\n\n"
+                        + skill_text
+                        + learned_text
                     ),
                 },
                 {

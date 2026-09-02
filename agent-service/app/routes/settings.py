@@ -15,7 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from .. import config, lessons
+from .. import config, design_system, lessons, prompts
 from .. import settings as app_settings
 from ..auth import current_user
 
@@ -72,6 +72,83 @@ def put_models(body: ModelSettings, user: dict = Depends(_require_editor)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"models": stored, "roles": app_settings.roles_view()}
+
+
+class DesignSystem(BaseModel):
+    content: str
+
+
+@router.get("/design-system")
+def get_design_system(user: dict = Depends(current_user)):
+    """The skill file every generated screen is written against.
+
+    Readable by any internal user: SoW 11.0 has UI/UX and Business Analysts
+    reviewing the screens, and reviewing a screen against a design system you
+    cannot read is guesswork.
+    """
+    if not _may_read(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available")
+    return {
+        **design_system.current(),
+        "history": design_system.history(),
+        "canEdit": user.get("tierId") in SETTINGS_TIERS,
+    }
+
+
+@router.put("/design-system")
+def put_design_system(body: DesignSystem, user: dict = Depends(_require_editor)):
+    """Replace the skill file, recording who changed it.
+
+    SoW 4.0 requires skill files to carry change history and approver
+    identity, so the previous text is kept as a revision rather than
+    overwritten. Submitting nothing restores the built-in default — the agent
+    is never left with no design system at all.
+    """
+    return design_system.set_content(body.content, user["id"])
+
+
+class PromptBody(BaseModel):
+    content: str
+
+
+@router.get("/prompts")
+def get_prompts(user: dict = Depends(current_user)):
+    """The tunable prompt fragments, with their versions and history.
+
+    Readable by any internal user for the same reason the model is: knowing
+    what instructions produced a document is part of reviewing it.
+    """
+    if not _may_read(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available")
+    return {
+        "prompts": prompts.listing(),
+        "canEdit": user.get("tierId") in SETTINGS_TIERS,
+    }
+
+
+@router.get("/prompts/{name}/history")
+def get_prompt_history(name: str, user: dict = Depends(current_user)):
+    if not _may_read(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available")
+    try:
+        return {"history": prompts.history(name)}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.put("/prompts/{name}")
+def put_prompt(name: str, body: PromptBody, user: dict = Depends(_require_editor)):
+    """Change one fragment, recording who changed it.
+
+    SoW 4.0 requires prompt templates to carry change history and approver
+    identity — the previous text is kept as a revision rather than
+    overwritten. Submitting nothing restores the built-in default, so a bad
+    edit never has to be reconstructed from memory.
+    """
+    try:
+        return prompts.set_text(name, body.content, user["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 class LessonStatus(BaseModel):

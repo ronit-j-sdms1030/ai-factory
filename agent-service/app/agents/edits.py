@@ -9,9 +9,12 @@ change in sections nobody discussed.
 from __future__ import annotations
 
 import json
+import logging
 
 from .. import config, llm
 from ..schemas import FsdEdit, LearnedRule, ScreenEditResult, TeamReportEdit
+
+log = logging.getLogger(__name__)
 
 
 def run_fsd_chat_edit(
@@ -87,6 +90,22 @@ def run_team_report_chat_edit(*, department: str, package: dict, message: str) -
     )
 
 
+def _skill_section() -> str:
+    """The design system, so a revision does not drift off the house style.
+
+    A screen edited without it comes back correct on the requested change and
+    quietly wrong everywhere else — which is the harder defect to spot, since
+    the reviewer is looking at the thing they asked for.
+    """
+    try:
+        from ..design_system import prompt_section
+
+        return prompt_section()
+    except Exception as exc:  # noqa: BLE001 — an edit is worth more than its styling
+        log.warning("could not load the design-system skill file for an edit: %s", exc)
+        return ""
+
+
 def run_ui_screen_edit(*, screen: dict, instruction: str, roster: str, objective: str) -> ScreenEditResult:
     """Rewrite one screen to satisfy a plain-language request.
 
@@ -117,7 +136,8 @@ def run_ui_screen_edit(*, screen: dict, instruction: str, roster: str, objective
                     "keeping the SAME component name, because the preview looks it up by name.\n\n"
                     "Change what was asked for and leave the rest alone. A reviewer asking for a "
                     "column to be added has not asked for the styling to be reworked, and a screen "
-                    "that comes back subtly different everywhere cannot be reviewed."
+                    "that comes back subtly different everywhere cannot be reviewed.\n\n"
+                    + _skill_section()
                 ),
             },
             {"role": "user", "content": f"Product objective:\n{objective}"},
@@ -128,13 +148,21 @@ def run_ui_screen_edit(*, screen: dict, instruction: str, roster: str, objective
     )
 
 
-def extract_lesson(*, before: str, after: str, instruction: str = "") -> LearnedRule:
+def extract_lesson(
+    *, before: str, after: str, instruction: str = "", active_rules: list[str] | None = None
+) -> LearnedRule:
     """Decide whether a correction is a house rule or a one-off.
 
     Most edits are one-offs, and the prompt is the wrong place for those: a
     rule invented from a single content change is applied to every screen
     afterwards and is harder to notice than the correction it came from. The
     schema pushes toward false on doubt for that reason.
+
+    ``active_rules`` are shown to the model so it can flag a conflict rather
+    than propose a rival silently. Without them, two reviewers with opposite
+    date-format preferences would each look right in isolation and the second
+    would simply out-vote the first the next time it repeats — nothing would
+    ever say the two disagree.
 
     Runs on the report model rather than the UI model. Judging whether a
     change generalises is a reading task, not a coding one, and the coder
@@ -156,9 +184,23 @@ def extract_lesson(*, before: str, after: str, instruction: str = "") -> Learned
                     "Generalise sparingly. Formatting, wording and layout conventions are house "
                     "standards worth learning. A different heading, a different mock value or a "
                     "field only this screen needs are not, however tempting the pattern looks from "
-                    "one example."
+                    "one example.\n\n"
+                    "If a rule set is supplied below, check whether the new rule disagrees with one "
+                    "of them — e.g. it picks a different date format, or the opposite alignment. "
+                    "Report that in `contradicts` rather than silently proposing a rival."
                 ),
             },
+            *(
+                [
+                    {
+                        "role": "user",
+                        "content": "ACTIVE RULES already in effect:\n"
+                        + "\n".join(f"- {r}" for r in active_rules),
+                    }
+                ]
+                if active_rules
+                else []
+            ),
             *(
                 [{"role": "user", "content": f"The reviewer asked for:\n{instruction}"}]
                 if instruction else []

@@ -31,6 +31,13 @@ from typing import Any
 
 # React and Babel are fetched from unpkg, matching the project-demo sandbox's
 # CSP allowance. Babel is needed because the screens are JSX, not compiled JS.
+#
+# Tailwind is loaded because the design-system skill file mandates utility
+# classes, and without it every `className` resolved to nothing: a real
+# requirement produced fourteen screens carrying up to 394 Tailwind classes
+# each, rendering as unstyled HTML while the pipeline reported success. The
+# skill file and this tag are two halves of one decision — see
+# ``design_system.STYLING``.
 _CDN = "https://unpkg.com"
 
 _SHELL = """<!doctype html>
@@ -39,6 +46,7 @@ _SHELL = """<!doctype html>
 <script src="{cdn}/react@18/umd/react.development.js" crossorigin></script>
 <script src="{cdn}/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="{cdn}/@babel/standalone/babel.min.js"></script>
+<script src="{cdn}/@tailwindcss/browser@4"></script>
 <style>
   :root {{ color-scheme: light; }}
   * {{ box-sizing: border-box; }}

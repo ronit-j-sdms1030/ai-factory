@@ -630,10 +630,37 @@
           </section>
 
           <section class="panel">
+            <h2 class="panel-title">Design system</h2>
+            <p class="panel-sub">The skill file every generated screen is written against — tokens,
+              components and accessibility rules. Applies to the next generation and to any screen edited
+              afterwards. Each save is versioned and the file is committed to Git beside the screens it
+              governed.</p>
+            <textarea id="settings-skill" spellcheck="false"
+              style="width:100%;min-height:20rem;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+                     padding:0.75rem;border:1px solid var(--line);border-radius:6px;resize:vertical;"></textarea>
+            <div style="display:flex;gap:0.6rem;align-items:center;margin-top:0.75rem;flex-wrap:wrap;">
+              <button class="btn" id="settings-skill-save" type="button">Save</button>
+              <button class="btn secondary" id="settings-skill-reset" type="button">Restore default</button>
+              <span id="settings-skill-status" style="font-size:0.85rem;color:var(--text-faint);"></span>
+            </div>
+            <div id="settings-skill-history" style="margin-top:0.85rem;"></div>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title">Agent prompts</h2>
+            <p class="panel-sub">The tuning blocks inside each agent's instructions. Changing one
+              affects every requirement generated afterwards; each save is versioned and the text used
+              is committed to Git beside the artefact it produced. Instructions that hold a schema
+              together stay in code and are not editable here.</p>
+            <div id="settings-prompts"></div>
+          </section>
+
+          <section class="panel">
             <h2 class="panel-title">What the agents have learned</h2>
-            <p class="panel-sub">Rules taken from corrections reviewers have already made. Formatting and
-              wording apply on their own — a wrong one shows up on the next screen and is corrected the same
-              way it was learned. Anything that changes what a screen does waits for approval here.</p>
+            <p class="panel-sub">Rules taken from corrections reviewers have already made. A rule is only
+              applied once the same correction has been seen twice — one correction may be taste. Anything
+              that changes what a screen does, or that contradicts a rule already in force, waits for
+              approval here.</p>
             <div id="settings-lessons"></div>
           </section>
 
@@ -2568,11 +2595,153 @@
     // instruction nobody can see is the failure mode this whole loop has to
     // avoid: the output changes, the audit trail says nothing, and the reason
     // lives only in a prompt.
+    function loadDesignSystem() {
+      var box = document.getElementById('settings-skill');
+      if (!box) return;
+      var status = document.getElementById('settings-skill-status');
+      var histEl = document.getElementById('settings-skill-history');
+
+      fetch(window.API_BASE + '/api/settings/design-system', { credentials: 'include' })
+        // A 404 or 401 still returns JSON, so res.ok has to be checked
+        // explicitly — without it an error body renders as an empty editor
+        // and "Version undefined", which reads as "there is no design system"
+        // rather than "this request failed".
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          box.value = data.content || '';
+          box.readOnly = !data.canEdit;
+          ['settings-skill-save', 'settings-skill-reset'].forEach(function (id) {
+            var b = document.getElementById(id);
+            if (b) b.style.display = data.canEdit ? '' : 'none';
+          });
+          status.textContent = data.isDefault
+            ? 'Built-in default — never edited for this deployment.'
+            : 'Version ' + (data.version != null ? data.version : '?') +
+              (data.updatedBy ? ' · last changed by ' + data.updatedBy : '');
+
+          var past = data.history || [];
+          histEl.innerHTML = past.length
+            ? '<div style="font-size:0.78rem;color:var(--text-faint);">Previous versions: ' +
+              past.map(function (h) {
+                return 'v' + h.version + (h.updatedBy ? ' (' + escapeHtml(h.updatedBy) + ')' : '');
+              }).join(' · ') + '</div>'
+            : '';
+        })
+        .catch(function () { status.textContent = 'Could not load the design system.'; });
+    }
+
+    function saveDesignSystem(content) {
+      var status = document.getElementById('settings-skill-status');
+      status.textContent = 'Saving…';
+      fetch(window.API_BASE + '/api/settings/design-system', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content }),
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error('save failed');
+          return res.json();
+        })
+        .then(function () { loadDesignSystem(); })
+        .catch(function () { status.textContent = 'Could not save — you may not have permission.'; });
+    }
+
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'settings-skill-save') {
+        saveDesignSystem(document.getElementById('settings-skill').value);
+      }
+      if (e.target && e.target.id === 'settings-skill-reset') {
+        // Sends empty, which the server reads as "restore the built-in
+        // default" rather than "leave the agent with no design system".
+        saveDesignSystem('');
+      }
+    });
+
+    function loadPrompts() {
+      var el = document.getElementById('settings-prompts');
+      if (!el) return;
+      fetch(window.API_BASE + '/api/settings/prompts', { credentials: 'include' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          var rows = data.prompts || [];
+          if (!rows.length) {
+            el.innerHTML = '<p class="modal-empty">No editable prompts were returned.</p>';
+            return;
+          }
+          el.innerHTML = '';
+          rows.forEach(function (p) {
+            var wrap = document.createElement('div');
+            wrap.style.cssText = 'padding:0.75rem 0;border-bottom:1px solid var(--line);';
+
+            var meta = p.isDefault
+              ? 'built-in default'
+              : 'version ' + p.version + (p.updatedBy ? ' · changed by ' + p.updatedBy : '');
+            wrap.innerHTML =
+              '<div style="font-size:0.9rem;">' + escapeHtml(p.label) +
+              ' <span style="color:var(--text-faint);font-size:0.78rem;">· ' +
+              escapeHtml(p.agent) + ' agent · ' + escapeHtml(meta) + '</span></div>' +
+              '<div style="font-size:0.78rem;color:var(--text-faint);margin:0.15rem 0 0.4rem;">' +
+              escapeHtml(p.detail) + '</div>';
+
+            var box = document.createElement('textarea');
+            box.value = p.content;
+            box.spellcheck = false;
+            box.readOnly = !data.canEdit;
+            box.style.cssText = 'width:100%;min-height:8rem;font:12.5px/1.5 ui-monospace,SFMono-Regular,' +
+              'Menlo,monospace;padding:0.6rem;border:1px solid var(--line);border-radius:6px;resize:vertical;';
+            wrap.appendChild(box);
+
+            if (data.canEdit) {
+              var bar = document.createElement('div');
+              bar.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-top:0.4rem;';
+              var status = document.createElement('span');
+              status.style.cssText = 'font-size:0.8rem;color:var(--text-faint);';
+
+              function save(content) {
+                status.textContent = 'Saving…';
+                fetch(window.API_BASE + '/api/settings/prompts/' + encodeURIComponent(p.name), {
+                  method: 'PUT', credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: content }),
+                })
+                  .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+                  .then(function () { loadPrompts(); })
+                  .catch(function () { status.textContent = 'Could not save.'; });
+              }
+
+              [['Save', function () { save(box.value); }],
+               ['Restore default', function () { save(''); }]].forEach(function (pair, i) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.className = i === 0 ? 'btn' : 'btn secondary';
+                b.style.cssText = 'padding:0.25rem 0.6rem;font-size:0.78rem;';
+                b.textContent = pair[0];
+                b.addEventListener('click', pair[1]);
+                bar.appendChild(b);
+              });
+              bar.appendChild(status);
+              wrap.appendChild(bar);
+            }
+            el.appendChild(wrap);
+          });
+        })
+        .catch(function () { el.innerHTML = '<p class="modal-empty">Could not load prompts.</p>'; });
+    }
+
     function loadLessons() {
       var el = document.getElementById('settings-lessons');
       if (!el) return;
       fetch(window.API_BASE + '/api/settings/lessons', { credentials: 'include' })
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
         .then(function (data) {
           var rows = data.lessons || [];
           if (!rows.length) {
@@ -2593,7 +2762,11 @@
                 escapeHtml(l.agent) + ' agent · ' + escapeHtml(l.kind) + ' · ' + l.status +
                 (l.timesSeen > 1 ? ' · seen ' + l.timesSeen + '×' : '') +
                 (l.evidence ? ' · from "' + escapeHtml(String(l.evidence).slice(0, 60)) + '"' : '') +
-              '</div></div>';
+              '</div>' +
+              (l.conflictsWith ? '<div style="font-size:0.76rem;color:var(--danger,#c0392b);margin-top:0.2rem;">' +
+                'Conflicts with an active rule: "' + escapeHtml(l.conflictsWith) + '" — decide which one wins.' +
+                '</div>' : '') +
+              '</div>';
 
             if (data.canEdit) {
               var actions = document.createElement('div');
@@ -3276,7 +3449,7 @@
       });
       // Fetched on open rather than kept in sync: another approver may have
       // changed a model since this page loaded.
-      if (tabName === 'settings') { loadSettingsModels(); loadLessons(); }
+      if (tabName === 'settings') { loadSettingsModels(); loadDesignSystem(); loadPrompts(); loadLessons(); }
     }
     TAB_NAMES.forEach(function (name) {
       document.getElementById('tab-' + name).addEventListener('click', function () { switchTab(name); });

@@ -56,6 +56,28 @@ def _slug(value: str) -> str:
     return cleaned or "unnamed"
 
 
+def _prompt_files(agent: str) -> dict[str, str]:
+    """The prompt fragments this agent ran with, as a committable document.
+
+    Written beside the artefact rather than only referenced by version, so a
+    reviewer reading an approved BRD can see the instructions it was produced
+    against without resolving a number against a database that has since moved
+    on. SoW 4.0 asks for prompts to be version-controlled in Git; this is the
+    copy that survives independently of the settings store.
+
+    Best-effort: a prompt document is worth less than the artefact it
+    accompanies, so a failure to read the registry loses the document, not the
+    commit.
+    """
+    try:
+        from .prompts import as_markdown
+
+        body = as_markdown(agent)
+    except Exception:  # noqa: BLE001
+        return {}
+    return {f"{agent}/prompts.md": body} if body else {}
+
+
 @dataclass
 class CommitResult:
     branch: str
@@ -178,6 +200,7 @@ class GitStore:
             files["brd/diagrams/architecture.mmd"] = brd["architectureDiagram"]
         if brd.get("dbSchemaDiagram"):
             files["brd/diagrams/schema.mmd"] = brd["dbSchemaDiagram"]
+        files.update(_prompt_files("brd"))
         return files
 
     def ui_files(self, ui: dict[str, Any], title: str = "Untitled") -> dict[str, str]:
@@ -186,6 +209,17 @@ class GitStore:
             files[f"ui/screens/{_slug(screen.get('name', 'screen'))}.jsx"] = screen.get("source", "")
         if ui.get("clarifications"):
             files["ui/clarifications.md"] = "\n".join(f"- {c}" for c in ui["clarifications"])
+        files.update(_prompt_files("ui"))
+        if ui.get("skillFile"):
+            # Committed beside the screens it governed, not merely referenced.
+            # SoW 11.0 requires the screens to be constrained by a skill file
+            # and SoW 4.0 requires that file to be version-controlled; a
+            # reviewer approving these screens can then read the exact rules
+            # they were written against, from the same commit, however the
+            # stored file has moved on since.
+            version = ui.get("skillFileVersion")
+            header = f"<!-- design-system skill file, version {version} -->\n\n" if version else ""
+            files["ui/design-system.skill.md"] = header + ui["skillFile"]
         if ui.get("screens"):
             # The assembled page goes in the commit too, so the pull request
             # carries something a reviewer can open rather than a folder of
@@ -204,7 +238,8 @@ class GitStore:
         VP, each package by its owning team lead. One file per reviewer keeps
         those gates independent.
         """
-        files = {
+        files = _prompt_files("decomposition")
+        files.update({
             "workitems/graph.json": json.dumps(
                 {
                     "work_items": decomposition.get("workItems") or [],
@@ -213,7 +248,7 @@ class GitStore:
                 indent=2,
                 default=str,
             )
-        }
+        })
         for package in decomposition.get("packages") or []:
             files[f"workitems/{_slug(package.get('team', 'unassigned'))}/package.json"] = json.dumps(
                 package, indent=2, default=str

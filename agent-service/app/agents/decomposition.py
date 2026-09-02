@@ -20,7 +20,7 @@ import logging
 
 from langsmith import traceable
 
-from .. import config, invariants, llm
+from .. import config, invariants, llm, prompts
 from ..schemas import Decomposition
 from ..state import PipelineState
 
@@ -49,18 +49,7 @@ def decomposition_agent(state: PipelineState) -> dict:
                     "WORK ITEMS must carry real dependency edges. If item B needs an API or table that "
                     "item A creates, B depends_on A. The graph must be acyclic and every depends_on "
                     "must reference an id that exists.\n\n"
-                    "THESE PACKAGES MUST RECOMBINE INTO ONE WORKING PRODUCT. Each department generates "
-                    "its code from its own package alone, never seeing another's, so what you write "
-                    "here is the only thing keeping the modules compatible:\n"
-                    "- Shared entities must be spelled identically in every package, character for "
-                    "character, copied verbatim from the BRD data model. 'Return_Items' in one package "
-                    "and 'ReturnItems' in another produces foreign keys that do not resolve — a broken "
-                    "build, not a cosmetic mismatch.\n"
-                    "- Include entities a department only reads, marked owned_by_this_department false, "
-                    "or it will invent its own incompatible version of the same thing.\n"
-                    "- Exactly one department owns each entity — never zero. An entity read-only in "
-                    "every package means nobody generates its schema and the table does not exist.\n\n"
-                    "Do not copy the BRD's diagrams or full security design into every package."
+                    + prompts.text("decomposition.contract")
                 ),
             },
             {
@@ -95,5 +84,9 @@ def decomposition_agent(state: PipelineState) -> dict:
         "work_items": {
             **decomposition.model_dump(by_alias=True),
             "integrity": {**report, "cycles": cycles, "dangling": dangling},
+            "provenance": {
+                "model": model_for(state, "decomposition"),
+                "promptVersions": prompts.versions("decomposition"),
+            },
         }
     }

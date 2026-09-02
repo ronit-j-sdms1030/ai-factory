@@ -20,6 +20,7 @@ from .. import config, llm
 from . import model_for
 from ..schemas import BRD, Critique
 from ..state import PipelineState
+from .. import prompts
 
 log = logging.getLogger(__name__)
 
@@ -27,16 +28,6 @@ MAX_CRITIQUE_ROUNDS = 2
 
 # Being specific is not the same as being correct, and a confidently named
 # wrong component is worse than a vague one — it survives review.
-_DESIGN_RIGOUR = """
-DESIGN RIGOUR — work through each of these before committing to any technology:
-- Fitness for THIS environment, not generic suitability. How does the component behave under this build's actual physical conditions, scale, duty cycle and real user behaviour? A part that is obvious in one setting is often wrong one setting over, and the difference is usually a property of the environment the requirement already described.
-- Name the standard. If an established industry standard or published specification governs this problem domain, build on it or state explicitly why not. Reaching for a general-purpose or hobbyist-tier component where a mature domain standard exists is a design error, not a cost saving.
-- Deliver what was promised. Check each capability the requirement promises is genuinely delivered, not a weaker cousin of it. If the design can only deliver a reduced version, say so in openQuestions rather than quietly narrowing scope.
-- No fictional precision. Every field in dataModel must be something the chosen components can actually produce. Inventing a field nothing can populate makes the whole document untrustworthy.
-- Failure and safety. State what happens when the system fails or loses power, and what the safe state is. Where the build touches physical systems, public spaces, money or regulated data, name the applicable safety or compliance constraint and how the design honours it.
-""".strip()
-
-
 def _generate(requirement: dict, transcript: str, model: str) -> BRD:
     return llm.call_structured(
         model=model,
@@ -52,7 +43,7 @@ def _generate(requirement: dict, transcript: str, model: str) -> BRD:
                     "approved requirement into a document an engineering team could build from "
                     "directly. No section may be vague, generic, or read like a placeholder. Name real "
                     "entities, real pages, real security measures and real technologies.\n\n"
-                    + _DESIGN_RIGOUR
+                    + prompts.text("brd.rigour")
                 ),
             },
             {"role": "user", "content": f"Approved requirement:\n{json.dumps(requirement, indent=2)}"},
@@ -71,22 +62,7 @@ def _critique(requirement: dict, brd: BRD, model: str) -> Critique:
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are a senior engineer with deep domain experience, reviewing a proposed design "
-                    "before it reaches a build team. You did not write it. Find where it will fail in "
-                    "the real world — do not praise it and do not nitpick wording.\n\n"
-                    "Judge fitness for purpose: (1) will each component work under this build's real "
-                    "operating conditions — physical environment, scale, duty cycle, user behaviour? "
-                    "(2) does an established standard already govern this domain that the design "
-                    "ignored in favour of a general-purpose substitute? (3) is every promised "
-                    "capability genuinely delivered, or has one been quietly downgraded? (4) does the "
-                    "data model claim fields the chosen components cannot produce? (5) where the build "
-                    "touches physical systems, public spaces, money or regulated data, is failure and "
-                    "safe-state behaviour defined?\n\n"
-                    "Report only defects you can tie to a concrete failure circumstance. If the design "
-                    "is sound, return an empty findings list — a clean review is a valid outcome and "
-                    "filler findings are worse than none."
-                ),
+                "content": prompts.text("brd.critique"),
             },
             {"role": "user", "content": f"Requirement:\n{json.dumps(requirement, indent=2)}"},
             {"role": "user", "content": f"Proposed design:\n{brd.model_dump_json(indent=2)}"},
@@ -199,7 +175,14 @@ def brd_agent(state: PipelineState) -> dict:
             brd.open_questions += [_unresolved(f) for f in actionable]
             break
 
-    return {"brd": brd.model_dump(by_alias=True), "critique_rounds": rounds}
+    return {
+        "brd": brd.model_dump(by_alias=True),
+        "critique_rounds": rounds,
+        # SoW 7.0 audit fields: which model and which instructions produced
+        # this document. Recorded here rather than by the route so they cannot
+        # drift from what actually ran.
+        "brd_provenance": {"model": model, "promptVersions": prompts.versions("brd")},
+    }
 
 
 def _unresolved(finding) -> str:
