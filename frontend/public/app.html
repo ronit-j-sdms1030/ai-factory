@@ -628,6 +628,16 @@
               <span id="settings-status" style="font-size:0.85rem;color:var(--text-faint);"></span>
             </div>
           </section>
+
+          <section class="panel">
+            <h2 class="panel-title">What the agents have learned</h2>
+            <p class="panel-sub">Rules taken from corrections reviewers have already made. Formatting and
+              wording apply on their own — a wrong one shows up on the next screen and is corrected the same
+              way it was learned. Anything that changes what a screen does waits for approval here.</p>
+            <div id="settings-lessons"></div>
+          </section>
+
+
         </div>
 
         <div class="tab-view" id="view-codegen" style="display:none;">
@@ -2554,6 +2564,65 @@
       return wrap;
     }
 
+    // Learned rules, shown rather than applied invisibly. An agent following an
+    // instruction nobody can see is the failure mode this whole loop has to
+    // avoid: the output changes, the audit trail says nothing, and the reason
+    // lives only in a prompt.
+    function loadLessons() {
+      var el = document.getElementById('settings-lessons');
+      if (!el) return;
+      fetch(window.API_BASE + '/api/settings/lessons', { credentials: 'include' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var rows = data.lessons || [];
+          if (!rows.length) {
+            el.innerHTML = '<p class="modal-empty">Nothing learned yet. Rules appear here after a ' +
+              'reviewer edits a generated screen.</p>';
+            return;
+          }
+          el.innerHTML = '';
+          rows.forEach(function (l) {
+            var row = document.createElement('div');
+            row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:start;' +
+              'padding:0.6rem 0;border-bottom:1px solid var(--line);';
+            row.innerHTML =
+              '<div><div style="font-size:0.88rem;' +
+                (l.status === 'dismissed' ? 'text-decoration:line-through;opacity:0.55;' : '') + '">' +
+                escapeHtml(l.rule) + '</div>' +
+              '<div style="font-size:0.76rem;color:var(--text-faint);margin-top:0.15rem;">' +
+                escapeHtml(l.agent) + ' agent · ' + escapeHtml(l.kind) + ' · ' + l.status +
+                (l.timesSeen > 1 ? ' · seen ' + l.timesSeen + '×' : '') +
+                (l.evidence ? ' · from "' + escapeHtml(String(l.evidence).slice(0, 60)) + '"' : '') +
+              '</div></div>';
+
+            if (data.canEdit) {
+              var actions = document.createElement('div');
+              actions.style.cssText = 'display:flex;gap:0.35rem;';
+              [['active', 'Apply'], ['dismissed', 'Dismiss']].forEach(function (pair) {
+                if (l.status === pair[0]) return;
+                var b = document.createElement('button');
+                b.className = 'btn secondary';
+                b.type = 'button';
+                b.style.cssText = 'padding:0.25rem 0.55rem;font-size:0.76rem;';
+                b.textContent = pair[1];
+                b.addEventListener('click', function () {
+                  b.disabled = true;
+                  fetch(window.API_BASE + '/api/settings/lessons/' + l.id, {
+                    method: 'PUT', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: pair[0] }),
+                  }).then(function () { loadLessons(); });
+                });
+                actions.appendChild(b);
+              });
+              row.appendChild(actions);
+            }
+            el.appendChild(row);
+          });
+        })
+        .catch(function () { el.innerHTML = '<p class="modal-empty">Could not load learned rules.</p>'; });
+    }
+
     // ── settings: models ─────────────────────────────────────────────────────
     // A deployment decision rather than a per-requirement one, so it lives in
     // Settings and not on every card. Which model suits a stage is learned by
@@ -2662,6 +2731,10 @@
       var screens = [];
       var current = 0;
       var direct = true;
+      // Sent with the save so the lesson extractor sees the reviewer's own
+      // words. A diff alone cannot say whether "$" became "₹" because of a
+      // house standard or because this one screen is priced in rupees.
+      var lastInstruction = '';
 
       function status(text, bad) {
         statusEl.textContent = text || '';
@@ -2731,12 +2804,17 @@
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen', {
           method: 'PUT', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: screens[current].name, source: sourceEl.value }),
+          body: JSON.stringify({
+            name: screens[current].name,
+            source: sourceEl.value,
+            instruction: lastInstruction,
+          }),
         })
           .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
           .then(function (r) {
             if (!r.ok) throw new Error(r.body.detail || 'Save failed');
-            status('Saved — VP approval withdrawn, the screens changed since it was given');
+            lastInstruction = '';
+            status('Saved — VP approval withdrawn, and the agent is reviewing what changed');
           })
           .catch(function (e) { status(e.message, true); });
       }
@@ -2756,6 +2834,7 @@
             // Loaded, not saved: the reviewer looks before committing to it.
             sourceEl.value = r.body.source;
             render();
+            lastInstruction = input.value;
             status(r.body.summary + ' — review it, then Save');
             input.value = '';
           })
@@ -3197,7 +3276,7 @@
       });
       // Fetched on open rather than kept in sync: another approver may have
       // changed a model since this page loaded.
-      if (tabName === 'settings') loadSettingsModels();
+      if (tabName === 'settings') { loadSettingsModels(); loadLessons(); }
     }
     TAB_NAMES.forEach(function (name) {
       document.getElementById('tab-' + name).addEventListener('click', function () { switchTab(name); });

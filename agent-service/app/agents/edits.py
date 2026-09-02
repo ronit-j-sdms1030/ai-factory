@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from .. import config, llm
-from ..schemas import FsdEdit, ScreenEditResult, TeamReportEdit
+from ..schemas import FsdEdit, LearnedRule, ScreenEditResult, TeamReportEdit
 
 
 def run_fsd_chat_edit(
@@ -124,5 +124,46 @@ def run_ui_screen_edit(*, screen: dict, instruction: str, roster: str, objective
             {"role": "user", "content": f"Other screens in this application: {roster}"},
             {"role": "user", "content": f"Current source of {screen.get('name')}:\n{screen.get('source')}"},
             {"role": "user", "content": f"The change requested:\n{instruction}"},
+        ],
+    )
+
+
+def extract_lesson(*, before: str, after: str, instruction: str = "") -> LearnedRule:
+    """Decide whether a correction is a house rule or a one-off.
+
+    Most edits are one-offs, and the prompt is the wrong place for those: a
+    rule invented from a single content change is applied to every screen
+    afterwards and is harder to notice than the correction it came from. The
+    schema pushes toward false on doubt for that reason.
+
+    Runs on the report model rather than the UI model. Judging whether a
+    change generalises is a reading task, not a coding one, and the coder
+    models in this pipeline have been the weakest at following a schema.
+    """
+    return llm.call_structured(
+        model=config.REPORT_MODEL,
+        schema=LearnedRule,
+        max_tokens=1200,
+        retries=1,
+        timeout=60.0,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "A reviewer corrected a generated screen inside Stark Digital's AI Software "
+                    "Factory. Decide whether that correction should become a standing instruction "
+                    "for every screen generated afterwards, or whether it applied only here.\n\n"
+                    "Generalise sparingly. Formatting, wording and layout conventions are house "
+                    "standards worth learning. A different heading, a different mock value or a "
+                    "field only this screen needs are not, however tempting the pattern looks from "
+                    "one example."
+                ),
+            },
+            *(
+                [{"role": "user", "content": f"The reviewer asked for:\n{instruction}"}]
+                if instruction else []
+            ),
+            {"role": "user", "content": f"Before:\n{before[:6000]}"},
+            {"role": "user", "content": f"After:\n{after[:6000]}"},
         ],
     )

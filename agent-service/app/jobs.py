@@ -49,6 +49,7 @@ LABELS = {
     "brd": "Generating the BRD",
     "ui": "Generating the interface",
     "workitems": "Splitting into work items",
+    "lesson": "Learning from that edit",
 }
 
 

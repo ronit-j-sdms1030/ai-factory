@@ -15,7 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from .. import config
+from .. import config, lessons
 from .. import settings as app_settings
 from ..auth import current_user
 
@@ -72,3 +72,37 @@ def put_models(body: ModelSettings, user: dict = Depends(_require_editor)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"models": stored, "roles": app_settings.roles_view()}
+
+
+class LessonStatus(BaseModel):
+    status: str
+
+
+@router.get("/lessons")
+def get_lessons(agent: str | None = None, user: dict = Depends(current_user)):
+    """What the agents have been taught, and what they are waiting to be told.
+
+    Visible to every internal user. A rule silently steering every future
+    screen is the thing to avoid here — if an agent is following an
+    instruction, anyone reading its output should be able to see why.
+    """
+    if not _may_read(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available")
+    return {"lessons": lessons.listing(agent), "canEdit": user.get("tierId") in SETTINGS_TIERS}
+
+
+@router.put("/lessons/{lesson_id}")
+def set_lesson_status(lesson_id: str, body: LessonStatus, user: dict = Depends(_require_editor)):
+    """Activate a proposed rule, or dismiss one that is wrong.
+
+    Dismissed rules are kept rather than deleted: a rule somebody rejected is
+    itself a fact about this deployment, and deleting it invites the extractor
+    to propose the same thing next week.
+    """
+    try:
+        changed = lessons.set_status(lesson_id, body.status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not changed:
+        raise HTTPException(status_code=404, detail="No such lesson, or it already had that status")
+    return {"ok": True, "lessons": lessons.listing()}

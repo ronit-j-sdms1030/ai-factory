@@ -223,6 +223,23 @@ def _plan_screens(brd: dict, model: str) -> UIPlan:
     )
 
 
+def _learned() -> str:
+    """Rules reviewers have already taught this agent, as a prompt fragment.
+
+    Best-effort by design: a screen that generates without its accumulated
+    house style is worth far more than no screen at all, so a failure to read
+    them is logged and ignored.
+    """
+    try:
+        from ..lessons import prompt_section
+
+        section = prompt_section("ui")
+        return f"\n\n{section}" if section else ""
+    except Exception as exc:  # noqa: BLE001
+        log.warning("could not load learned rules: %s", exc)
+        return ""
+
+
 def _write_screen(brd: dict, outline, roster: str, model: str) -> str | None:
     """Generate one screen's source. Returns None so one failure costs one screen."""
     try:
@@ -249,6 +266,7 @@ def _write_screen(brd: dict, outline, roster: str, model: str) -> str | None:
                         "every component you reference must be defined in this source or be one of the "
                         "other screens listed. Use in-memory mock data only — no network calls.\n\n"
                         f"{_VISUAL_POLISH}"
+                        + _learned()
                     ),
                 },
                 {

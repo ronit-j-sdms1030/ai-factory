@@ -19,10 +19,15 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
-from .. import db, jobs
+from .. import db, jobs, lessons
 from ..agents.brd import brd_agent
 from ..agents.decomposition import decomposition_agent
-from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit, run_ui_screen_edit
+from ..agents.edits import (
+    extract_lesson,
+    run_fsd_chat_edit,
+    run_team_report_chat_edit,
+    run_ui_screen_edit,
+)
 from ..agents.intake import finalize_requirement, run_chat_turn
 from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
@@ -785,6 +790,11 @@ def ui_screen_agent_edit(artifact_id: str, body: ScreenPrompt, actor: dict = Dep
 class ScreenEdit(BaseModel):
     name: str
     source: str
+    # Carried through when the edit came from the agent prompt: the reviewer's
+    # own words are the clearest statement of what was wrong, and a diff alone
+    # cannot say whether "$" became "₹" because of a house standard or because
+    # this one screen is priced in rupees.
+    instruction: str | None = None
 
 
 @router.put("/{artifact_id}/ui/screen")
@@ -808,11 +818,22 @@ def edit_ui_screen(artifact_id: str, body: ScreenEdit, actor: dict = Depends(cur
     if index is None:
         raise HTTPException(status_code=404, detail=f"No screen called {body.name}")
 
+    before = screens[index].get("source", "")
     screens[index] = {**screens[index], "source": body.source}
     artifact["ui"]["screens"] = screens
+    # The before/after pair is the correction. Recording only that an edit
+    # happened threw away the one thing worth keeping, so the same mistake
+    # arrived again on the next requirement.
     artifact["uiEditHistory"] = [
         *(artifact.get("uiEditHistory") or []),
-        {"screen": body.name, "byUserId": actor["id"], "at": _utcnow()},
+        {
+            "screen": body.name,
+            "byUserId": actor["id"],
+            "at": _utcnow(),
+            "before": before,
+            "after": body.source,
+            "instruction": body.instruction or "",
+        },
     ]
     artifact["uiApprovedAt"] = None
     artifact["uiApprovedBy"] = None
@@ -825,7 +846,36 @@ def edit_ui_screen(artifact_id: str, body: ScreenEdit, actor: dict = Depends(cur
                                 artifact["ui"], artifact.get("title") or "Untitled"),
                             body_extra=_clarifications_summary(artifact["ui"])))
     _save(artifact)
+
+    # Learned in the background: a correction must not wait on a model call,
+    # and a failed extraction must not fail the save.
+    if before.strip() != body.source.strip():
+        jobs.start(artifact_id, "lesson", lambda _p: _learn_from_edit(
+            before, body.source, body.instruction or ""))
+
     return _respond(artifact, actor, errors)
+
+
+def _learn_from_edit(before: str, after: str, instruction: str) -> dict[str, str]:
+    """Turn one correction into a standing rule, when it is one."""
+    try:
+        result = extract_lesson(before=before, after=after, instruction=instruction)
+    except Exception as exc:  # noqa: BLE001 — learning is best-effort
+        log.warning("could not extract a lesson from this edit: %s", exc)
+        return {}
+
+    if not result.generalises or not result.rule.strip():
+        log.info("edit judged one-off, nothing learned (kind=%s)", result.kind)
+        return {}
+
+    lessons.record(
+        agent="ui",
+        rule=result.rule,
+        kind=result.kind,
+        evidence=(instruction or "direct edit")[:200],
+        source="reviewer edit",
+    )
+    return {}
 
 
 @router.get("/{artifact_id}/ui/preview")

@@ -195,6 +195,36 @@ class UIPlan(Artefact):
     )
 
 
+class LearnedRule(Artefact):
+    """A correction generalised into an instruction, or explicitly not."""
+
+    generalises: bool = Field(
+        description=(
+            "True only if this correction would apply to OTHER screens on OTHER requirements. "
+            "Changing a heading to 'Q3 Attendance' does not generalise — it is true of one screen. "
+            "Changing a date from 'Jun 15, 02:15 PM' to '15/06/2025 14:15' does: it is a house "
+            "format. When unsure, answer false. A wrong rule is applied to everything afterwards, "
+            "while a missed one costs a second correction."
+        )
+    )
+    kind: str = Field(
+        description=(
+            "'formatting' — dates, numbers, currency, capitalisation, spacing. "
+            "'wording' — labels, terminology, tone. "
+            "'convention' — layout or component habits, e.g. always right-align amounts. "
+            "'behaviour' — what the screen does or contains, not how it is written. "
+            "'content' — specific to this screen and generalises to nothing."
+        )
+    )
+    rule: str = Field(
+        description=(
+            "The instruction a future run should follow, written as a direct standing "
+            "instruction: 'Format dates as DD/MM/YYYY with 24-hour time.' Not a description of "
+            "what happened. Empty when generalises is false."
+        )
+    )
+
+
 class ScreenEditResult(Artefact):
     """One screen rewritten to satisfy a reviewer's request."""
 
