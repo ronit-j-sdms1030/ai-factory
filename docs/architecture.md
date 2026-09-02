@@ -369,6 +369,8 @@ Two mechanisms resolve tiers to accounts, because only one works everywhere.
 /requirements/*/ui/                     @org/tier-vp
 /requirements/*/workitems/graph.json    @org/tier-vp
 /requirements/*/workitems/<dept>/       @org/tl-<dept>
+/requirements/*/*/prompts.md            @org/tier-vp
+/requirements/*/ui/design-system.skill.md  @org/tier-vp
 ```
 
 **Individual users** are the fallback. Teams require a GitHub *organisation*; on a personal account no team can exist, and requesting one silently reviews nothing. Naming humans directly still puts the right people on the pull request — it just cannot be *enforced* by branch protection. Falling back is deliberate: a gate nobody is asked to review is worse than one enforced only by convention, because the first looks fine and quietly waits forever.
@@ -411,11 +413,44 @@ The branch name resolves back to the requirement by `repoSlug`, falling back to 
 
 Adopting Git as the artefact backbone closes, without bespoke code: artefact versioning (SoW 10.0), prompt-template versioning with approver identity (SoW 4.0), and the four audit-trail fields missing from SoW 7.0 — model, model version, prompt version, artefact version. GitHub supplies approver identity, timestamps, immutable history and rollback natively. The commit SHA *is* the artefact version.
 
-### 6.8 What is not built ❌
+### 6.8 Moving to GitHub Enterprise
+
+SoW 5.0 commits to "GitHub Enterprise for source control and Actions-based pipelines" and SoW 6.0 to "RBAC enforced via Microsoft Entra ID groups... Branch protection and required-reviewer rules enforced at repository level". Everything below is written for that target; the current personal-account deployment is the degraded case, not the design.
+
+**Almost nothing in the pipeline changes.** `reviewers.py` already resolves a gate to *tiers* rather than to accounts, and already tries teams before individuals — the fallback exists precisely because a personal account has no teams. On an organisation the primary path starts working and the fallback stops being reached. `github_api.codeowners()` already renders the mapping; it is unused today because there are no teams for it to reference.
+
+**What an organisation unlocks, in order of what it is worth.**
+
+| Capability | Why it needs Enterprise | Closes |
+|---|---|---|
+| GitHub teams | Teams cannot exist on a personal account | The reviewer fallback |
+| CODEOWNERS | References teams | SoW 6.0 |
+| Branch protection | Required-reviewer rules are org-level | SoW 6.0, 18.0 |
+| Entra ID SSO | SAML identity mapping | SoW 6.0, 19.0 |
+| Actions | Available, but org policy governs runners | SoW 5.0, 18.0 |
+
+**Teams to create**, matching what the code already emits:
+
+```
+tier-md   tier-ceo   tier-vp
+tl-qa   tl-ai   tl-development   tl-devops   tl-sales-marketing
+```
+
+Membership should be synchronised from Entra ID groups rather than maintained in GitHub, so that removing someone from a tier in the directory removes their ability to approve a gate. That synchronisation is also what retires the manual `githubLogin` mapping in `/api/admin/github-mappings` — with SAML, the GitHub identity is derivable from the directory identity instead of being recorded by hand, and the `blocked_stages` report that currently warns about unmapped approvers stops being necessary.
+
+**Segregation of duties becomes native.** GitHub refuses to let a pull request author approve their own pull request. Because each artefact is committed by its agent's bot identity and reviewed by a human, that rule is already satisfied for agent output — and once branch protection requires a CODEOWNERS review, the control SoW 6.0 names is enforced by the repository rather than by application code.
+
+**A GitHub App replaces the personal access token — and the support already exists.** `GitHubConfig` accepts `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` and `GITHUB_APP_INSTALLATION_ID` alongside the `GITHUB_TOKEN` path, so moving over is configuration rather than code. An App is required for reliable webhook delivery, gives fine-grained per-repository permissions instead of a token scoped to a whole account, and attributes commits to a named agent bot. It also removes a live limitation: the current token lacks the Administration permission, so the repository's default branch cannot be set from the pipeline.
+
+**One thing Enterprise does not solve.** GitHub reviews are unordered — branch protection can require an approval from CODEOWNERS but cannot express "gate 0 first, then gate 1". Approval chains are sequential, so the division in §6.4 holds on Enterprise exactly as it does now: **GitHub enforces who may approve; the pipeline enforces the order.**
+
+**Setup, in dependency order.** Create the organisation and sync teams from Entra ID · install the GitHub App on the governance repository · commit the generated CODEOWNERS to the default branch · enable branch protection requiring a CODEOWNERS review and dismissing stale approvals on new commits · point `GITHUB_REPO` at `<org>/<repo>` and supply the App credentials in place of `GITHUB_TOKEN`.
+
+### 6.9 What is not built ❌
 
 **Nothing merges to `main`.** Approving a pull request advances state in Mongo but does not merge the branch, so `main` holds only its README. The complete picture of a requirement exists spread across four branches and is never assembled anywhere. Git is currently an append-only record of *proposals*, not of accepted decisions. Merging on approval would make `main` the accumulated record of what the organisation actually agreed to — **this is the most significant gap in the integration.**
 
-**Branch protection is not configured.** The mapping above is the intended CODEOWNERS layout, not a file the pipeline writes — without a GitHub organisation there are no teams for it to reference and no protection rule requiring their review, so reviewers are requested individually and the gate is advisory.
+**Branch protection is not configured.** `github_api.codeowners()` renders the mapping in §6.4, but nothing calls it and nothing commits the file — without an organisation there are no teams for it to reference and no protection rule requiring their review, so reviewers are requested individually and the gate is advisory. See §6.8 for what changes on Enterprise.
 
 **Agents 5–8 are not integrated.** Code generation writes to its own repositories with no connection to this governance repo.
 
@@ -533,7 +568,7 @@ Behaviour implemented and verified that must survive any further migration:
 | Decision | Options | Notes |
 |----------|---------|-------|
 | Learning from corrections | In scope · Change Request required | §9 — the only feature here with no SoW row behind it. Proposal §7 lists "model refinement from accumulated human corrections" as roadmap, and §11 excludes §7 items until individually scoped |
-| Merge on approval | Merge · stay append-only | §6.8 — the largest gap. Without it `main` never becomes the record of what was agreed |
+| Merge on approval | Merge · stay append-only | §6.9 — the largest gap. Without it `main` never becomes the record of what was agreed |
 | GitHub tenancy | Enterprise · github.com personal | SoW 5.0 specifies Enterprise. Teams, CODEOWNERS and branch protection all depend on an organisation |
 | GATE 3 status | Real gate · folded into GATE 4 | Proposal D3 requires an analyst gate; the SoW gate list in 6.0 omits it |
 | Self-approval at gate 0 | Permit · prohibit | SoW 6.0 says a requester cannot approve their own artefact |

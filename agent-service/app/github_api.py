@@ -275,5 +275,17 @@ def codeowners(org: str, departments: list[str]) -> str:
     for dept in departments:
         slug = dept.lower().replace(" & ", "-").replace(" ", "-")
         lines.append(f"/requirements/*/workitems/{slug}/".ljust(40) + f"@{org}/tl-{slug}")
-    lines += ["", f"/prompts/                               @{org}/tier-vp", ""]
+    # Prompt templates and the design-system skill file are committed inside
+    # the stage folder they governed, not at the repository root. The brd/ and
+    # ui/ folder rules already cover theirs, but workitems/ is matched by a
+    # file rule for graph.json and a per-department rule, so workitems/
+    # prompts.md would fall through to no owner. These trailing rules are
+    # explicit about it — last match wins in CODEOWNERS — and give SoW 4.0's
+    # "approver identity" for a prompt change a single place to live.
+    lines += [
+        "",
+        f"/requirements/*/*/prompts.md".ljust(40) + f"@{org}/tier-vp",
+        f"/requirements/*/ui/design-system.skill.md".ljust(40) + f"@{org}/tier-vp",
+        "",
+    ]
     return "\n".join(lines)

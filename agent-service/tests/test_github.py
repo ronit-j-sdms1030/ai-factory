@@ -121,8 +121,22 @@ class TestCodeowners:
         assert "@stark/tl-sales-marketing" in out
 
     def test_prompt_changes_need_an_approver(self):
-        """SoW 4.0 requires prompt templates to carry change history and approver identity."""
-        assert "/prompts/" in codeowners("stark", [])
+        """SoW 4.0 requires prompt templates to carry approver identity.
+
+        Prompts are committed inside the stage folder they governed. brd/ and
+        ui/ are covered by their folder rules, but workitems/ is matched only
+        by a file rule for graph.json and a per-department rule, so its
+        prompts.md would otherwise have no owner at all.
+        """
+        out = codeowners("stark", [])
+        assert "/requirements/*/*/prompts.md" in out
+        assert "/requirements/*/ui/design-system.skill.md" in out
+
+    def test_the_prompt_rule_comes_last(self):
+        """CODEOWNERS resolves by last match, so a rule meant to win must be
+        below the folder rules it overrides."""
+        out = codeowners("stark", ["Development"])
+        assert out.index("/requirements/*/*/prompts.md") > out.index("/requirements/*/ui/")
 
 
 from app.routes.webhooks import _action_for, _may_act
