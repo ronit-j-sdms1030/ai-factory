@@ -86,6 +86,31 @@
   .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
   .pagination span { font-family: var(--font-mono); font-size: 0.76rem; color: var(--text-faint); }
 
+  /* The UI editor is not a modal. A modal is 620px wide and the thing being
+     edited is a full application screen — squeezed into a dialog beside a
+     source pane, neither was usable. This takes the viewport, puts the
+     rendered page in the middle, and keeps the controls out of the way. */
+  .uied { position: fixed; inset: 0; z-index: 80; display: none; flex-direction: column;
+          background: var(--bg, #f6f6f4); }
+  .uied.open { display: flex; }
+  .uied-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
+              background: #1f2430; color: #cdd3e0; flex: none; flex-wrap: wrap; }
+  .uied-bar .t { font-size: 0.85rem; font-weight: 600; margin-right: 0.4rem; }
+  .uied-bar button, .uied-bar select, .uied-bar input {
+    font: inherit; font-size: 0.8rem; padding: 0.32rem 0.6rem; border-radius: 6px;
+    border: 1px solid #3a4152; background: #2a3040; color: #cdd3e0; }
+  .uied-bar button { cursor: pointer; }
+  .uied-bar button.on, .uied-bar button.primary {
+    background: #c2603f; border-color: #c2603f; color: #fff; }
+  .uied-bar input { min-width: 220px; flex: 1; }
+  .uied-bar .status { font-size: 0.78rem; opacity: 0.85; margin-left: auto; }
+  .uied-main { flex: 1; display: flex; min-height: 0; }
+  .uied-canvas { flex: 1; border: 0; background: #fff; min-width: 0; }
+  .uied-src { width: 40%; max-width: 620px; display: none; flex-direction: column;
+              border-left: 1px solid var(--line); background: var(--surface); }
+  .uied-src.open { display: flex; }
+  .uied-src textarea { flex: 1; border: 0; resize: none; padding: 0.7rem;
+                       font: 12px/1.6 ui-monospace, monospace; }
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(20, 16, 10, 0.5);
     display: none; align-items: center; justify-content: center;
@@ -2496,96 +2521,67 @@
     }
 
     // ── UI editor ────────────────────────────────────────────────────────────
+    // A full-screen surface, not a dialog: the thing being edited is an
+    // application screen, and a 620px modal beside a source pane made both
+    // unusable. The rendered page is the canvas and you edit on it directly —
+    // click any text and type. The source is a drawer, closed by default,
+    // for the changes clicking cannot express.
+    //
     // Three ways to change a screen, because they fail at different things:
-    //
-    //   * Click the preview and type. Direct, and covers the common case —
-    //     labels, headings, mock values. It rewrites the string literal in the
-    //     source, so it cannot move or add elements.
-    //   * Describe it and let the UI agent rewrite the screen. Handles
-    //     structure, which text editing cannot.
-    //   * Edit the source. Nothing is off-limits, but you are writing React.
-    //
-    // Regenerating the design is the blunt alternative to all three: it
-    // returns a different set of screens rather than the same set with one
-    // changed, so fixing one thing gambles every screen that was already right.
+    // clicking handles text, the agent handles structure, the source handles
+    // anything. Regenerating is the blunt alternative to all three and returns
+    // a different set of screens rather than the same set with one changed.
     function openUiEditorModal(artifact) {
-      document.getElementById('modal-title').textContent = 'Edit UI — ' + artifact.title;
-      document.getElementById('modal-body').innerHTML =
-        '<div style="display:flex;gap:0.6rem;height:74vh;min-height:460px;">' +
-          '<div id="ui-screen-list" style="width:170px;overflow-y:auto;border:1px solid var(--line);' +
-               'border-radius:8px;padding:0.35rem;flex:none;"></div>' +
-          '<div style="flex:1.35;display:flex;flex-direction:column;gap:0.45rem;min-width:0;">' +
-            '<div style="display:flex;gap:0.4rem;align-items:center;font-size:0.8rem;">' +
-              '<label style="display:flex;gap:0.3rem;align-items:center;cursor:pointer;">' +
-                '<input type="checkbox" id="ui-direct"> Click text to edit</label>' +
-              '<span id="ui-status" style="color:var(--muted);margin-left:auto;"></span>' +
-            '</div>' +
-            '<iframe id="ui-preview" sandbox="allow-scripts allow-same-origin" style="flex:1;border:1px solid var(--line);' +
-                 'border-radius:8px;background:#fff;"></iframe>' +
-            '<div style="display:flex;gap:0.4rem;">' +
-              '<input id="ui-prompt" placeholder="Describe a change — &quot;add a status column&quot;" ' +
-                   'style="flex:1;font:inherit;font-size:0.85rem;padding:0.45rem 0.6rem;' +
-                   'border:1px solid var(--line);border-radius:8px;">' +
-              '<button class="btn secondary" id="ui-ask" type="button">Ask agent</button>' +
-            '</div>' +
-          '</div>' +
-          '<div style="flex:1;display:flex;flex-direction:column;gap:0.45rem;min-width:0;">' +
-            '<textarea id="ui-source" spellcheck="false" style="flex:1;font:11.5px/1.5 ui-monospace,monospace;' +
-                 'resize:none;padding:0.5rem;border:1px solid var(--line);border-radius:8px;"></textarea>' +
-            '<div style="display:flex;gap:0.4rem;">' +
-              '<button class="btn" id="ui-save" type="button">Save screen</button>' +
-              '<button class="btn secondary" id="ui-refresh" type="button">Refresh preview</button>' +
-            '</div>' +
-          '</div>' +
+      var host = document.getElementById('ui-editor');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'ui-editor';
+        host.className = 'uied';
+        document.body.appendChild(host);
+      }
+      host.innerHTML =
+        '<div class="uied-bar">' +
+          '<span class="t">' + escapeHtml(artifact.title) + '</span>' +
+          '<select id="ue-screen"></select>' +
+          '<button id="ue-direct" class="on" type="button">Click to edit: on</button>' +
+          '<input id="ue-prompt" placeholder="Describe a change — &quot;add a status column&quot;">' +
+          '<button id="ue-ask" type="button">Ask agent</button>' +
+          '<button id="ue-src" type="button">Source</button>' +
+          '<button id="ue-save" class="primary" type="button">Save</button>' +
+          '<button id="ue-close" type="button">Close</button>' +
+          '<span class="status" id="ue-status"></span>' +
+        '</div>' +
+        '<div class="uied-main">' +
+          '<iframe id="ue-canvas" class="uied-canvas" sandbox="allow-scripts allow-same-origin"></iframe>' +
+          '<div class="uied-src" id="ue-srcpane"><textarea id="ue-source" spellcheck="false"></textarea></div>' +
         '</div>';
-      document.getElementById('modal-overlay').classList.add('open');
+      host.classList.add('open');
 
-      var listEl = document.getElementById('ui-screen-list');
-      var sourceEl = document.getElementById('ui-source');
-      var statusEl = document.getElementById('ui-status');
-      var frame = document.getElementById('ui-preview');
+      var sourceEl = host.querySelector('#ue-source');
+      var statusEl = host.querySelector('#ue-status');
+      var selectEl = host.querySelector('#ue-screen');
+      var frame = host.querySelector('#ue-canvas');
+      var directBtn = host.querySelector('#ue-direct');
       var screens = [];
       var current = 0;
+      var direct = true;
 
       function status(text, bad) {
-        statusEl.textContent = text;
-        statusEl.style.color = bad ? '#a33' : 'var(--muted)';
+        statusEl.textContent = text || '';
+        statusEl.style.color = bad ? '#ffb4a2' : '';
       }
 
-      function renderList() {
-        listEl.innerHTML = '';
-        screens.forEach(function (s, i) {
-          var b = document.createElement('button');
-          b.type = 'button';
-          b.textContent = s.name;
-          b.style.cssText = 'display:block;width:100%;text-align:left;font:inherit;font-size:0.8rem;' +
-            'padding:0.32rem 0.45rem;margin-bottom:0.12rem;border-radius:6px;cursor:pointer;border:1px solid ' +
-            (i === current ? 'var(--accent-strong);background:var(--accent-soft);' : 'transparent;background:none;');
-          b.addEventListener('click', function () {
-            screens[current].source = sourceEl.value;   // keep unsaved edits when switching
-            current = i;
-            sourceEl.value = screens[i].source || '';
-            renderList();
-            renderPreview();
-          });
-          listEl.appendChild(b);
-        });
-      }
-
-      // Rendered from the textarea rather than the server, so the preview
-      // shows what is about to be saved and not what already is.
-      function renderPreview() {
+      function render() {
         var s = screens[current];
         if (!s) return;
-        var direct = document.getElementById('ui-direct').checked;
         frame.srcdoc =
           '<!doctype html><meta charset="utf-8">' +
           '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>' +
           '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>' +
           '<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>' +
           '<style>body{margin:0}' +
-            (direct ? '[data-edit]:hover{outline:2px dashed #c2603f;outline-offset:1px;cursor:text}' +
-                      '[data-edit]:focus{outline:2px solid #c2603f}' : '') +
+            (direct ? '[data-edit]:hover{outline:2px dashed #c2603f;outline-offset:2px;cursor:text}' +
+                      '[data-edit]:focus{outline:2px solid #c2603f;outline-offset:2px}' : '') +
           '</style>' +
           '<body><div id="root"></div><pre id="err" style="color:#a33;font:12px ui-monospace,monospace;' +
              'white-space:pre-wrap;padding:1rem"></pre>' +
@@ -2596,8 +2592,8 @@
             'if(!window.__C){document.getElementById("err").textContent="No component called ' + s.name + '";return;}' +
             'ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__C));' +
             (direct ? 'setTimeout(function(){' +
-              // Only leaf elements holding a single text node: editing a node
-              // with children would rewrite markup, not a string.
+              // Leaf elements holding a single text node only: editing a node
+              // with children would rewrite markup rather than a string.
               'document.querySelectorAll("#root *").forEach(function(el){' +
                 'if(el.children.length===0&&el.textContent.trim()){' +
                   'el.setAttribute("data-edit","1");el.contentEditable="true";' +
@@ -2610,87 +2606,101 @@
           '}catch(e){document.getElementById("err").textContent=String(e&&e.message||e);}})();<\/script>';
       }
 
-      // A direct edit rewrites the string literal it came from. Only when that
-      // text appears exactly once — replacing an ambiguous match would change
-      // a line the editor never touched.
+      // A click-edit rewrites the string literal it came from — but only when
+      // that text appears exactly once. Replacing an ambiguous match would
+      // change a line nobody touched, so it says so instead of guessing.
       function onDirectEdit(from, to) {
         var src = sourceEl.value;
         var count = src.split(from).length - 1;
-        if (count === 0) return status('Could not find that text in the source — edit it there instead', true);
-        if (count > 1) return status('"' + from.slice(0, 24) + '" appears ' + count + ' times; edit the source', true);
+        if (count === 0) return status('That text is not a literal in the source — use the Source pane', true);
+        if (count > 1) return status('"' + from.slice(0, 20) + '" appears ' + count + ' times — use the Source pane', true);
         sourceEl.value = src.replace(from, to);
-        status('Updated — not saved yet');
+        status('Edited — not saved yet');
       }
 
-      window.addEventListener('message', function (e) {
-        if (e.data && e.data.t === 'edit') onDirectEdit(e.data.from, e.data.to);
-      });
+      function onMessage(e) { if (e.data && e.data.t === 'edit') onDirectEdit(e.data.from, e.data.to); }
+      window.addEventListener('message', onMessage);
 
-      function askAgent() {
-        var input = document.getElementById('ui-prompt');
-        var btn = document.getElementById('ui-ask');
-        if (!input.value.trim()) return;
-        btn.disabled = true;
-        status('Asking the UI agent…');
-        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen/agent', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: screens[current].name, instruction: input.value }),
-        })
-          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
-          .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || 'The agent could not apply that');
-            // Loaded into the editor, not saved: the reviewer looks first.
-            sourceEl.value = r.body.source;
-            renderPreview();
-            status(r.body.summary + ' — review it, then Save');
-            input.value = '';
-          })
-          .catch(function (e) { status(e.message, true); })
-          .then(function () { btn.disabled = false; });
+      function close() {
+        window.removeEventListener('message', onMessage);
+        host.classList.remove('open');
+        host.innerHTML = '';
+        loadArtifacts();
       }
 
       function save() {
         screens[current].source = sourceEl.value;
-        var btn = document.getElementById('ui-save');
-        btn.disabled = true;
         status('Saving…');
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen', {
-          method: 'PUT',
-          credentials: 'include',
+          method: 'PUT', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: screens[current].name, source: sourceEl.value }),
         })
-          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+          .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
           .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || r.body.error || 'Save failed');
-            status('Saved. Approval withdrawn — the screens changed since it was given.');
-            loadArtifacts();
+            if (!r.ok) throw new Error(r.body.detail || 'Save failed');
+            status('Saved — VP approval withdrawn, the screens changed since it was given');
           })
-          .catch(function (e) { status(e.message, true); })
-          .then(function () { btn.disabled = false; });
+          .catch(function (e) { status(e.message, true); });
       }
 
-      document.getElementById('ui-save').addEventListener('click', save);
-      document.getElementById('ui-refresh').addEventListener('click', renderPreview);
-      document.getElementById('ui-ask').addEventListener('click', askAgent);
-      document.getElementById('ui-direct').addEventListener('change', renderPreview);
-      document.getElementById('ui-prompt').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') askAgent();
+      function ask() {
+        var input = host.querySelector('#ue-prompt');
+        if (!input.value.trim()) return;
+        status('Asking the UI agent…');
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen/agent', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: screens[current].name, instruction: input.value }),
+        })
+          .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+          .then(function (r) {
+            if (!r.ok) throw new Error(r.body.detail || 'The agent could not apply that');
+            // Loaded, not saved: the reviewer looks before committing to it.
+            sourceEl.value = r.body.source;
+            render();
+            status(r.body.summary + ' — review it, then Save');
+            input.value = '';
+          })
+          .catch(function (e) { status(e.message, true); });
+      }
+
+      host.querySelector('#ue-close').addEventListener('click', close);
+      host.querySelector('#ue-save').addEventListener('click', save);
+      host.querySelector('#ue-ask').addEventListener('click', ask);
+      host.querySelector('#ue-prompt').addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
+      host.querySelector('#ue-src').addEventListener('click', function () {
+        host.querySelector('#ue-srcpane').classList.toggle('open');
+      });
+      directBtn.addEventListener('click', function () {
+        direct = !direct;
+        directBtn.classList.toggle('on', direct);
+        directBtn.textContent = 'Click to edit: ' + (direct ? 'on' : 'off');
+        render();
+      });
+      selectEl.addEventListener('change', function () {
+        screens[current].source = sourceEl.value;   // keep unsaved edits when switching
+        current = Number(selectEl.value);
+        sourceEl.value = screens[current].source || '';
+        render();
       });
       sourceEl.addEventListener('input', function () { status('Unsaved changes'); });
 
-      status('Loading screens…');
+      status('Loading…');
       fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screens', { credentials: 'include' })
-        .then(function (res) { return res.json(); })
+        .then(function (r) { return r.json(); })
         .then(function (data) {
           screens = data.screens || [];
-          if (!screens.length) { status('No screens to edit.', true); return; }
+          if (!screens.length) return status('No screens to edit', true);
+          selectEl.innerHTML = '';
+          screens.forEach(function (s, i) {
+            var o = document.createElement('option');
+            o.value = i; o.textContent = s.name + '  ' + (s.route || '');
+            selectEl.appendChild(o);
+          });
           sourceEl.value = screens[0].source || '';
-          renderList();
-          renderPreview();
-          status('');
+          render();
+          status('Click any text on the page to edit it');
         })
         .catch(function (e) { status('Could not load screens: ' + e.message, true); });
     }
