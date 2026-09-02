@@ -15,7 +15,7 @@ from __future__ import annotations
 import mongomock
 import pytest
 
-from app import db
+from app import db, pipeline_graph
 from app.routes import artifacts as routes
 
 MD = {"id": "u1", "tierId": "md", "isClient": False, "department": None}
@@ -36,6 +36,10 @@ def collection(monkeypatch):
     fake = mongomock.MongoClient().db.artifacts
     monkeypatch.setattr(db, "artifacts", lambda: fake)
     monkeypatch.setattr(routes, "publish", lambda **_: _Published())
+    # The compiled graph is cached module-wide and holds a checkpointer bound
+    # to whatever database existed when it was built. Left alone, the first
+    # test to build it would hand its Mongo to every test after.
+    monkeypatch.setattr(pipeline_graph, "_graph", None)
     return fake
 
 
@@ -56,7 +60,7 @@ class TestChatMessage:
         return routes.chat_start(actor=MD)["artifactId"]
 
     def test_a_question_comes_back_under_reply(self, collection, monkeypatch):
-        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "reply", "text": "Who uses it?"})
+        monkeypatch.setattr(pipeline_graph, "run_chat_turn", lambda *a, **k: {"type": "reply", "text": "Who uses it?"})
         artifact_id = self._start(collection)
 
         body = routes.chat_message(artifact_id, message="Build a warehouse tool", actor=MD)
@@ -66,8 +70,8 @@ class TestChatMessage:
 
     def test_finishing_sets_reviewReady(self, collection, monkeypatch):
         """The frontend gates its review-and-send block on this exact key."""
-        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
-        monkeypatch.setattr(routes, "finalize_requirement", lambda *a, **k: _Requirement())
+        monkeypatch.setattr(pipeline_graph, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
+        monkeypatch.setattr(pipeline_graph, "finalize_requirement", lambda *a, **k: _Requirement())
         artifact_id = self._start(collection)
 
         body = routes.chat_message(artifact_id, message="that's everything", actor=MD)
@@ -76,8 +80,8 @@ class TestChatMessage:
         assert body["artifact"]["title"] == "Warehouse Tool"
 
     def test_the_closing_summary_survives_reopening(self, collection, monkeypatch):
-        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
-        monkeypatch.setattr(routes, "finalize_requirement", lambda *a, **k: _Requirement())
+        monkeypatch.setattr(pipeline_graph, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
+        monkeypatch.setattr(pipeline_graph, "finalize_requirement", lambda *a, **k: _Requirement())
         artifact_id = self._start(collection)
 
         routes.chat_message(artifact_id, message="that's everything", actor=MD)
@@ -88,8 +92,8 @@ class TestChatMessage:
 
     def test_intake_stays_in_clarifying_until_explicitly_submitted(self, collection, monkeypatch):
         """Finishing the conversation is not the same as sending the requirement."""
-        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
-        monkeypatch.setattr(routes, "finalize_requirement", lambda *a, **k: _Requirement())
+        monkeypatch.setattr(pipeline_graph, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
+        monkeypatch.setattr(pipeline_graph, "finalize_requirement", lambda *a, **k: _Requirement())
         artifact_id = self._start(collection)
 
         routes.chat_message(artifact_id, message="done", actor=MD)
@@ -114,8 +118,8 @@ class TestRequirementIsLinkedToGit:
     """
 
     def test_the_pull_request_is_persisted(self, collection, monkeypatch):
-        monkeypatch.setattr(routes, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
-        monkeypatch.setattr(routes, "finalize_requirement", lambda *a, **k: _Requirement())
+        monkeypatch.setattr(pipeline_graph, "run_chat_turn", lambda *a, **k: {"type": "ready", "text": ""})
+        monkeypatch.setattr(pipeline_graph, "finalize_requirement", lambda *a, **k: _Requirement())
         artifact_id = routes.chat_start(actor=MD)["artifactId"]
 
         routes.chat_message(artifact_id, message="done", actor=MD)

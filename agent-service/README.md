@@ -4,9 +4,13 @@ LangGraph implementation of the pipeline's agent layer — intake through
 decomposition. Built fresh against the JavaScript implementation in
 `../backend` as reference, not transliterated from it.
 
-**Status:** standalone. Nothing here is wired into the Express backend or the
-frontend yet, and no agent has been run against a live model. The Express
-backend in `../backend` remains the running system.
+**Status:** running. The four agents serve the workspace through this service;
+all four agents execute on a checkpointed LangGraph in
+`app/pipeline_graph.py`. The Express backend in `../backend`
+still owns code generation and proxies to this service.
+
+There is one graph and it is the one that runs. See
+`../docs/architecture.md` §2.2.
 
 See [`../docs/architecture.md`](../docs/architecture.md) for the design and
 [`../docs/agents.md`](../docs/agents.md) for per-agent specifications.
@@ -20,7 +24,11 @@ app/
 ├── schemas.py     Pydantic models for each agent's structured output
 ├── llm.py         OpenRouter client with schema-validated tool calls
 ├── invariants.py  deterministic repairs and integrity checks
-├── graph.py       StateGraph assembly; approval gates as interrupts
+├── pipeline_graph.py    the executing StateGraph: all four agents
+├── state_machine.py     stages, approvals, who may act
+├── design_system.py     the versioned skill file screens are written against
+├── prompts.py           versioned prompt fragments + the audit stamp
+├── lessons.py           rules learned from reviewer corrections
 └── agents/
     ├── intake.py         plain request -> structured requirement
     ├── brd.py            requirement -> design, then fresh-context self-review
@@ -40,21 +48,24 @@ The tests stub the agent nodes, so they exercise orchestration — that a gate
 genuinely pauses, that state survives the pause, and that approve, reject and
 revise route correctly — rather than model behaviour.
 
-To run the graph for real, set `OPENROUTER_API_KEY` and supply a checkpointer.
-`MONGODB_URI` is only needed for the Mongo checkpointer.
+The graph runs the conversation and then each generation phase; the routes
+drive it through `pipeline_graph.intake_turn` and `pipeline_graph.advance`. To exercise it directly,
+set `OPENROUTER_API_KEY` and supply a checkpointer (`MONGODB_URI` is only
+needed for the Mongo one).
 
 ```python
 from langgraph.checkpoint.memory import InMemorySaver
-from app.graph import build_graph
+from app.pipeline_graph import build_pipeline_graph
 
-graph = build_graph(checkpointer=InMemorySaver())
+graph = build_pipeline_graph(checkpointer=InMemorySaver())
 config = {"configurable": {"thread_id": artifact_id}}
 
-graph.invoke({"artifact_id": artifact_id,
-              "originator": {"user_id": "u1", "tier_id": "md"}}, config)
+graph.invoke({"artifact_id": artifact_id, "originator_label": "MD"}, config)
 ```
 
-A checkpointer is **required** — `interrupt()` does not work without one.
+A checkpointer is what makes a gate pause. Without one the graph still runs,
+but `interrupt()` cannot hold, so each phase must be invoked on its own —
+which is what `advance` falls back to.
 
 ## How pauses work
 

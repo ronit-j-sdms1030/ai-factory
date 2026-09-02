@@ -19,17 +19,13 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
-from .. import db, jobs, lessons
-from ..agents.brd import brd_agent
-from ..agents.decomposition import decomposition_agent
+from .. import db, jobs, lessons, pipeline_graph
 from ..agents.edits import (
     extract_lesson,
     run_fsd_chat_edit,
     run_team_report_chat_edit,
     run_ui_screen_edit,
 )
-from ..agents.intake import finalize_requirement, run_chat_turn
-from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
 from .. import config
 from .. import settings as app_settings
@@ -264,15 +260,10 @@ def _maybe_generate_report_and_split(
     if not artifact.get("detailedReport") and _ready_for_report(artifact, step_acted_on):
         progress("brd")
         try:
-            state = {
-                "requirement": artifact.get("content") or {},
-                "chat_history": [
-                    {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
-                ],
-                "models": artifact.get("modelOverrides") or {},
-            }
-            brd = brd_agent(state)["brd"]
+            produced = pipeline_graph.advance(artifact, "brd")
+            brd = produced["brd"]
             artifact["detailedReport"] = brd
+            artifact["detailedReportProvenance"] = produced.get("brd_provenance") or {}
             artifact["detailedReportGeneratedAt"] = _utcnow()
             _record_publish(artifact, errors, "brd",
                             publish(artifact=artifact, stage="brd",
@@ -308,7 +299,7 @@ def _maybe_generate_ui(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        ui = ui_agent({"brd": artifact["detailedReport"], "models": artifact.get("modelOverrides") or {}})["ui"]
+        ui = pipeline_graph.advance(artifact, "ui")["ui"]
         artifact["ui"] = ui
         artifact["uiGeneratedAt"] = _utcnow()
         errors: dict[str, str] = {}
@@ -341,10 +332,7 @@ def _maybe_split(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        result = decomposition_agent({
-            "brd": artifact["detailedReport"],
-            "models": artifact.get("modelOverrides") or {},
-        })["work_items"]
+        result = pipeline_graph.advance(artifact, "workitems")["work_items"]
         artifact["teamReports"] = result.get("packages", [])
         artifact["workItems"] = result.get("workItems", [])
         artifact["workItemIntegrity"] = result.get("integrity", {})
@@ -619,16 +607,21 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
     artifact.setdefault("chatHistory", []).append(
         {"role": "user", "content": message, "timestamp": _utcnow()}
     )
+    # Saved before the graph runs: the intake node reads the transcript from
+    # Mongo rather than carrying it in graph state, so the message has to be
+    # there to be read.
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
 
-    history = [{"role": m["role"], "content": m["content"]} for m in artifact["chatHistory"]]
     label = originator_label(None if actor.get("isClient") else actor.get("tierId"))
 
     try:
-        turn = run_chat_turn(history, label)
+        result = pipeline_graph.intake_turn(artifact, label)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc))
 
-    if turn["type"] == "reply":
+    turn = result["turn"]
+    if turn.get("type") == "reply":
         artifact["chatHistory"].append(
             {"role": "assistant", "content": turn["text"], "timestamp": _utcnow()}
         )
@@ -636,13 +629,12 @@ def chat_message(artifact_id: str, message: str = Body(..., embed=True), actor: 
         _save(artifact)
         return {"done": False, "reply": turn["text"]}
 
-    try:
-        requirement = finalize_requirement(history)
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=str(exc))
+    requirement = result.get("requirement")
+    if not requirement:
+        raise HTTPException(status_code=502, detail="The intake agent finished without a requirement")
 
-    artifact["title"] = requirement.title
-    artifact["content"] = requirement.model_dump(by_alias=True)
+    artifact["title"] = requirement.get("title") or artifact.get("title")
+    artifact["content"] = requirement
     # Recorded in the transcript as well as shown, so reopening the session
     # does not lose the closing message. Stays in 'clarifying': the originator
     # reviews this summary and sends it explicitly via /submit.
@@ -859,7 +851,10 @@ def edit_ui_screen(artifact_id: str, body: ScreenEdit, actor: dict = Depends(cur
 def _learn_from_edit(before: str, after: str, instruction: str) -> dict[str, str]:
     """Turn one correction into a standing rule, when it is one."""
     try:
-        result = extract_lesson(before=before, after=after, instruction=instruction)
+        active_rules = lessons.active("ui")
+        result = extract_lesson(
+            before=before, after=after, instruction=instruction, active_rules=active_rules
+        )
     except Exception as exc:  # noqa: BLE001 — learning is best-effort
         log.warning("could not extract a lesson from this edit: %s", exc)
         return {}
@@ -868,12 +863,16 @@ def _learn_from_edit(before: str, after: str, instruction: str) -> dict[str, str
         log.info("edit judged one-off, nothing learned (kind=%s)", result.kind)
         return {}
 
+    if result.contradicts:
+        log.info("proposed rule conflicts with an active one, holding for review: %s", result.rule[:80])
+
     lessons.record(
         agent="ui",
         rule=result.rule,
         kind=result.kind,
         evidence=(instruction or "direct edit")[:200],
         source="reviewer edit",
+        conflicts=result.contradicts,
     )
     return {}
 
@@ -972,15 +971,10 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
     if action == "regenerateFsd":
         errors: dict[str, str] = {}
         try:
-            state = {
-                "requirement": artifact["content"],
-                "chat_history": [
-                    {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
-                ],
-                "models": artifact.get("modelOverrides") or {},
-            }
-            brd = brd_agent(state)["brd"]
+            produced = pipeline_graph.regenerate(artifact, "brd")
+            brd = produced["brd"]
             artifact["detailedReport"] = brd
+            artifact["detailedReportProvenance"] = produced.get("brd_provenance") or {}
             artifact["detailedReportGeneratedAt"] = _utcnow()
             _record_publish(artifact, errors, "brd",
                             publish(artifact=artifact, stage="brd",
