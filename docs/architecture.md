@@ -44,7 +44,7 @@ flowchart LR
 | `frontend/` | The workspace UI, screen editor, settings | Static HTML/JS |
 | `backend/` | Session proxy, code generation (agents 5–8) | Express |
 | `agent-service/` | Agents 1–4, gates, git publishing | FastAPI + Python |
-| MongoDB `ai_factory` | Artifacts, users, settings, lessons, jobs | — |
+| MongoDB `ai_factory` | Artifacts, users, settings, lessons, jobs, graph checkpoints | — |
 | Governance repo | Every artefact, every gate as a pull request | Git |
 
 **The state split is deliberate.** Mongo holds *working state* — which stage a requirement is in, who has approved so far, what the current draft says. It is mutable by design, and an approval that changes a document in place leaves no evidence of what was approved. Git holds *the record*.
@@ -265,12 +265,12 @@ Ordering note: each document omits what the other includes. Proposal §2 sequenc
 |---|-------|----------------|---------------|
 | 1 | **Intake** | Multi-turn refinement until the requirement is unambiguous | Bounded question budget, 4–10 |
 | 2 | **BRD** | Produce the structured BRD | Critique in a fresh context → patch |
-| 3 | **UI** | Generate React screens from the approved BRD | Plan → one call per screen → clarifications |
-| 4 | **Decomposition** | Work items, dependency edges, department packages | Deterministic ownership repair |
+| 3 | **UI** | Generate React screens from the approved BRD | Plan → one call per screen → compile-and-retry |
+| 4 | **Decomposition** | Work items, dependency edges, department packages | Retry on defects → deterministic repair |
 
 Behaviour, prompts and failure modes are specified in [agents.md](agents.md), with a diagram per agent.
 
-Agents are graph nodes with typed state, kept **deterministic**: fixed sequence, forced tool schemas, no autonomous tool selection. The framework supplies checkpointing, retries, streaming and tracing; it does not supply model autonomy.
+Agents are graph nodes with typed state, kept **deterministic**: fixed sequence, forced tool schemas, no autonomous tool selection. The framework supplies sequencing and checkpointing; tracing comes from LangSmith and retries are handled in `llm.call_structured`. Streaming is not used. None of it supplies model autonomy.
 
 This is a deliberate choice. Repeated failures in this pipeline stem from models not reliably following instructions, and every verify-then-repair mechanism in the codebase exists because a prompt alone was insufficient. Widening model discretion would amplify that failure mode.
 
@@ -521,6 +521,8 @@ Behaviour implemented and verified that must survive any further migration:
 - **BRD critique and patch** — a fresh-context reviewer inspects the finished BRD and a second pass applies its findings. Unresolved findings are appended to `openQuestions` rather than discarded.
 - **Entity ownership normalisation** — exactly one owner per entity, repaired deterministically after decomposition.
 - **Per-screen UI generation** — one call per screen with a roster of siblings, so a truncation costs one screen rather than the whole design.
+- **Screens compile before publication** — parsed against the preview's runtime, with a bounded retry that hands the model its own parser error.
+- **A work-item graph is always executable** — defects are retried once, then repaired deterministically, and every removed edge is recorded.
 - **Generation off the request path** — approvals commit and answer immediately; jobs are durable records.
 - **Publish failures never block approvals.**
 

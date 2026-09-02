@@ -194,7 +194,7 @@ Active rules are read once per generation and injected into every screen's promp
 | | |
 |---|---|
 | **Input** | Approved BRD, after approved UI |
-| **Output** | Work items with dependency edges and owning department; per-department packages carrying objective, architecture, tech stack, phased plan, data model with ownership flags, and dependencies |
+| **Output** | Work items with dependency edges and owning department; per-department packages carrying objective, architecture, tech stack, phased plan, data model with ownership flags, security design and dependencies |
 | **Gates it feeds** | GATE 3 (VP approves the graph), GATE 4 (each TL approves their slice) |
 | **Implementation** | `decomposition_agent` + `invariants.normalize_entity_ownership`, `repair_dependencies` |
 | **Default model** | `deepseek-v3.2` |
@@ -206,8 +206,9 @@ flowchart TD
     C --> D[Integrity report<br/>ownership, spelling,<br/>cycles, dangling edges]
     D --> E{Clean?}
     E -->|no| RT[Retry once<br/>defects fed back]
-    RT --> C
-    E -->|yes| R[repair_dependencies<br/>drop what blocks execution]
+    RT --> K[Re-check<br/>keep the better attempt]
+    K --> R
+    E -->|yes| R[repair_dependencies<br/>drop what still blocks execution]
     R --> H[workitems/graph.json<br/>+ per-department packages<br/>PR · VP]
 ```
 
