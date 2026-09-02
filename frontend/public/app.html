@@ -2469,6 +2469,7 @@
       input.className = 'mpick-input';
       input.disabled = readOnly;
       input.placeholder = 'Search ' + choices.length + ' models…';
+      input.title = 'Click to search all ' + choices.length + ' models';
       input.value = role.stored || ('Default — ' + role.environmentDefault);
 
       var list = document.createElement('div');
@@ -2509,16 +2510,27 @@
         });
       }
 
-      input.addEventListener('focus', function () { input.select(); draw(''); list.classList.add('open'); });
+      // Emptied on focus rather than selected. select() is undone by the click
+      // that produced the focus, so the box kept its label and typing appended
+      // to "Default — anthropic/claude-haiku-4.5", which matches nothing —
+      // the search looked broken while working exactly as written.
+      input.addEventListener('focus', function () {
+        input.value = '';
+        input.placeholder = 'Type to search ' + choices.length + ' models, or leave blank for the default';
+        draw('');
+        list.classList.add('open');
+      });
       input.addEventListener('input', function () { draw(input.value); list.classList.add('open'); });
       input.addEventListener('blur', function () {
         list.classList.remove('open');
-        // Typing something unlisted is deliberate — a model can exist before
-        // the catalogue carries it — but an empty box means "default", not a
-        // model called "".
         var typed = input.value.trim();
-        if (!typed || typed.indexOf('Default — ') === 0) return commit({ model: '' });
-        if (typed !== wrap.dataset.value) commit({ model: typed });
+        // Left blank means "keep what was already chosen" — clearing a choice
+        // is picking the Default row, not walking away from the box.
+        if (!typed) return commit({ model: wrap.dataset.value });
+        if (typed.indexOf('Default — ') === 0) return commit({ model: '' });
+        // Typing an unlisted id is deliberate: a model can exist before the
+        // catalogue refreshes, and provider-prefixed ids never appear in it.
+        commit({ model: typed });
       });
       input.addEventListener('keydown', function (e) {
         var opts = list.querySelectorAll('.mpick-opt');
