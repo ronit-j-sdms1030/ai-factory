@@ -20,6 +20,7 @@ from .auth import SESSION_COOKIE, session_secret  # noqa: E402
 from .routes import admin as admin_routes  # noqa: E402
 from .routes import artifacts as artifact_routes  # noqa: E402
 from .routes import auth as auth_routes  # noqa: E402
+from .routes import settings as settings_routes  # noqa: E402
 from .routes import webhooks as webhook_routes  # noqa: E402
 
 app = FastAPI(title="AI Factory — Agent Service")
@@ -37,6 +38,7 @@ app.include_router(auth_routes.router)
 app.include_router(artifact_routes.router)
 app.include_router(webhook_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(settings_routes.router)
 
 
 @app.on_event("startup")

@@ -511,6 +511,7 @@
         <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Discussions<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-history" type="button" data-tab="history" style="display:none;">History<span class="tab-badge" id="history-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-codegen" type="button" data-tab="codegen" style="display:none;">Code Generation</button>
+        <button class="side-nav-btn" id="tab-settings" type="button" data-tab="settings" style="display:none;">Settings</button>
       </nav>
 
       <div class="who">
@@ -594,6 +595,20 @@
             <div class="list" id="history-list"></div>
             <div class="pagination" id="history-pagination"></div>
           </div>
+        </div>
+
+        <div class="tab-view" id="view-settings" style="display:none;">
+          <section class="panel">
+            <h2 class="panel-title">Models</h2>
+            <p class="panel-sub" id="settings-sub">Which model runs each stage of the pipeline. Applies to
+              every requirement generated from now on — a stage that has already run keeps its output until
+              it is regenerated.</p>
+            <div id="settings-models"></div>
+            <div style="display:flex;gap:0.6rem;align-items:center;margin-top:1rem;">
+              <button class="btn" id="settings-save" type="button">Save</button>
+              <span id="settings-status" style="font-size:0.85rem;color:var(--text-faint);"></span>
+            </div>
+          </section>
         </div>
 
         <div class="tab-view" id="view-codegen" style="display:none;">
@@ -887,8 +902,6 @@
       // GATE 2. Who may edit and who may approve is decided by the server and
       // reported in uiGate, so the button and the endpoint cannot drift into
       // disagreeing about who is allowed.
-      if (!me.isClient) buttons.push({ modal: 'models', label: 'Models', secondary: true });
-
       var gate = artifact.uiGate || {};
       if (gate.canEdit) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
       if (gate.canApprove) {
@@ -1023,7 +1036,6 @@
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
           if (btnDef.modal === 'uiEditor') return openUiEditorModal(artifact);
-          if (btnDef.modal === 'models') return openModelPickerModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
@@ -2423,50 +2435,38 @@
     }
 
 
-    // ── model picker ─────────────────────────────────────────────────────────
-    // Which model runs each stage, per requirement. The defaults are a
-    // starting point rather than a decision: a small internal tool does not
-    // need the model a regulated platform's BRD deserves, and the right choice
-    // for a stage is learned by running it. A stage set back to "Default"
-    // follows the deployment setting again, so a choice can be undone without
-    // knowing what the default happened to be.
-    function openModelPickerModal(artifact) {
-      document.getElementById('modal-title').textContent = 'Models — ' + artifact.title;
-      document.getElementById('modal-body').innerHTML =
-        '<p style="margin:0 0 0.8rem;font-size:0.86rem;color:var(--muted);">' +
-          'Applies to this requirement only, and takes effect the next time a stage runs — ' +
-          'use Regenerate to re-run one that has already completed.</p>' +
-        '<div id="model-rows"></div>' +
-        '<div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.9rem;">' +
-          '<button class="btn" id="model-save" type="button">Save</button>' +
-          '<span id="model-status" style="font-size:0.83rem;color:var(--muted);"></span>' +
-        '</div>';
-      document.getElementById('modal-overlay').classList.add('open');
+    // ── settings: models ─────────────────────────────────────────────────────
+    // A deployment decision rather than a per-requirement one, so it lives in
+    // Settings and not on every card. Which model suits a stage is learned by
+    // running it — this pipeline moved three stages onto different models on
+    // evidence in one afternoon — and a setting that needs a deploy to change
+    // is one nobody changes.
+    function loadSettingsModels() {
+      var rowsEl = document.getElementById('settings-models');
+      var statusEl = document.getElementById('settings-status');
+      var saveBtn = document.getElementById('settings-save');
+      if (!rowsEl) return;
 
-      var rowsEl = document.getElementById('model-rows');
-      var statusEl = document.getElementById('model-status');
-      var roles = [];
-
-      fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/models', { credentials: 'include' })
+      fetch(window.API_BASE + '/api/settings/models', { credentials: 'include' })
         .then(function (res) { return res.json(); })
         .then(function (data) {
-          roles = data.roles || [];
           rowsEl.innerHTML = '';
-          roles.forEach(function (r) {
+          (data.roles || []).forEach(function (r) {
             var row = document.createElement('div');
-            row.style.cssText = 'display:grid;grid-template-columns:1fr 260px;gap:0.6rem;align-items:start;' +
-              'padding:0.5rem 0;border-bottom:1px solid var(--line);';
+            row.style.cssText = 'display:grid;grid-template-columns:1fr 300px;gap:1rem;align-items:start;' +
+              'padding:0.7rem 0;border-bottom:1px solid var(--line);';
             row.innerHTML =
-              '<div><div style="font-weight:600;font-size:0.88rem;">' + escapeHtml(r.label) + '</div>' +
-              '<div style="font-size:0.78rem;color:var(--muted);">' + escapeHtml(r.detail) + '</div></div>';
+              '<div><div style="font-weight:600;font-size:0.9rem;">' + escapeHtml(r.label) + '</div>' +
+              '<div style="font-size:0.8rem;color:var(--text-faint);margin-top:0.15rem;">' +
+                escapeHtml(r.detail) + '</div></div>';
 
             var select = document.createElement('select');
             select.dataset.role = r.role;
-            select.style.cssText = 'font:inherit;font-size:0.8rem;padding:0.3rem;border:1px solid var(--line);' +
-              'border-radius:6px;width:100%;';
+            select.style.cssText = 'font:inherit;font-size:0.82rem;padding:0.4rem;border:1px solid var(--line);' +
+              'border-radius:7px;width:100%;background:var(--surface);color:var(--text);';
             var def = document.createElement('option');
             def.value = '';
-            def.textContent = 'Default — ' + r.default;
+            def.textContent = 'Default — ' + r.environmentDefault;
             select.appendChild(def);
             (data.choices || []).forEach(function (c) {
               var o = document.createElement('option');
@@ -2474,50 +2474,52 @@
               o.textContent = c.label;
               select.appendChild(o);
             });
-            // A model set outside the listed choices must still show as chosen
-            // rather than silently reading as Default.
-            if (r.isOverride && !Array.prototype.some.call(select.options, function (o) { return o.value === r.model; })) {
+            // A model set outside the listed choices — through MODEL_CHOICES or
+            // the API — must show as chosen rather than silently read as Default.
+            if (r.stored && !Array.prototype.some.call(select.options, function (o) { return o.value === r.stored; })) {
               var custom = document.createElement('option');
-              custom.value = r.model;
-              custom.textContent = r.model + ' (set outside this list)';
+              custom.value = r.stored;
+              custom.textContent = r.stored;
               select.appendChild(custom);
             }
-            select.value = r.isOverride ? r.model : '';
+            select.value = r.stored || '';
             select.disabled = !data.canEdit;
             row.appendChild(select);
             rowsEl.appendChild(row);
           });
-          if (!data.canEdit) {
-            statusEl.textContent = 'Read-only — the originator or an approver chooses these.';
-            document.getElementById('model-save').disabled = true;
-          }
-        })
-        .catch(function (e) { statusEl.textContent = 'Could not load: ' + e.message; });
 
-      document.getElementById('model-save').addEventListener('click', function () {
-        var picked = {};
-        Array.prototype.forEach.call(rowsEl.querySelectorAll('select'), function (sel) {
-          picked[sel.dataset.role] = sel.value;   // "" clears the override
-        });
-        var btn = document.getElementById('model-save');
-        btn.disabled = true;
-        statusEl.textContent = 'Saving…';
-        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/models', {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ models: picked }),
+          saveBtn.style.display = data.canEdit ? '' : 'none';
+          statusEl.textContent = data.canEdit ? '' : 'Read-only — MD, CEO or VP can change these.';
         })
-          .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
-          .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || 'Save failed');
-            var n = Object.keys(r.body.modelOverrides || {}).length;
-            statusEl.textContent = n ? n + ' stage(s) overridden.' : 'All stages back to defaults.';
-            loadArtifacts();
+        .catch(function (e) { statusEl.textContent = 'Could not load settings: ' + e.message; });
+
+      if (!saveBtn.dataset.wired) {
+        saveBtn.dataset.wired = '1';
+        saveBtn.addEventListener('click', function () {
+          var picked = {};
+          Array.prototype.forEach.call(rowsEl.querySelectorAll('select'), function (sel) {
+            picked[sel.dataset.role] = sel.value;   // "" clears the setting
+          });
+          saveBtn.disabled = true;
+          statusEl.textContent = 'Saving…';
+          fetch(window.API_BASE + '/api/settings/models', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ models: picked }),
           })
-          .catch(function (e) { statusEl.textContent = e.message; })
-          .then(function () { btn.disabled = false; });
-      });
+            .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+            .then(function (r) {
+              if (!r.ok) throw new Error(r.body.detail || 'Save failed');
+              var n = Object.keys(r.body.models || {}).length;
+              statusEl.textContent = n
+                ? n + ' stage(s) set. Takes effect on the next generation.'
+                : 'All stages back to defaults.';
+            })
+            .catch(function (e) { statusEl.textContent = e.message; })
+            .then(function () { saveBtn.disabled = false; });
+        });
+      }
     }
 
     // ── UI editor ────────────────────────────────────────────────────────────
@@ -3092,12 +3094,15 @@
       });
     }
 
-    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history', 'codegen'];
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history', 'codegen', 'settings'];
     function switchTab(tabName) {
       TAB_NAMES.forEach(function (name) {
         document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
         document.getElementById('view-' + name).style.display = name === tabName ? '' : 'none';
       });
+      // Fetched on open rather than kept in sync: another approver may have
+      // changed a model since this page loaded.
+      if (tabName === 'settings') loadSettingsModels();
     }
     TAB_NAMES.forEach(function (name) {
       document.getElementById('tab-' + name).addEventListener('click', function () { switchTab(name); });
@@ -3134,6 +3139,10 @@
         if (me.tierId === 'vp' || me.tierId === 'tl') {
           document.getElementById('tab-codegen').style.display = '';
         }
+        // Visible to every internal user: knowing which model wrote a
+        // document is part of reading it. Changing one is restricted
+        // server-side, and the panel renders read-only for anyone else.
+        document.getElementById('tab-settings').style.display = '';
       }
 
       document.getElementById('loading-note').style.display = 'none';

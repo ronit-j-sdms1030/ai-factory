@@ -21,7 +21,10 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:800
 const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN || '';
 
 router.use('/', requireAuth, async (req, res) => {
-  const target = new URL(`/api/artifacts${req.url === '/' ? '' : req.url}`, AGENT_SERVICE_URL);
+  // req.baseUrl is whatever this router was mounted at, so one proxy serves
+  // every path the agent service owns. Hardcoding /api/artifacts meant adding
+  // a second Python route also meant editing Express.
+  const target = new URL(`${req.baseUrl}${req.url === '/' ? '' : req.url}`, AGENT_SERVICE_URL);
 
   try {
     const upstream = await fetch(target, {

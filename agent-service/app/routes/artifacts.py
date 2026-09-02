@@ -27,6 +27,7 @@ from ..agents.intake import finalize_requirement, run_chat_turn
 from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
 from .. import config
+from .. import settings as app_settings
 from ..config import TIERS, originator_label, resolve_approval_chain
 from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
 from ..publish import publish
@@ -677,20 +678,15 @@ class ModelOverrides(BaseModel):
 
 @router.get("/{artifact_id}/models")
 def artifact_models(artifact_id: str, actor: dict = Depends(current_user)):
-    """Which model each stage will use for this requirement, and what else is offered."""
+    """Which model each stage will use for this requirement, and why.
+
+    Kept alongside the deployment-wide setting because a single requirement
+    can still carry an override — it is simply not the usual way to choose,
+    so it is not on every card.
+    """
     artifact = _load(artifact_id)
-    overrides = artifact.get("modelOverrides") or {}
     return {
-        "roles": [
-            {
-                "role": role,
-                **meta,
-                "model": overrides.get(role) or config.default_model_for(role),
-                "isOverride": bool(overrides.get(role)),
-                "default": config.default_model_for(role),
-            }
-            for role, meta in config.AGENT_ROLES.items()
-        ],
+        "roles": app_settings.roles_view(artifact),
         "choices": config.model_choices(),
         "canEdit": _may_choose_models(artifact, actor),
     }

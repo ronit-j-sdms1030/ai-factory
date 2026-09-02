@@ -40,6 +40,8 @@ app.use('/api/auth', authRoutes);
 // URL and the session, and forwards the authenticated request onward, so the
 // frontend needs no change while the migration continues.
 app.use('/api/artifacts', agentProxyRoutes);
+app.use('/api/settings', agentProxyRoutes);
+app.use('/api/admin', agentProxyRoutes);
 app.use('/api/codegen', codegenRoutes);
 
 app.get('/', (req, res) => res.json({ ok: true, service: 'ai-software-factory backend', frontend: FRONTEND_ORIGIN }));
