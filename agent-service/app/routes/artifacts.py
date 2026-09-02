@@ -471,7 +471,29 @@ def _integrity_summary(integrity: dict[str, Any]) -> str:
         problems.append(f"- Dependency cycles: {integrity['cycles']}")
     if integrity.get("dangling"):
         problems.append(f"- Dangling dependencies: {', '.join(integrity['dangling'])}")
-    return "**Integrity checks**\n" + ("\n".join(problems) if problems else "- All checks passed.")
+
+    body = "**Integrity checks**\n" + ("\n".join(problems) if problems else "- All checks passed.")
+
+    # Repairs are reported separately from defects, because they are not the
+    # same claim: a defect is something wrong with what is being reviewed, a
+    # repair is an edge the pipeline removed to make the graph executable. The
+    # reviewer approving the split is the person who can say whether the
+    # missing ordering mattered, so it cannot be dropped silently.
+    repairs = integrity.get("repairs") or {}
+    removed = []
+    if repairs.get("dropped_dangling"):
+        removed.append(
+            f"- Removed dependencies pointing at work items that do not exist: "
+            f"{', '.join(repairs['dropped_dangling'])}"
+        )
+    if repairs.get("broke_cycles"):
+        removed.append(
+            f"- Removed dependencies to break a cycle, since no execution order existed: "
+            f"{', '.join(repairs['broke_cycles'])}"
+        )
+    if removed:
+        body += "\n\n**Repaired automatically** — check whether the missing ordering matters\n" + "\n".join(removed)
+    return body
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────

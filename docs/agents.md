@@ -199,12 +199,12 @@ TLs can view the screens once their package exists; only a VP can approve. Edits
 flowchart TD
     A[Approved BRD] --> B[One structured call<br/>work items + packages, 8k tokens]
     B --> C[normalize_entity_ownership<br/>no model involved]
-    C --> D[Integrity report<br/>unowned, multiply-owned,<br/>cycles, dangling edges]
-    D --> E{Defects found?}
-    E -->|yes| F[Logged and recorded<br/>on the artefact]
-    E -->|no| G[Clean]
-    F --> H[workitems/graph.json<br/>+ per-department packages<br/>PR · VP]
-    G --> H
+    C --> D[Integrity report<br/>ownership, spelling,<br/>cycles, dangling edges]
+    D --> E{Clean?}
+    E -->|no| RT[Retry once<br/>defects fed back]
+    RT --> C
+    E -->|yes| R[repair_dependencies<br/>drop what blocks execution]
+    R --> H[workitems/graph.json<br/>+ per-department packages<br/>PR · VP]
 ```
 
 **Function.** Assigns work across the five departments — QA, AI, Development, DevOps, Sales & Marketing — skipping any with nothing to do. Each package is an execution-focused mini-BRD.
@@ -219,7 +219,11 @@ flowchart TD
 
 **Deterministic repair.** `normalize_entity_ownership` runs after every split. Unowned entities are assigned, preferring Development, which owns the core application; double-claimed entities are demoted to a single owner. This exists because the prompt alone was insufficient — a real split marked four entities read-only in all five packages, meaning no department would have generated their schema.
 
-**Integrity is detected but does not block.** ⚠️ Cycles, dangling dependencies and ownership defects are computed after every split and stored on the artefact under `integrity`, and logged as errors. Nothing stops the package publishing. The current WorkPulse split carries **11 dangling dependency edges** pointing at a work item that does not exist — detected, recorded, and shipped to the graph that feeds code generation. Making this a blocking CI check is [architecture.md §10](architecture.md#10-ci-checks-).
+**Integrity is acted on, in three stages.** Every check runs after the split — ownership, entity spelling, dependency cycles, dangling edges. A defective graph goes back to the model with its own defects named, for one bounded retry; the better of the two attempts is kept. Whatever survives is then repaired deterministically: an edge pointing at a work item that does not exist is removed, and a cycle is broken one edge at a time, re-detecting after each so no more ordering is lost than necessary.
+
+This follows the rule `normalize_entity_ownership` already established — a defect the prompt cannot reliably avoid is repaired in code rather than shipped, because a graph nobody can execute is worth less than a graph missing an edge somebody can add back.
+
+**Nothing is dropped silently.** Every removed edge is recorded on the artefact and reported in the pull request body under a separate heading from the integrity checks, because they are different claims: a defect is something wrong with what is being reviewed, a repair is an edge the pipeline took out to make the graph executable. The VP approving the split is the person who can say whether the missing ordering mattered.
 
 ---
 

@@ -233,7 +233,7 @@ Proposal §2.3 and D3 specify "scoped, dependency-ordered work items". Neither d
 
 **Resolution — two-level decomposition.** The agent emits work items carrying a real dependency graph *and* an owning department. The graph satisfies D3; departmental ownership and TL approval survive.
 
-This is stronger than either model alone: five independent department packages do not naturally cohere, which is why entity-ownership repair is required after every split. **Partially built** — work items and edges are emitted, but the graph currently contains 11 dangling edges pointing at a non-existent item, so it is not yet trustworthy as an ordering.
+This is stronger than either model alone: five independent department packages do not naturally cohere, which is why entity-ownership repair is required after every split. Work items and dependency edges are emitted and validated — a defective graph is retried against its own defects, then repaired deterministically, so what reaches the gate is always executable and every removed edge is recorded.
 
 ### 4.2 Analyst gate vs TL gates
 
@@ -489,24 +489,22 @@ The first three are cheap to fix; scoping is not. See §12.
 
 ---
 
-## 10. CI checks ❌
+## 10. Validation
 
-GitHub Actions on every artefact pull request, migrating invariants currently enforced at runtime into gates that block a merge. **None of these are built.**
+Invariants are enforced **where the artefact is produced**, not deferred to a pull request. That placement is deliberate: at generation time the agent can still be handed its own defect and asked to fix it, so a defective artefact is repaired before it is committed rather than flagged after.
 
-| Check | Enforces |
-|-------|----------|
-| BRD schema validation | All required fields present |
-| Mermaid lint | Both diagrams parse |
-| Work-item graph | Acyclic; every dependency resolves; exactly one owning department |
-| Entity ownership | Exactly one owner per entity, no orphans |
-| Cross-department naming | Shared entities spelled identically across all slices |
-| JSX compile | ✅ Now enforced at generation with a bounded retry, not deferred to CI |
-| Design-system conformance | Screens use the skill file's tokens, not invented ones |
-| Prompt-template diff | Prompt changes require an approver (SoW 4.0) |
+| Check | Enforces | Where |
+|-------|----------|-------|
+| BRD schema | Every required field present | Structured output, at generation |
+| JSX compile | Every screen parses against the preview's runtime | UI agent, with a bounded retry |
+| Work-item graph | Acyclic, and every dependency resolves | Decomposition, retry then deterministic repair |
+| Entity ownership | Exactly one owner per entity, no orphans | Decomposition, deterministic repair |
+| Cross-department naming | Shared entities spelled identically everywhere | Decomposition, fed back on retry |
+| Prompt and skill-file versions | Changes carry an approver and a version | Settings, restricted to MD/CEO/VP |
 
-The ownership and naming checks correspond to defects already observed, where one department created a table `Return_Items` while another wrote a foreign key against `ReturnItems`. The graph check corresponds to the 11 dangling edges currently in the work-item output. The JSX check corresponds to screens reaching GATE 2 broken.
+The ownership and naming checks correspond to a defect already observed, where one department created a table `Return_Items` while another wrote a foreign key against `ReturnItems`. The graph check corresponds to a split that carried eleven dangling edges. The JSX check corresponds to a screen that reached GATE 2 unrenderable.
 
-A failing check blocks its gate. This is the substantive form of SoW 18.0's "mandatory gate set enforced in pipeline configuration".
+Two checks remain suited to a pull-request stage rather than generation: **Mermaid lint**, since a malformed diagram does not affect the document's usability, and **design-system conformance**, which is a judgement about house style rather than a parse. GitHub Actions would add these as a second layer over the validation above, which is the fuller form of SoW 18.0's "mandatory gate set enforced in pipeline configuration".
 
 ---
 

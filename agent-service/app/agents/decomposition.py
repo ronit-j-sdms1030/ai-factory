@@ -27,12 +27,10 @@ from ..state import PipelineState
 log = logging.getLogger(__name__)
 
 
-@traceable(name="Decomposition Agent")
-def decomposition_agent(state: PipelineState) -> dict:
-    brd = state["brd"]
-
-    decomposition = llm.call_structured(
-        model=model_for(state, "decomposition"),
+def _split(brd: dict, model: str, defects: str = "") -> Decomposition:
+    """One split. ``defects`` turns it into a second attempt at a broken one."""
+    return llm.call_structured(
+        model=model,
         schema=Decomposition,
         max_tokens=8000,
         retries=1,
@@ -62,30 +60,114 @@ def decomposition_agent(state: PipelineState) -> dict:
                     f"Timeline:\n{json.dumps(brd['timeline'], indent=2)}"
                 ),
             },
+            *(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous split had these defects. Produce the complete "
+                            "decomposition again with every one of them fixed, keeping everything "
+                            "that was already correct:\n\n" + defects
+                        ),
+                    }
+                ]
+                if defects
+                else []
+            ),
         ],
     )
 
+
+def _integrity(decomposition: Decomposition) -> dict:
+    """Everything known to be wrong with a split. Empty lists mean healthy."""
+    return {
+        **invariants.entity_ownership_report(decomposition),
+        "cycles": invariants.dependency_cycles(decomposition),
+        "dangling": invariants.dangling_dependencies(decomposition),
+    }
+
+
+def _describe(integrity: dict) -> str:
+    """The defects, phrased for the model that produced them."""
+    lines = []
+    if integrity["dangling"]:
+        lines.append(
+            "These depends_on entries reference work item ids that do not exist. Either point them "
+            "at a real id or remove them: " + ", ".join(integrity["dangling"])
+        )
+    if integrity["cycles"]:
+        lines.append(
+            "These dependency cycles mean no valid execution order exists: "
+            + "; ".join(" -> ".join(c) for c in integrity["cycles"])
+        )
+    if integrity["inconsistent_spelling"]:
+        lines.append(
+            "The same entity is spelled differently across packages, which produces foreign keys "
+            "that do not resolve. Use one spelling, copied verbatim from the BRD data model: "
+            + ", ".join(integrity["inconsistent_spelling"])
+        )
+    if integrity["unowned"]:
+        lines.append(
+            "No department owns these entities, so nobody generates their schema: "
+            + ", ".join(integrity["unowned"])
+        )
+    if integrity["multiply_owned"]:
+        lines.append(
+            "More than one department claims to own these entities: "
+            + ", ".join(integrity["multiply_owned"])
+        )
+    return "\n".join(f"- {line}" for line in lines)
+
+
+@traceable(name="Decomposition Agent")
+def decomposition_agent(state: PipelineState) -> dict:
+    brd = state["brd"]
+    model = model_for(state, "decomposition")
+
+    decomposition = _split(brd, model)
     # Prompt compliance is not sufficient on its own — a real split returned
     # four entities owned by nobody. Repair deterministically.
     decomposition = invariants.normalize_entity_ownership(decomposition)
+    integrity = _integrity(decomposition)
 
-    report = invariants.entity_ownership_report(decomposition)
-    cycles = invariants.dependency_cycles(decomposition)
-    dangling = invariants.dangling_dependencies(decomposition)
+    # One retry with the defects handed back, the same bargain the UI agent
+    # makes with a compile error: a model shown its own broken output fixes it
+    # far more often than one asked to try again from the brief. A real split
+    # shipped eleven dangling edges pointing at a work item that never
+    # existed, detected and logged and published regardless.
+    if _describe(integrity):
+        log.warning("split has integrity defects, retrying once: %s", integrity)
+        try:
+            retried = _split(brd, model, defects=_describe(integrity))
+            retried = invariants.normalize_entity_ownership(retried)
+            retried_integrity = _integrity(retried)
+            if not _describe(retried_integrity):
+                decomposition, integrity = retried, retried_integrity
+            elif len(_describe(retried_integrity)) < len(_describe(integrity)):
+                decomposition, integrity = retried, retried_integrity
+        except RuntimeError as exc:
+            # A failed retry keeps the first split, which is still a usable
+            # set of packages. Losing them to a second bad response would be
+            # a worse outcome than a graph with an edge missing.
+            log.warning("retry of the split failed, keeping the first: %s", exc)
 
-    if report["unowned"] or report["multiply_owned"]:
-        log.error("ownership normalisation left defects: %s", report)
-    if cycles:
-        log.error("dependency cycles in work items: %s", cycles)
-    if dangling:
-        log.error("dangling work-item dependencies: %s", dangling)
+    # Whatever survived the retry is repaired rather than shipped: a graph
+    # nobody can execute is worth less than one missing an edge somebody can
+    # add back. Every dropped edge is recorded and reaches the pull request.
+    repairs = invariants.repair_dependencies(decomposition)
+    integrity = _integrity(decomposition)
+
+    if _describe(integrity):
+        log.error("integrity defects survived repair: %s", integrity)
+    if repairs["dropped_dangling"] or repairs["broke_cycles"]:
+        log.warning("repaired the work-item graph: %s", repairs)
 
     return {
         "work_items": {
             **decomposition.model_dump(by_alias=True),
-            "integrity": {**report, "cycles": cycles, "dangling": dangling},
+            "integrity": {**integrity, "repairs": repairs},
             "provenance": {
-                "model": model_for(state, "decomposition"),
+                "model": model,
                 "promptVersions": prompts.versions("decomposition"),
             },
         }

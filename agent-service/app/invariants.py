@@ -111,3 +111,50 @@ def dangling_dependencies(decomposition: Decomposition) -> list[str]:
         for dep in item.depends_on
         if dep not in ids
     )
+
+def repair_dependencies(decomposition: Decomposition) -> dict[str, list[str]]:
+    """Drop the edges that make a graph unusable, recording every one.
+
+    The last resort, after the model has been given its own defects back and
+    still produced them. Follows ``normalize_entity_ownership``: a defect the
+    prompt cannot reliably avoid is repaired deterministically rather than
+    shipped, because a graph nobody can execute is worth less than a graph
+    missing an edge somebody can add back.
+
+    Nothing is dropped silently. Both lists land on the artefact and in the
+    pull request body, so the edge that disappeared is visible to the reviewer
+    approving the split.
+    """
+    ids = {item.id for item in decomposition.work_items}
+
+    dropped_dangling: list[str] = []
+    for item in decomposition.work_items:
+        kept = []
+        for dep in item.depends_on:
+            if dep in ids:
+                kept.append(dep)
+            else:
+                dropped_dangling.append(f"{item.id} -> {dep}")
+        item.depends_on = kept
+
+    broke_cycles: list[str] = []
+    # One edge per pass, re-detecting each time: breaking an edge can resolve
+    # several overlapping cycles at once, and dropping one per reported cycle
+    # would remove more of the ordering than necessary.
+    while True:
+        cycles = dependency_cycles(decomposition)
+        if not cycles:
+            break
+        cycle = cycles[0]
+        tail, head = cycle[-2], cycle[-1]
+        item = next((i for i in decomposition.work_items if i.id == tail), None)
+        if item is None or head not in item.depends_on:
+            # Cannot locate the closing edge — stop rather than spin.
+            break
+        item.depends_on = [d for d in item.depends_on if d != head]
+        broke_cycles.append(f"{tail} -> {head}")
+
+    return {
+        "dropped_dangling": sorted(dropped_dangling),
+        "broke_cycles": sorted(broke_cycles),
+    }
