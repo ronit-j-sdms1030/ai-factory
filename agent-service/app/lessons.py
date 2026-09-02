@@ -11,12 +11,18 @@ same kind of change and is not: it is a house date format, and an agent told
 about it will get every future date right. Formatting, wording conventions,
 currency, capitalisation and density preferences generalise. Content does not.
 
-Formatting rules activate on their own. The worst case is a screen using a
-date format somebody corrects again, which is self-limiting, and requiring
-approval for it would mean nobody ever benefits from the loop. Rules that
-change behaviour or structure wait for a human, because a bad one there
-degrades every screen generated afterwards and the audit trail would show the
-agent as having always behaved that way.
+Formatting rules activate on their own, but only from a repeat. A correction
+made once may be taste; the same correction on a second screen is a house
+standard. Auto-activating on the first sighting meant one reviewer's opinion
+on one screen silently became a standing instruction for every client
+afterwards. Rules that change behaviour or structure wait for a human
+regardless of repeats, because a bad one there degrades every screen
+generated afterwards and the audit trail would show the agent as having
+always behaved that way.
+
+A rule a human dismisses stays dismissed even if the same correction is made
+again later — the repeat does not override their decision, since resurrecting
+a rejected rule by attrition would make the dismissal meaningless.
 """
 
 from __future__ import annotations
@@ -47,21 +53,34 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def record(agent: str, rule: str, kind: str, evidence: str, source: str) -> dict[str, Any]:
-    """Store a proposed rule, or count a repeat of one already known.
+def record(
+    agent: str, rule: str, kind: str, evidence: str, source: str, conflicts: str = ""
+) -> dict[str, Any]:
+    """Store a proposed rule, or promote a repeat of one already known.
 
-    Repeats matter more than firsts: a correction made once may be taste, and
-    the same correction three times is a house standard. ``timesSeen`` is what
-    the review screen sorts by.
+    Every rule starts ``proposed``, including formatting ones. It is promoted
+    to ``active`` only when the same normalised rule is seen a second time —
+    ``timesSeen`` is what the review screen sorts by, and is also the gate on
+    auto-activation. A ``dismissed`` rule is never promoted by a repeat: a
+    human already decided against it, and letting attrition overrule that
+    would make dismissal meaningless. A rule flagged as conflicting with an
+    existing one is never auto-promoted either, no matter how many times it
+    recurs — that decision needs a human to say which rule wins.
     """
     normalised = " ".join(rule.lower().split())
     existing = _collection().find_one({"agent": agent, "normalised": normalised})
     if existing:
-        _collection().update_one(
-            {"_id": existing["_id"]},
-            {"$inc": {"timesSeen": 1}, "$set": {"lastSeenAt": _now()}},
-        )
-        return {**existing, "timesSeen": existing.get("timesSeen", 1) + 1}
+        times_seen = existing.get("timesSeen", 1) + 1
+        update: dict[str, Any] = {"timesSeen": times_seen, "lastSeenAt": _now()}
+        if (
+            existing["status"] == "proposed"
+            and kind in AUTO_KINDS
+            and times_seen >= 2
+            and not existing.get("conflictsWith")
+        ):
+            update["status"] = "active"
+        _collection().update_one({"_id": existing["_id"]}, {"$set": update})
+        return {**existing, **update}
 
     doc = {
         "agent": agent,
@@ -70,25 +89,39 @@ def record(agent: str, rule: str, kind: str, evidence: str, source: str) -> dict
         "kind": kind,
         "evidence": evidence,
         "source": source,
-        "status": "active" if kind in AUTO_KINDS else "proposed",
+        "conflictsWith": conflicts or None,
+        "status": "proposed",
         "timesSeen": 1,
         "createdAt": _now(),
         "lastSeenAt": _now(),
     }
     _collection().insert_one(doc)
-    log.info("learned a %s rule for %s: %s", kind, agent, rule[:80])
+    log.info("proposed a %s rule for %s: %s", kind, agent, rule[:80])
     return doc
 
 
 def active(agent: str) -> list[str]:
     """The rules an agent should currently be following."""
-    found = (
+    return [doc["rule"] for doc in _active_docs(agent)]
+
+
+def active_ids(agent: str) -> list[str]:
+    """Ids of the currently active rules, in the order the prompt renders them.
+
+    Recorded on a generated artefact so it is later possible to say exactly
+    which instructions produced it — the rule set moves on, but the artefact
+    should not silently change what it is attributed to.
+    """
+    return [str(doc["_id"]) for doc in _active_docs(agent)]
+
+
+def _active_docs(agent: str) -> list[dict[str, Any]]:
+    return list(
         _collection()
         .find({"agent": agent, "status": "active"})
         .sort([("timesSeen", -1), ("createdAt", 1)])
         .limit(MAX_ACTIVE)
     )
-    return [doc["rule"] for doc in found]
 
 
 def prompt_section(agent: str) -> str:
@@ -117,6 +150,7 @@ def listing(agent: str | None = None) -> list[dict[str, Any]]:
             "status": doc["status"],
             "timesSeen": doc.get("timesSeen", 1),
             "createdAt": doc.get("createdAt"),
+            "conflictsWith": doc.get("conflictsWith"),
         }
         for doc in found
     ]

@@ -223,6 +223,15 @@ class LearnedRule(Artefact):
             "what happened. Empty when generalises is false."
         )
     )
+    contradicts: str = Field(
+        default="",
+        description=(
+            "Quote verbatim, from the ACTIVE RULES supplied, any existing rule this new one "
+            "conflicts with — e.g. a different date format, or the opposite spacing convention. "
+            "Empty if there is no conflict, including when there are no active rules to conflict "
+            "with. Only compare against rules actually supplied; do not invent one."
+        ),
+    )
 
 
 class ScreenEditResult(Artefact):
