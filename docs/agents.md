@@ -1,6 +1,6 @@
 # Agent Specification & Requirement Flows
 
-**Companion to:** [architecture.md](architecture.md)
+**Companion to:** [architecture.md](architecture.md) · [git-integration.md](git-integration.md)
 **Scope:** Agents 1–4 (Intake → BRD → UI → Decomposition). Agents 5–8 (Code, Review, Test, Remediation) are out of scope per architecture.md §11.
 
 Requirement-flow diagrams live in [architecture.md §4](architecture.md#4-requirement-approaches); §5 below links to them.
