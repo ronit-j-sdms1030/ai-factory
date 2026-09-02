@@ -457,35 +457,36 @@ That closes two of SoW 7.0's four missing audit fields — model and prompt vers
 
 ---
 
-## 9. The learning loop
+## 9. The learning loop — how the UI agent adapts
 
-Every reviewer edit is a statement about what an agent got wrong, and each one used to be applied to a single screen and thrown away.
+Every reviewer edit is a statement about what an agent got wrong, and each one used to be applied to a single screen and thrown away. The same correction then arrived on the next requirement, and the one after that. The loop turns a correction into a standing instruction, so the agent starts the next requirement having already been told.
 
 ```mermaid
-flowchart LR
-    E[Reviewer edits a screen] --> X[Extractor<br/>rule, or one-off?]
-    X -->|formatting, wording,<br/>convention| A[Active immediately]
-    X -->|behaviour, structure| P[Proposed<br/>waits for MD/CEO/VP]
+flowchart TD
+    E[Reviewer edits a screen<br/>directly or by prompt] --> X[Extractor<br/>shown the rules already in force]
     X -->|one-off| N[Discarded]
-    A --> S[Prompt section]
+    X -->|conflicts with<br/>an active rule| C[Held for a human<br/>which rule wins?]
+    X -->|behaviour or structure| P[Proposed<br/>waits for MD/CEO/VP]
+    X -->|formatting, wording,<br/>convention| F{Seen before?}
+    F -->|first sighting| P
+    F -->|second sighting| A[Active]
     P -->|approved| A
+    C -->|resolved| A
+    A --> S[Injected into the prompt<br/>ids stamped on the artefact]
     S --> U[UI agent, next requirement]
 ```
 
-The distinction that makes this work is between a **rule** and an **edit**. Changing a heading to "Q3 Attendance" is an edit — true of one screen and nothing else. Changing "Jun 15, 02:15 PM" to "15/06/2025 14:15" looks like the same kind of change and is not: it is a house date format, and an agent told about it gets every future date right.
+**Rule versus edit is the distinction that makes it work.** Changing a heading to "Q3 Attendance" is an edit — true of one screen and nothing else. Changing "Jun 15, 02:15 PM" to "15/06/2025 14:15" looks like the same kind of change and is not: it is a house date format, and an agent told about it gets every future date right. The extractor is asked to generalise sparingly and to answer false on doubt, because a wrong rule is applied to everything afterwards while a missed one costs a second correction.
 
-Formatting, wording and convention rules activate on their own — the worst case is a date format somebody corrects again, which is self-limiting, and requiring approval for everything would mean nobody ever benefits. Rules that change behaviour or structure wait for a human, because a bad one there degrades every screen generated afterwards and the audit trail would show the agent as having always behaved that way. Active rules are capped at 25 and visible to every internal user: a rule silently steering every future screen is the thing to avoid.
+**A rule must recur before it applies itself.** Formatting, wording and convention rules promote to active on the *second* sighting of the same correction — one correction may be taste, the same one twice is a house standard. Rules that change behaviour or structure wait for a human however often they repeat, because a bad one there degrades every screen generated afterwards and the audit trail would show the agent as having always behaved that way.
 
-**Known risks, none currently mitigated:**
+**The extractor sees the rules already in force**, so a new rule that disagrees with an existing one is flagged rather than proposed silently. A conflicting rule never auto-promotes, no matter how often it recurs: two reviewers with opposite date formats each look right in isolation, and deciding between them is a human's job, not a vote.
 
-| Risk | Why it matters here |
-|---|---|
-| Activates on first sighting | One reviewer's preference becomes every client's house style |
-| No scope | A rule learned on an internal tool applies to a client-facing fintech screen |
-| No contradiction check | The extractor never sees existing rules; two reviewers produce rival rules and the model picks arbitrarily |
-| No provenance | The artefact does not record which rules were active, so an approved screen cannot be reproduced |
+**A human's decision stands.** A dismissed rule is kept rather than deleted — a rejected rule is itself a fact about this deployment — and is never resurrected by a later repeat. Letting attrition overturn a dismissal would make dismissal meaningless.
 
-The first three are cheap to fix; scoping is not. See §12.
+**Every generation records what steered it.** Active rules are read once per run, so all screens in a design are written against the same set, and their ids are stamped on the artefact alongside the model and prompt versions. An approved screen can therefore be attributed to the exact instructions that produced it, even after the rule set has moved on. Active rules are capped at 25 and visible to every internal user: a rule silently steering every future screen is the thing to avoid.
+
+**Scope is the open question.** Rules are global to the agent, so a convention learned on an internal tool applies to a client-facing screen. Partitioning them — by client, by department, or not at all — is a decision recorded in §12 rather than assumed.
 
 ---
 

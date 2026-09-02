@@ -163,19 +163,23 @@ It also settles a question that used to have two different answers. The skill fi
 
 This closed a real defect. `AuditTrail`, one of the fourteen WorkPulse screens, carried a stray `n` at the start of line 38 — a corrupted `\n` escape — and had been committed, opened as a pull request and reviewed as if it worked. The check flags it and the other thirteen pass, so it is specific enough to be trusted. A missing checker reports nothing broken rather than everything, because failing every screen on a machine without node would be worse than the unchecked behaviour it replaces.
 
-### 3.1 The review and learning loop
+### 3.1 The review loop, and how the agent adapts
 
 ```mermaid
 flowchart LR
     U[UI agent] --> P[Preview page<br/>all screens, one URL]
     P --> G{{GATE 2<br/>VP approves, TLs view}}
     G --> E[Editor<br/>direct or by prompt]
-    E --> X[Lesson extractor<br/>rule, or one-off?]
-    X --> S[Rules<br/>active or proposed]
-    S -->|next requirement| U
+    E --> X[Lesson extractor<br/>generalises? conflicts?]
+    X --> S[Rules<br/>proposed, then active on a repeat]
+    S -->|injected next requirement| U
 ```
 
-TLs can view the screens once their package exists; only a VP can approve. Edits happen on the page itself rather than in a modal, by direct manipulation or by instructing the agent. Every edit is then judged for whether it generalises — see [architecture.md §9](architecture.md#9-the-learning-loop) for the rule-versus-edit distinction and the risks it carries.
+TLs can view the screens once their package exists; only a VP can approve. Edits happen on the page itself rather than in a modal, by direct manipulation or by instructing the agent. Editing withdraws the approval, since the VP signed off the screens as they were.
+
+**This is where the agent adapts.** Every edit is judged for whether it generalises: a changed heading is true of one screen, a changed date format is a house standard. A correction that generalises is proposed, and a formatting, wording or convention rule promotes itself to active on the *second* sighting — one correction may be taste, the same one twice is a standard. Anything that changes what a screen does, or that contradicts a rule already in force, waits for MD, CEO or VP.
+
+Active rules are read once per generation and injected into every screen's prompt, and their ids are stamped on the artefact so an approved design can be attributed to the exact instructions that produced it. See [architecture.md §9](architecture.md#9-the-learning-loop--how-the-ui-agent-adapts) for the full mechanism.
 
 **Note on document conflict.** Proposal §7 lists "UI prototype generation" as a roadmap item, and §11 excludes everything in §7. The SoW response reconciles this by distinguishing **working React screens (Phase 1)** from a **Figma round-trip (add-on)**. Worth confirming with the client.
 
