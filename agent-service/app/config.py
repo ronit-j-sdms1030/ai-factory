@@ -247,27 +247,16 @@ def default_model_for(role: str) -> str:
     }[role]
 
 
-# Offered in the picker. Extend with MODEL_CHOICES in the environment — a
-# comma-separated list — rather than editing this, so a model that turns out
-# to suit a stage can be added without a deploy. Any id the provider router
-# understands works whether or not it is listed here.
-_BUILTIN_CHOICES = [
-    ("anthropic/claude-haiku-4.5", "Claude Haiku 4.5 — fast, strong at conversation"),
-    ("openai/gpt-4o-mini", "GPT-4o mini — cheap, reliable on small schemas"),
-    ("openai/gpt-4o", "GPT-4o — stronger on large schemas"),
-    ("deepseek/deepseek-v3.2:nitro", "DeepSeek V3.2 (nitro) — long technical documents, fastest route"),
-    ("deepseek/deepseek-v3.2", "DeepSeek V3.2 — same model, standard routing"),
-    ("qwen/qwen3-coder", "Qwen3 Coder — code-specialised, best measured for screens"),
-    ("qwen/qwen3-coder-30b-a3b-instruct", "Qwen3 Coder 30B — cheapest code-specialised option"),
-    ("groq/openai/gpt-oss-120b", "GPT-OSS 120B on Groq — free tier, 8k tokens/minute ceiling"),
-    ("groq/openai/gpt-oss-20b", "GPT-OSS 20B on Groq — free tier, smaller"),
-]
-
-
+# Every model OpenRouter serves is offered — see model_catalogue. A curated
+# list of nine was easy to reason about and wrong in practice: the right model
+# for a stage is discovered by running it, and being unable to try one without
+# a code change means it does not get tried.
+#
+# MODEL_CHOICES still adds ids the catalogue does not carry: a
+# provider-prefixed one such as "groq/openai/gpt-oss-120b", or a model
+# published faster than the catalogue refreshes.
 def model_choices() -> list[dict[str, str]]:
+    from .model_catalogue import choices
+
     extra = [m.strip() for m in os.environ.get("MODEL_CHOICES", "").split(",") if m.strip()]
-    listed = {model for model, _ in _BUILTIN_CHOICES}
-    return [
-        *({"model": m, "label": label} for m, label in _BUILTIN_CHOICES),
-        *({"model": m, "label": m} for m in extra if m not in listed),
-    ]
+    return choices(extra)
