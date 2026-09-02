@@ -212,3 +212,61 @@ class TestEmptyRepository:
         store = GitStore(tmp_path / "legacy")
         store.ensure_base_commit()
         assert store.repo.heads["main"].commit == first
+
+
+class TestRegenerationReplaces:
+    """A stage commit is a snapshot, not an append log.
+
+    Regenerating left every earlier attempt in place: one UI branch ended up
+    with 29 screen files across five runs, including the same screen under two
+    slugs after its name was normalised, and no way to tell which was current.
+    """
+
+    def test_files_from_a_previous_run_are_removed(self, tmp_path):
+        store = GitStore.init(tmp_path / "repo")
+        store.ensure_base_commit()
+
+        store.commit_artefacts(
+            artifact_id="abc123", stage="ui", agent="ui",
+            files={"ui/screens/old.jsx": "old", "ui/screens/kept.jsx": "v1"},
+            message="first",
+        )
+        result = store.commit_artefacts(
+            artifact_id="abc123", stage="ui", agent="ui",
+            files={"ui/screens/kept.jsx": "v2", "ui/screens/new.jsx": "new"},
+            message="second",
+        )
+
+        assert any(f.endswith("kept.jsx") for f in result.files)
+        assert any(f.endswith("new.jsx") for f in result.files)
+        assert not (tmp_path / "repo" / "requirements" / "abc123" / "ui" / "screens" / "old.jsx").exists()
+
+    def test_another_requirement_keeps_its_own_branch(self, tmp_path):
+        """Clearing one requirement's folder must not reach into another's.
+
+        Each requirement's stage lives on its own branch, so the check is that
+        the other branch still carries its file — not that it survives in a
+        working tree it was never part of.
+        """
+        store = GitStore.init(tmp_path / "repo")
+        store.ensure_base_commit()
+        other = store.commit_artefacts(artifact_id="other", stage="ui", agent="ui",
+                                       files={"ui/screens/keep.jsx": "x"}, message="other")
+        store.commit_artefacts(artifact_id="abc123", stage="ui", agent="ui",
+                               files={"ui/screens/a.jsx": "y"}, message="mine")
+
+        listed = store.repo.git.ls_tree("-r", "--name-only", other.branch).splitlines()
+        assert any(f.endswith("requirements/other/ui/screens/keep.jsx") for f in listed)
+
+    def test_the_commit_records_the_deletion_not_just_the_write(self, tmp_path):
+        """index.add stages additions only; the stale files stayed committed."""
+        store = GitStore.init(tmp_path / "repo")
+        store.ensure_base_commit()
+        store.commit_artefacts(artifact_id="abc123", stage="ui", agent="ui",
+                               files={"ui/screens/old.jsx": "old"}, message="first")
+        second = store.commit_artefacts(artifact_id="abc123", stage="ui", agent="ui",
+                                        files={"ui/screens/new.jsx": "new"}, message="second")
+
+        listed = store.repo.git.ls_tree("-r", "--name-only", second.branch).splitlines()
+        assert not any(f.endswith("old.jsx") for f in listed)
+        assert any(f.endswith("new.jsx") for f in listed)

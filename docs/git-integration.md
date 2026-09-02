@@ -279,9 +279,9 @@ organisation there are no teams for it to reference and no protection rule requi
 review. On a personal account the gate is advisory: the right people are asked, and nothing
 stops the branch being pushed anyway.
 
-**GATE 2 and GATE 3 do not block.** The UI and work-item pull requests open and are
-reviewable, but the state machine has no `ui_review` stage — approval is recorded rather
-than required. See [agents.md §6](agents.md#6-gate-summary).
+**GATE 3 does not block.** The work-item pull request opens and is reviewable, but nothing
+waits for it. GATE 2 does block: the decomposition does not run until the VP approves the
+screens. See [agents.md §6](agents.md#6-gate-summary).
 
 **Agents 5–8 are not integrated.** Code generation writes to its own repositories and has
 no connection to this governance repo.

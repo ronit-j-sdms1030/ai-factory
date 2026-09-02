@@ -95,8 +95,10 @@ class TestPendingPhase:
         artifact = {"currentStage": "approved", "detailedReport": {"objective": "x"}}
         assert routes._pending_phase(artifact, None) == "ui"
 
-    def test_approved_with_screens_schedules_the_split(self):
-        artifact = {"currentStage": "approved", "detailedReport": {"objective": "x"}, "ui": {"screens": []}}
+    def test_approved_with_approved_screens_schedules_the_split(self):
+        """Screens alone are not enough — GATE 2 has to have cleared."""
+        artifact = {"currentStage": "approved", "detailedReport": {"objective": "x"},
+                    "ui": {"screens": []}, "uiApprovedAt": "now"}
         assert routes._pending_phase(artifact, None) == "workitems"
 
     def test_nothing_to_do_schedules_no_job(self):
@@ -105,6 +107,7 @@ class TestPendingPhase:
             "currentStage": "approved",
             "detailedReport": {"objective": "x"},
             "ui": {"screens": []},
+            "uiApprovedAt": "now",
             "teamReports": [{"department": "Development"}],
         }
         assert routes._pending_phase(artifact, None) is None

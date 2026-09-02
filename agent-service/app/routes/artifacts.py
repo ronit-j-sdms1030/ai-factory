@@ -31,7 +31,7 @@ from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
 from ..publish import publish
 from ..ui_preview import CSP as PREVIEW_CSP
 from ..ui_preview import build_preview
-from ..state_machine import TransitionError, transition
+from ..state_machine import TransitionError, push_history, transition
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/artifacts", tags=["artifacts"])
@@ -46,6 +46,7 @@ KNOWN_ACTIONS = {
     "proposeChanges", "acceptChanges", "editFsd", "sendFsdToClient",
     "approveFsd", "giveFinalFsdApproval", "regenerateFsd",
     "regenerateTeamSplit", "regenerateUi", "requestTeamRevision",
+    "approveUi", "requestUiChanges",
 }
 
 
@@ -113,6 +114,20 @@ def _visible_team_reports(artifact: dict[str, Any], actor: dict[str, Any]) -> li
     ]
 
 
+# GATE 2. VP reviews the screens, per agents.md §3 — SoW 11.0 names "UI/UX and
+# Business Analysts", but no such tier exists in the hierarchy, and VP is the
+# closest existing authority.
+UI_APPROVER_TIERS = ("vp",)
+
+
+def _may_approve_ui(artifact: dict[str, Any], actor: dict[str, Any]) -> bool:
+    if actor.get("isClient") or artifact.get("currentStage") != "approved":
+        return False
+    if not (artifact.get("ui") or {}).get("screens"):
+        return False
+    return actor.get("tierId") in UI_APPROVER_TIERS
+
+
 def _ui_summary(ui: dict[str, Any] | None) -> dict[str, Any] | None:
     """The screens without their source.
 
@@ -134,6 +149,38 @@ def _ui_summary(ui: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _may_edit_ui(artifact: dict[str, Any], actor: dict[str, Any]) -> bool:
+    """Who may change a screen: the VP who gates it, or the originator.
+
+    Team leads can view the screens but not rewrite them — a TL editing the
+    interface after the split would change what the other departments were
+    scoped against, without passing back through the gate.
+    """
+    if actor.get("isClient") or artifact.get("currentStage") != "approved":
+        return False
+    if not (artifact.get("ui") or {}).get("screens"):
+        return False
+    return (
+        actor.get("tierId") in UI_APPROVER_TIERS
+        or (artifact.get("originator") or {}).get("userId") == actor["id"]
+    )
+
+
+def _ui_gate(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
+    """GATE 2's state, for the frontend to render buttons from."""
+    return {
+        "approvedAt": artifact.get("uiApprovedAt"),
+        "approvedBy": artifact.get("uiApprovedBy"),
+        "canApprove": _may_approve_ui(artifact, actor),
+        "canEdit": _may_edit_ui(artifact, actor),
+        "blocksSplit": bool(
+            artifact.get("currentStage") == "approved"
+            and (artifact.get("ui") or {}).get("screens")
+            and not artifact.get("uiApprovedAt")
+        ),
+    }
+
+
 def _redact(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
     out = dict(artifact)
     out["_id"] = str(artifact["_id"])
@@ -147,6 +194,7 @@ def _redact(artifact: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
     )
 
     out["ui"] = _ui_summary(artifact.get("ui"))
+    out["uiGate"] = _ui_gate(artifact, actor)
     out["teamReports"] = _visible_team_reports(artifact, actor)
     out["teamReportEditHistory"] = (
         [e for e in artifact.get("teamReportEditHistory") or [] if e.get("department") == actor.get("department")]
@@ -217,15 +265,16 @@ def _maybe_generate_report_and_split(
             errors["detailedReportError"] = str(exc)
 
     if artifact.get("currentStage") == "approved":
-        # Screens before work items: the decomposition is scoped against the
-        # approved interface, per architecture.md §2.3. SoW 12.0 additionally
-        # requires UI approval to *block* code generation — that gate does not
-        # exist in this state machine yet, so the UI is produced and published
-        # for review but does not currently hold anything back.
+        # Screens before work items, and the screens are a gate. SoW 12.0:
+        # "code generation for the affected scope cannot start until UI
+        # approval is recorded." Generating the split here regardless would
+        # make that approval decorative — the packages a team lead executes
+        # against would already exist, scoped to an interface nobody had
+        # signed off.
         if not artifact.get("ui"):
             progress("ui")
             errors.update(_maybe_generate_ui(artifact))
-        if not artifact.get("teamReports"):
+        elif artifact.get("uiApprovedAt") and not artifact.get("teamReports"):
             progress("workitems")
             errors.update(_maybe_split(artifact))
 
@@ -303,7 +352,10 @@ def _pending_phase(artifact: dict[str, Any], step_acted_on: dict | None) -> str 
     if artifact.get("currentStage") == "approved":
         if not artifact.get("ui"):
             return "ui"
-        if not artifact.get("teamReports"):
+        # Mirrors the gate in _maybe_generate_report_and_split. If these two
+        # disagree, a job starts, reports "Splitting into work items", and
+        # generates nothing — a spinner for work the gate forbids.
+        if artifact.get("uiApprovedAt") and not artifact.get("teamReports"):
             return "workitems"
     return None
 
@@ -600,6 +652,67 @@ class ActionBody(BaseModel):
     finalApproverTier: str | None = None
 
 
+@router.get("/{artifact_id}/ui/screens")
+def ui_screens(artifact_id: str, actor: dict = Depends(current_user)):
+    """The screens *with* their source, for the editor.
+
+    Separate from the list endpoint, which strips source deliberately — a
+    design is ~300KB of React and the list returns every visible artifact.
+    Here it is asked for explicitly, for one requirement, by someone about to
+    edit it.
+    """
+    artifact = _load(artifact_id)
+    if not _may_edit_ui(artifact, actor):
+        raise HTTPException(status_code=403, detail="The screens are not open for your edits right now")
+    return {"screens": (artifact.get("ui") or {}).get("screens") or []}
+
+
+class ScreenEdit(BaseModel):
+    name: str
+    source: str
+
+
+@router.put("/{artifact_id}/ui/screen")
+def edit_ui_screen(artifact_id: str, body: ScreenEdit, actor: dict = Depends(current_user)):
+    """Replace one screen's source by hand.
+
+    A reviewer who spots one broken screen should not have to regenerate the
+    whole design and gamble the eleven that were fine — a rerun produces a
+    different set of screens, not the same set with one fixed.
+
+    Editing withdraws any existing approval: the VP signed off the screens as
+    they were, and silently carrying that approval onto changed source is
+    exactly the kind of thing the gate exists to prevent.
+    """
+    artifact = _load(artifact_id)
+    if not _may_edit_ui(artifact, actor):
+        raise HTTPException(status_code=403, detail="The screens are not open for your edits right now")
+
+    screens = (artifact.get("ui") or {}).get("screens") or []
+    index = next((i for i, s in enumerate(screens) if s.get("name") == body.name), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail=f"No screen called {body.name}")
+
+    screens[index] = {**screens[index], "source": body.source}
+    artifact["ui"]["screens"] = screens
+    artifact["uiEditHistory"] = [
+        *(artifact.get("uiEditHistory") or []),
+        {"screen": body.name, "byUserId": actor["id"], "at": _utcnow()},
+    ]
+    artifact["uiApprovedAt"] = None
+    artifact["uiApprovedBy"] = None
+    artifact["updatedAt"] = _utcnow()
+
+    errors: dict[str, str] = {}
+    _record_publish(artifact, errors, "ui",
+                    publish(artifact=artifact, stage="ui",
+                            build_files=lambda store: store.ui_files(
+                                artifact["ui"], artifact.get("title") or "Untitled"),
+                            body_extra=_clarifications_summary(artifact["ui"])))
+    _save(artifact)
+    return _respond(artifact, actor, errors)
+
+
 @router.get("/{artifact_id}/ui/preview")
 def ui_preview(artifact_id: str, actor: dict = Depends(current_user)):
     """The generated screens, assembled into one runnable page.
@@ -630,6 +743,46 @@ def artifact_jobs(artifact_id: str, actor: dict = Depends(current_user)):
 
 
 _REGENERATION_KINDS = {"regenerateFsd": "brd", "regenerateUi": "ui", "regenerateTeamSplit": "workitems"}
+
+
+def _act_on_ui_gate(artifact: dict[str, Any], action: str, actor: dict[str, Any], comment: str) -> dict:
+    """Approve the screens, or send them back for changes.
+
+    Approving is what releases the decomposition: until it happens the split
+    does not run, so the packages a team lead executes against cannot exist
+    for an interface nobody signed off. That is SoW 12.0's requirement that
+    "code generation for the affected scope cannot start until UI approval is
+    recorded" — enforced rather than merely recorded.
+    """
+    if not _may_approve_ui(artifact, actor):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the VP can decide on the generated screens, and only once they exist",
+        )
+
+    if action == "requestUiChanges":
+        # The screens stay in place. They are the thing being objected to, and
+        # deleting them would leave the reviewer describing a change to
+        # something nobody can look at any more.
+        artifact["uiApprovedAt"] = None
+        artifact["uiApprovedBy"] = None
+        artifact["uiChangesRequested"] = {
+            "at": _utcnow(), "byUserId": actor["id"], "comment": comment,
+        }
+        push_history(artifact, actor_from(actor), "requestUiChanges", comment, artifact["currentStage"])
+        artifact["updatedAt"] = _utcnow()
+        _save(artifact)
+        return _respond(artifact, actor)
+
+    artifact["uiApprovedAt"] = _utcnow()
+    artifact["uiApprovedBy"] = {"userId": actor["id"], "tierId": actor.get("tierId")}
+    artifact["uiChangesRequested"] = None
+    push_history(artifact, actor_from(actor), "approveUi", comment, artifact["currentStage"])
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+
+    # Approval is what releases the split, so it starts here.
+    return _respond(artifact, actor, job_id=_start_generation(artifact, None))
 
 
 def _start_regeneration(artifact: dict[str, Any], action: str) -> str:
@@ -911,6 +1064,14 @@ def act(artifact_id: str, action: str, body: ActionBody | None = None, actor: di
 
     if action in ("regenerateFsd", "regenerateTeamSplit", "regenerateUi"):
         return _respond(artifact, actor, job_id=_start_regeneration(artifact, action))
+
+    # GATE 2 is not a stage in the FSD chain, so it is settled here rather than
+    # in the state machine. That chain governs who signs off the requirement
+    # and its FSD; the screens are a separate object with a separate reviewer,
+    # and threading them through the chain would change what every existing
+    # stage means.
+    if action in ("approveUi", "requestUiChanges"):
+        return _act_on_ui_gate(artifact, action, actor, body.comment or "")
 
     # Only an approval clears a gate. Without this guard every action was
     # treated as having cleared whatever step the chain happened to be sitting

@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -251,6 +252,15 @@ class GitStore:
         head.checkout()
 
         root = self.requirement_dir(artifact_id)
+        # Clear the folder first, so the commit is a snapshot of this stage
+        # rather than an append log. A branch holds one stage of one
+        # requirement, so nothing else lives here — and regenerating without
+        # this left every earlier attempt in place: one UI branch accumulated
+        # 29 screen files across five runs, including the same screen under
+        # two different slugs after its name was normalised. A reviewer could
+        # not tell which of them was the current design.
+        if root.exists():
+            shutil.rmtree(root)
         root.mkdir(parents=True, exist_ok=True)
         root_resolved = root.resolve()
 
@@ -268,7 +278,12 @@ class GitStore:
             target.write_text(content if isinstance(content, str) else str(content), encoding="utf-8")
             written.append(str(target.relative_to(self.path)))
 
-        self.repo.index.add(written)
+        # Stage the whole requirement folder, not just what was written.
+        # index.add records additions only, so clearing the folder removed the
+        # stale files from the working tree while the commit kept every one of
+        # them — the branch still listed 32 screens from five runs after a run
+        # that produced 14. Staging the path picks up the deletions too.
+        self.repo.git.add("--all", "--", str(root.relative_to(self.path)))
         commit = self.repo.index.commit(message, author=actor, committer=actor)
         return CommitResult(branch=branch, sha=commit.hexsha, files=sorted(written))
 

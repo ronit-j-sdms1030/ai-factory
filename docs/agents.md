@@ -72,7 +72,11 @@ Requirement-flow diagrams live in [architecture.md §4](architecture.md#4-requir
 
 **Failure mode addressed.** The original single call asked for every screen's source at once under a 14,000-token ceiling. A nine-page BRD produces ~44,000 tokens of React — three times the budget — so the JSON truncated mid-string and failed as a parse error rather than a short answer, losing the entire design rather than the last screen. Measured after the split: 9 screens, 174,763 characters, 292s. A screen that still fails now costs one screen and is reported to the reviewer as a clarification, never dropped silently.
 
-**Position is the point.** SoW 12.0 states *"code generation for the affected scope cannot start until UI approval is recorded."* The JavaScript pipeline inverted this — its nearest artefact was produced *by* code generation, so the thing meant to gate it depended on it. The Python pipeline runs the agent in the correct position, but the blocking gate itself is still absent: there is no `ui_review` stage, so approval is recorded rather than required.
+**Position is the point, and the gate now blocks.** SoW 12.0 states *"code generation for the affected scope cannot start until UI approval is recorded."* The JavaScript pipeline inverted this — its nearest artefact was produced *by* code generation, so the thing meant to gate it depended on it. The Python pipeline runs the agent in the correct position, and the decomposition does not run until the VP approves the screens: `uiApprovedAt` releases it, and until then "Generate TL packages" is withheld. Generating the split regardless would have made the approval decorative, since the packages a team lead executes against would already exist, scoped to an interface nobody had signed off.
+
+Editing a screen withdraws that approval. The VP signed off the screens as they were, and carrying the approval silently onto changed source is the thing the gate exists to prevent.
+
+**Not a new stage, deliberately.** The gate lives on the artifact (`uiApprovedAt`, `uiApprovedBy`) rather than in `currentStage`. The FSD chain's stages decide who signs off the requirement and its FSD; the screens are a separate object with a separate reviewer, and threading them through the chain would change what every existing stage means — including `approved`, which code generation keys off.
 
 **Reviewer.** VP. SoW 11.0 names "UI/UX and Business Analysts", but no such tier exists in `hierarchy.config.js` — the tiers are md, ceo, vp, pm and tl. VP is the closest existing authority and is what the code, CODEOWNERS and webhook all use. Introducing dedicated reviewer roles would be a hierarchy change to agree with the client.
 
@@ -122,7 +126,7 @@ They live there rather than here to keep a single source of truth: the diagrams 
 | Gate | Approver | Object | Status |
 |---|---|---|---|
 | GATE 1 | Per approval chain | BRD / requirement | ✅ Built |
-| GATE 2 | VP | UI screens | ⚠️ Agent runs and publishes; approval does not yet block |
+| GATE 2 | VP | UI screens | ✅ Built — approval releases the decomposition |
 | GATE 3 | VP | Work-item dependency graph | ❌ Not built — approval currently implicit in BRD approval |
 | GATE 4 | Owning TL | Department slice | ⚠️ Partial — TLs can edit and request revision, but no explicit approve-before-codegen gate |
 
