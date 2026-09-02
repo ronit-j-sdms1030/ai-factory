@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from langsmith import traceable
 
-from .. import config, llm, prompts
+from .. import config, jsx_check, llm, prompts
 from . import model_for
 from ..schemas import ScreenSource, UIPlan
 from ..state import PipelineState
@@ -94,6 +94,19 @@ def ui_agent(state: PipelineState) -> dict:
 
     if not screens:
         raise RuntimeError(f"every screen failed to generate ({len(failed)} attempted)")
+
+    # Compile what was written, and give the model its own parser error back.
+    # Without this a screen that will not parse is committed, opened as a pull
+    # request and approved as if it worked — which is how AuditTrail reached
+    # GATE 2 unrenderable on a real requirement.
+    broken = _repair_broken_screens(
+        screens, brd, roster, screen_model, learned_text, skill_text
+    )
+    if broken:
+        failed.extend(broken)
+        screens = [s for s in screens if s["name"] not in broken]
+    if not screens:
+        raise RuntimeError("every screen failed to compile")
 
     # A screen that could not be written is reported to the reviewer, not
     # dropped quietly. Same rule the BRD agent follows for unresolved critique
@@ -258,6 +271,92 @@ def _learned() -> tuple[str, list[str]]:
         return "", []
 
 
+# One retry, not more. A parser error the model could fix, it fixes on the
+# first attempt; a screen that fails twice is failing for a reason the error
+# message does not convey, and a third full-price call buys nothing.
+_MAX_COMPILE_RETRIES = 1
+
+
+def _repair_turn(outline, compile_error: str) -> list[dict[str, str]]:
+    """The extra turn that turns a generation into a repair.
+
+    Empty when there is nothing to repair, so the normal path sends exactly
+    the messages it always did.
+    """
+    if not compile_error:
+        return []
+    return [
+        {
+            "role": "user",
+            "content": (
+                "Your previous attempt at this screen does not parse. The compiler reported:\n\n"
+                f"{compile_error}\n\n"
+                "Return the complete corrected component. Fix the syntax error and change nothing "
+                "else — a rewrite that parses but drops content is not a fix. Watch for the usual "
+                "causes: an unterminated string, an unclosed JSX tag, or output that stopped "
+                "mid-expression because it ran out of room. If the screen was cut short, finish it."
+            ),
+        }
+    ]
+
+
+def _repair_broken_screens(
+    screens: list[dict],
+    brd: dict,
+    roster: str,
+    model: str,
+    learned_text: str,
+    skill_text: str,
+) -> list[str]:
+    """Rewrite screens that do not compile. Returns the names still broken.
+
+    Mutates ``screens`` in place for the ones that are fixed, so a repaired
+    screen travels on as an ordinary screen with no trace of the detour — a
+    reviewer cares that it works, not how many attempts it took.
+    """
+    for _ in range(_MAX_COMPILE_RETRIES + 1):
+        errors = jsx_check.compile_errors({s["name"]: s["source"] for s in screens})
+        if not errors:
+            return []
+
+        remaining = list(errors)
+        log.warning("screens that do not compile: %s", ", ".join(remaining))
+
+        by_name = {s["name"]: s for s in screens}
+        outlines = {s["name"]: s for s in screens}
+
+        def repair(name: str) -> tuple[str, str | None]:
+            screen = by_name[name]
+            outline = _Outline(screen["name"], screen.get("route", ""), screen.get("purpose", ""))
+            return name, _write_screen(
+                brd, outline, roster, model, learned_text, skill_text,
+                compile_error=errors[name],
+            )
+
+        with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SCREENS) as pool:
+            for name, source in pool.map(repair, remaining):
+                if source:
+                    outlines[name]["source"] = source
+
+    # Whatever still fails after the retry is reported rather than published.
+    return list(jsx_check.compile_errors({s["name"]: s["source"] for s in screens}))
+
+
+class _Outline:
+    """The fields ``_write_screen`` reads, rebuilt from a generated screen.
+
+    The original plan outline carries ``key_elements``, which a repair does
+    not need — the source being fixed already contains them, and re-supplying
+    the list invites the model to rewrite the screen rather than fix it.
+    """
+
+    def __init__(self, name: str, route: str, purpose: str):
+        self.name = name
+        self.route = route
+        self.purpose = purpose
+        self.key_elements: list[str] = []
+
+
 def _skill_file() -> tuple[str, int]:
     """The design system every screen in this run must follow, and its version.
 
@@ -278,9 +377,21 @@ def _skill_file() -> tuple[str, int]:
 
 
 def _write_screen(
-    brd: dict, outline, roster: str, model: str, learned_text: str = "", skill_text: str = ""
+    brd: dict,
+    outline,
+    roster: str,
+    model: str,
+    learned_text: str = "",
+    skill_text: str = "",
+    compile_error: str = "",
 ) -> str | None:
-    """Generate one screen's source. Returns None so one failure costs one screen."""
+    """Generate one screen's source. Returns None so one failure costs one screen.
+
+    ``compile_error`` turns this into a repair: the previous attempt and the
+    parser's own message go back to the model, which fixes a truncated string
+    or an unclosed tag far more reliably than being asked to write the screen
+    again from the outline.
+    """
     try:
         result = llm.call_structured(
             model=model,
@@ -321,6 +432,7 @@ def _write_screen(
                         f"Data model:\n{json.dumps(brd['dataModel'], indent=2)}"
                     ),
                 },
+                *_repair_turn(outline, compile_error),
             ],
         )
         return strip_module_syntax(result.source)

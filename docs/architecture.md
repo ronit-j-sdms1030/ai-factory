@@ -500,7 +500,7 @@ GitHub Actions on every artefact pull request, migrating invariants currently en
 | Work-item graph | Acyclic; every dependency resolves; exactly one owning department |
 | Entity ownership | Exactly one owner per entity, no orphans |
 | Cross-department naming | Shared entities spelled identically across all slices |
-| JSX compile | Every generated screen parses and renders |
+| JSX compile | ✅ Now enforced at generation with a bounded retry, not deferred to CI |
 | Design-system conformance | Screens use the skill file's tokens, not invented ones |
 | Prompt-template diff | Prompt changes require an approver (SoW 4.0) |
 

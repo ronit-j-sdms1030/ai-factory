@@ -127,7 +127,10 @@ flowchart TD
     L[Learned rules<br/>active house style] --> D
     R[Roster of sibling screens] --> D
     D --> E[Strip imports and exports]
-    E --> F{Any screen failed?}
+    E --> C2[Compile with Babel]
+    C2 -->|fails| RT[Retry once<br/>parser error fed back]
+    RT --> C2
+    C2 --> F{Any screen failed?}
     F -->|yes| G[Named in clarifications<br/>never dropped silently]
     F -->|all failed| X[Raise]
     G --> H[Screens for GATE 2]
@@ -156,7 +159,9 @@ Editing a screen withdraws that approval. The VP signed off the screens as they 
 
 It also settles a question that used to have two different answers. The skill file mandates Tailwind utility classes, and the preview loads Tailwind — previously the models chose Tailwind on their own initiative while the preview loaded no CSS, so ten of fourteen screens on a real requirement rendered as unstyled HTML while the pipeline reported success.
 
-**Known gap.** ❌ Nothing verifies a screen compiles or renders before it reaches GATE 2 — a screen that parses as JSON and fails at runtime is published as if it worked. One of the fourteen WorkPulse screens (`AuditTrail`) is in exactly that state. This is the subject of the JSX-compile CI check in [architecture.md §10](architecture.md#10-ci-checks-).
+**Compiled before publication, and repaired once.** Every screen is parsed with Babel — the same `classic` runtime the preview uses, so a screen that passes here is one the preview can run. A screen that fails goes back to the model with the parser's own message and one bounded retry; anything still broken is reported as a clarification rather than published.
+
+This closed a real defect. `AuditTrail`, one of the fourteen WorkPulse screens, carried a stray `n` at the start of line 38 — a corrupted `\n` escape — and had been committed, opened as a pull request and reviewed as if it worked. The check flags it and the other thirteen pass, so it is specific enough to be trusted. A missing checker reports nothing broken rather than everything, because failing every screen on a machine without node would be worse than the unchecked behaviour it replaces.
 
 ### 3.1 The review and learning loop
 
