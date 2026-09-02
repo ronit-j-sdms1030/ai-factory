@@ -40,7 +40,7 @@ All four agents are nodes on one compiled LangGraph (`app/pipeline_graph.py`), c
 | **Input** | Originator tier, conversation history |
 | **Output** | Refined transcript, then a structured requirement document |
 | **Gate it feeds** | Gate 0 / GATE 1 |
-| **Implementation** | `run_chat_turn`, `finalize_requirement`, `intake_agent` |
+| **Implementation** | `run_chat_turn`, `finalize_requirement`, driven by `pipeline_graph.intake_turn` |
 | **Default models** | `claude-haiku-4.5` for turns, `gpt-4o-mini` for structuring |
 
 ```mermaid
@@ -78,7 +78,7 @@ flowchart TD
 | **Output** | Objective, architecture, architecture diagram, tech stack, user flow, data model, ER diagram, page behaviour, security design, deployment/operations, timeline, assumptions, open questions |
 | **Gate it feeds** | GATE 1 |
 | **Implementation** | `brd_agent` → `_generate`, `_critique`, `_patch` |
-| **Default model** | `deepseek-v3.2` |
+| **Default model** | `deepseek-v3.2:nitro` |
 
 ```mermaid
 flowchart TD
@@ -115,7 +115,7 @@ flowchart TD
 | **Input** | Approved BRD, design-system skill file, active learned rules |
 | **Output** | Self-contained React screens plus clarifications |
 | **Gate it feeds** | GATE 2 |
-| **Implementation** | `ui_agent` → `_plan_screens`, `_fill_blanks`, `_write_screen`, `strip_module_syntax` |
+| **Implementation** | `ui_agent` → `_plan_screens`, `_fill_blanks`, `_write_screen`, `strip_module_syntax`, `_repair_broken_screens` |
 | **Default models** | `deepseek-v3.2` to plan, `qwen3-coder` to write |
 
 ```mermaid
@@ -153,11 +153,11 @@ Editing a screen withdraws that approval. The VP signed off the screens as they 
 
 **Not a new stage, deliberately.** The gate lives on the artifact (`uiApprovedAt`, `uiApprovedBy`) rather than in `currentStage`. The FSD chain's stages decide who signs off the requirement and its FSD; the screens are a separate object with a separate reviewer, and threading them through the chain would change what every existing stage means — including `approved`, which code generation keys off.
 
-**Reviewer.** VP. SoW 11.0 names "UI/UX and Business Analysts", but no such tier exists — the tiers are md, ceo, vp, pm and tl. VP is the closest existing authority and is what the code, CODEOWNERS and webhook all use. Introducing dedicated reviewer roles would be a hierarchy change to agree with the client.
+**Reviewer.** VP. SoW 11.0 names "UI/UX and Business Analysts", but no such tier exists — the tiers are md, ceo, vp, pm and tl. VP is the closest existing authority and is what the publishing code, the intended CODEOWNERS mapping and the webhook all use. Introducing dedicated reviewer roles would be a hierarchy change to agree with the client.
 
 **Constrained by a skill file, per SoW 11.0.** The design system — styling mechanism, colour tokens, spacing, components and accessibility rules — is a stored, versioned artefact rather than prose in the prompt. It is read once per generation, injected into every screen's system prompt and into the screen editor, and committed to Git as `ui/design-system.skill.md` beside the screens it governed, so a reviewer approving those screens can read the exact rules they were written against even after the stored file moves on. Editable by MD, CEO or VP; every save keeps the previous text as a revision with the editor's identity, which is what SoW 4.0 requires of a skill file.
 
-It also settles a question that used to have two different answers. The skill file mandates Tailwind utility classes, and the preview loads Tailwind — previously the models chose Tailwind on their own initiative while the preview loaded no CSS, so ten of fourteen screens on a real requirement rendered as unstyled HTML while the pipeline reported success.
+It also settles a question that used to have two different answers. The skill file mandates Tailwind utility classes, and the preview loads Tailwind — previously the models chose Tailwind on their own initiative while the preview loaded no CSS, so nine of the fourteen screens on a real requirement rendered as unstyled HTML while the pipeline reported success.
 
 **Compiled before publication, and repaired once.** Every screen is parsed with Babel — the same `classic` runtime the preview uses, so a screen that passes here is one the preview can run. A screen that fails goes back to the model with the parser's own message and one bounded retry; anything still broken is reported as a clarification rather than published.
 
@@ -196,8 +196,8 @@ Active rules are read once per generation and injected into every screen's promp
 | **Input** | Approved BRD, after approved UI |
 | **Output** | Work items with dependency edges and owning department; per-department packages carrying objective, architecture, tech stack, phased plan, data model with ownership flags, and dependencies |
 | **Gates it feeds** | GATE 3 (VP approves the graph), GATE 4 (each TL approves their slice) |
-| **Implementation** | `decomposition_agent` + `invariants.normalize_entity_ownership` |
-| **Default model** | `gpt-4o` |
+| **Implementation** | `decomposition_agent` + `invariants.normalize_entity_ownership`, `repair_dependencies` |
+| **Default model** | `deepseek-v3.2` |
 
 ```mermaid
 flowchart TD

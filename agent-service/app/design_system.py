@@ -15,9 +15,9 @@ instead of the next deploy.
 
 **It decides the styling mechanism, and the preview follows it.** This is the
 part that was silently broken: the models emitted Tailwind utility classes on
-their own initiative, while the preview page loaded no CSS at all, so ten of
-fourteen screens on a real requirement rendered as unstyled HTML and nobody
-noticed. Naming the mechanism in one place — read by both the agent writing
+their own initiative, while the preview page loaded no CSS at all, so nine of
+the fourteen screens on a real requirement rendered as unstyled HTML and
+nobody noticed. Naming the mechanism in one place — read by both the agent writing
 the screen and the page rendering it — is what stops the two disagreeing.
 
 The default below is deliberately a *starting* design system rather than an

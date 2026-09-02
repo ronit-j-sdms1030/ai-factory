@@ -56,7 +56,7 @@ def _slug(value: str) -> str:
     return cleaned or "unnamed"
 
 
-def _prompt_files(agent: str) -> dict[str, str]:
+def _prompt_files(agent: str, folder: str | None = None) -> dict[str, str]:
     """The prompt fragments this agent ran with, as a committable document.
 
     Written beside the artefact rather than only referenced by version, so a
@@ -75,7 +75,10 @@ def _prompt_files(agent: str) -> dict[str, str]:
         body = as_markdown(agent)
     except Exception:  # noqa: BLE001
         return {}
-    return {f"{agent}/prompts.md": body} if body else {}
+    # The folder is the *stage's*, not the agent's: the decomposition agent
+    # writes its artefacts under workitems/, and dropping its prompts into a
+    # sibling decomposition/ folder would scatter one stage across two.
+    return {f"{folder or agent}/prompts.md": body} if body else {}
 
 
 @dataclass
@@ -238,7 +241,7 @@ class GitStore:
         VP, each package by its owning team lead. One file per reviewer keeps
         those gates independent.
         """
-        files = _prompt_files("decomposition")
+        files = _prompt_files("decomposition", folder="workitems")
         files.update({
             "workitems/graph.json": json.dumps(
                 {

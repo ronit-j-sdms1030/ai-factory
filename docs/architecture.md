@@ -84,7 +84,7 @@ intake ⏸(loop) → finalize → gate_requirement ⏸
   → brd → gate_brd ⏸ → ui → gate_ui ⏸ → workitems → END
 ```
 
-Neither the chat route nor `_run_generation` decides what happens next any more; both ask the graph to advance.
+Neither the chat route nor `_maybe_generate_report_and_split` decides what happens next any more; both ask the graph to advance one step.
 
 **Intake is a loop, and `interrupt()` is the node's first statement.** A resumed node re-runs from the top, so a model call placed above the interrupt would fire twice per message — billing double and appending the reply twice. Taking the message first means everything below it runs exactly once per turn.
 
@@ -96,7 +96,7 @@ Neither the chat route nor `_run_generation` decides what happens next any more;
 
 **Mongo stays authoritative.** The checkpoint is an accelerator. A thread that is missing, stale, or parked at the wrong phase falls back to running the node directly against the artifact — the same node functions, so behaviour cannot drift; what is skipped is checkpointing, not the work. If the checkpointer cannot be constructed at all, generation degrades to unresumable rather than failing: `MongoDBSaver` builds indexes on construction and so needs privileges the rest of the service does not, and a missing optimisation must not become an outage of the pipeline's main job.
 
-**There is one graph, and it is the one that runs.** An earlier `app/graph.py` declared the whole pipeline — including the approval gates — and executed none of it, reachable only through `langgraph.json` while a hand-written chain did the real sequencing. It has been deleted rather than left as a second, more impressive-looking drawing for a reader to find first. `langgraph.json` exposes `generation` and nothing else.
+**There is one graph, and it is the one that runs.** An earlier `app/graph.py` declared the whole pipeline — including the approval gates — and executed none of it, reachable only through `langgraph.json` while a hand-written chain did the real sequencing. It has been deleted rather than left as a second, more impressive-looking drawing for a reader to find first. `langgraph.json` exposes `pipeline`, pointing at the graph that runs, and nothing else.
 
 ---
 
@@ -227,7 +227,7 @@ flowchart TD
 
 The two source documents and the build disagree in three places. Each is resolved deliberately.
 
-### 4.1 Departments vs dependency-ordered work items ⚠️
+### 4.1 Departments vs dependency-ordered work items ✅
 
 Proposal §2.3 and D3 specify "scoped, dependency-ordered work items". Neither document mentions departments or team leads. The build decomposes into five fixed departments — QA, AI, Development, DevOps, Sales & Marketing — a structure deriving from Stark Digital's own delivery pod in Proposal §9, which describes engagement staffing, not a decomposition model.
 
@@ -307,17 +307,22 @@ There is a genuine case for a separate repository for **generated application co
 
 ```
 ai-factory-requirements/
-├── prompts/                                versioned prompt templates (SoW 4.0)
 └── requirements/<slug>/
     ├── requirement.md                      agent 1 — transcript + structured summary
     ├── brd/brd.json                        agent 2
     ├── brd/diagrams/*.mmd                  architecture and ER diagrams, split out
+    ├── brd/prompts.md                      the prompt fragments this BRD was written against
     ├── ui/screens/*.jsx                    agent 3 — one file per screen
     ├── ui/preview.html                     the screens assembled into one runnable page
     ├── ui/clarifications.md                what the UI agent could not resolve alone
+    ├── ui/design-system.skill.md           the skill file these screens were written against
+    ├── ui/prompts.md
     ├── workitems/graph.json                agent 4 — work items + edges
+    ├── workitems/prompts.md
     └── workitems/<dept>/package.json       one per department
 ```
+
+Prompts and the skill file are committed **beside the artefact they governed** rather than once at the repository root. A root copy would only ever hold the current text, so a reviewer opening an approved BRD from six weeks ago would read instructions that had since changed. Each stage carries its own.
 
 **The slug is readable and stable.** `req/6a968da2ee951e14aa09ae1a/brd` identifies nothing in a branch list, so the folder pairs the title with a short id suffix: `starklogix-warehouse-and-logistics-6a968da2`. It is computed once and stored on the artifact as `repoSlug`, never recomputed — the FSD edit chat can rename a requirement mid-pipeline, and a folder that moved with the title would strand every artefact already committed under the old name.
 
@@ -364,7 +369,6 @@ Two mechanisms resolve tiers to accounts, because only one works everywhere.
 /requirements/*/ui/                     @org/tier-vp
 /requirements/*/workitems/graph.json    @org/tier-vp
 /requirements/*/workitems/<dept>/       @org/tl-<dept>
-/prompts/                               @org/tier-vp
 ```
 
 **Individual users** are the fallback. Teams require a GitHub *organisation*; on a personal account no team can exist, and requesting one silently reviews nothing. Naming humans directly still puts the right people on the pull request — it just cannot be *enforced* by branch protection. Falling back is deliberate: a gate nobody is asked to review is worse than one enforced only by convention, because the first looks fine and quietly waits forever.
@@ -411,7 +415,7 @@ Adopting Git as the artefact backbone closes, without bespoke code: artefact ver
 
 **Nothing merges to `main`.** Approving a pull request advances state in Mongo but does not merge the branch, so `main` holds only its README. The complete picture of a requirement exists spread across four branches and is never assembled anywhere. Git is currently an append-only record of *proposals*, not of accepted decisions. Merging on approval would make `main` the accumulated record of what the organisation actually agreed to — **this is the most significant gap in the integration.**
 
-**Branch protection is not configured.** CODEOWNERS is generated, but without a GitHub organisation there are no teams for it to reference and no protection rule requiring their review. On a personal account the gate is advisory.
+**Branch protection is not configured.** The mapping above is the intended CODEOWNERS layout, not a file the pipeline writes — without a GitHub organisation there are no teams for it to reference and no protection rule requiring their review, so reviewers are requested individually and the gate is advisory.
 
 **Agents 5–8 are not integrated.** Code generation writes to its own repositories with no connection to this governance repo.
 
@@ -451,7 +455,7 @@ Two stores now share one shape (`prompts.py`, `design_system.py`): a shipped def
 
 **Only tuning decisions are exposed.** Five prompt fragments are editable: BRD design rigour, the BRD critique brief, UI visual expectations, UI navigation shape, and the department integration contract. Instructions that hold a schema contract together — "return the complete component", "no imports", "fill every field" — stay in code. Those are not preferences, and a settings page that can break the parser is a worse failure than one that cannot express a preference.
 
-**Each artefact carries its provenance.** A generated BRD records the model and the prompt versions that produced it (`detailedReportProvenance`); the UI records both models, the prompt versions, the skill-file version and the learned-rule ids; the work-item split records its own. The text itself is committed beside the artefact as `<agent>/prompts.md` and `ui/design-system.skill.md`, so a reviewer reading an approved document can see the instructions it was written against without resolving a version number against a database that has since moved on.
+**Each artefact carries its provenance.** A generated BRD records the model and the prompt versions that produced it (`detailedReportProvenance`); the UI records both models, the prompt versions, the skill-file version and the learned-rule ids; the work-item split records its own. The text itself is committed beside the artefact as `<stage>/prompts.md` and `ui/design-system.skill.md`, so a reviewer reading an approved document can see the instructions it was written against without resolving a version number against a database that has since moved on.
 
 That closes two of SoW 7.0's four missing audit fields — model and prompt version — alongside the artefact version the commit SHA already supplies. Model *version* (as distinct from model id) remains open: OpenRouter does not expose a pinned build for most models.
 

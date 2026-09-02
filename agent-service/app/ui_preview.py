@@ -34,8 +34,8 @@ from typing import Any
 #
 # Tailwind is loaded because the design-system skill file mandates utility
 # classes, and without it every `className` resolved to nothing: a real
-# requirement produced fourteen screens carrying up to 394 Tailwind classes
-# each, rendering as unstyled HTML while the pipeline reported success. The
+# requirement produced nine screens carrying up to 394 Tailwind classes each,
+# rendering as unstyled HTML while the pipeline reported success. The
 # skill file and this tag are two halves of one decision — see
 # ``design_system.STYLING``.
 _CDN = "https://unpkg.com"
