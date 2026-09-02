@@ -17,6 +17,7 @@ import logging
 from langsmith import traceable
 
 from .. import config, llm
+from . import model_for
 from ..schemas import BRD, Critique
 from ..state import PipelineState
 
@@ -36,9 +37,9 @@ DESIGN RIGOUR — work through each of these before committing to any technology
 """.strip()
 
 
-def _generate(requirement: dict, transcript: str) -> BRD:
+def _generate(requirement: dict, transcript: str, model: str) -> BRD:
     return llm.call_structured(
-        model=config.DETAILED_REPORT_MODEL,
+        model=model,
         schema=BRD,
         max_tokens=10000,
         retries=0,
@@ -60,9 +61,9 @@ def _generate(requirement: dict, transcript: str) -> BRD:
     )
 
 
-def _critique(requirement: dict, brd: BRD) -> Critique:
+def _critique(requirement: dict, brd: BRD, model: str) -> Critique:
     return llm.call_structured(
-        model=config.DETAILED_REPORT_MODEL,
+        model=model,
         schema=Critique,
         max_tokens=2500,
         retries=0,
@@ -93,12 +94,12 @@ def _critique(requirement: dict, brd: BRD) -> Critique:
     )
 
 
-def _patch(requirement: dict, brd: BRD, findings: list) -> BRD:
+def _patch(requirement: dict, brd: BRD, findings: list, model: str) -> BRD:
     rendered = "\n".join(
         f"- [{f.severity}] {f.section}: {f.issue}\n  Fix: {f.recommendation}" for f in findings
     )
     return llm.call_structured(
-        model=config.DETAILED_REPORT_MODEL,
+        model=model,
         schema=BRD,
         max_tokens=10000,
         retries=1,  # a large payload occasionally comes back malformed; a resample usually differs
@@ -165,13 +166,14 @@ def brd_agent(state: PipelineState) -> dict:
         f"{m['role']}: {m['content']}" for m in cap_history(state.get("chat_history") or [])
     )
 
-    brd = _generate(requirement, transcript)
+    model = model_for(state, "brd")
+    brd = _generate(requirement, transcript, model)
 
     rounds = 0
     previous_count = float("inf")
     for _ in range(MAX_CRITIQUE_ROUNDS):
         try:
-            critique = _critique(requirement, brd)
+            critique = _critique(requirement, brd, model)
         except RuntimeError as exc:
             log.warning("critique failed, keeping current BRD: %s", exc)
             break
@@ -189,7 +191,7 @@ def brd_agent(state: PipelineState) -> dict:
         previous_count = len(actionable)
         rounds += 1
         try:
-            brd = _patch(requirement, brd, actionable)
+            brd = _patch(requirement, brd, actionable, model)
         except RuntimeError as exc:
             # A failed rewrite must degrade to "flagged for a human", never to
             # silence — the findings are real and already paid for.

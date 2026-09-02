@@ -32,7 +32,7 @@ def decomposition_agent(state: PipelineState) -> dict:
     brd = state["brd"]
 
     decomposition = llm.call_structured(
-        model=config.DECOMPOSITION_MODEL,
+        model=model_for(state, "decomposition"),
         schema=Decomposition,
         max_tokens=8000,
         retries=1,

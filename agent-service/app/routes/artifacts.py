@@ -26,6 +26,7 @@ from ..agents.edits import run_fsd_chat_edit, run_team_report_chat_edit, run_ui_
 from ..agents.intake import finalize_requirement, run_chat_turn
 from ..agents.ui import ui_agent
 from ..auth import actor_from, current_user
+from .. import config
 from ..config import TIERS, originator_label, resolve_approval_chain
 from ..edit_ops import EditPathError, apply_edit_operation, normalize_operation
 from ..publish import publish
@@ -149,6 +150,20 @@ def _ui_summary(ui: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _may_choose_models(artifact: dict[str, Any], actor: dict[str, Any]) -> bool:
+    """Who picks the model for a stage: the originator, or anyone gating it.
+
+    Not a client decision — it changes cost and quality on Stark Digital's
+    side of the engagement, and a client has no basis for the trade.
+    """
+    if actor.get("isClient"):
+        return False
+    if (artifact.get("originator") or {}).get("userId") == actor["id"]:
+        return True
+    chain = artifact.get("approvalChain") or [{}]
+    return actor.get("tierId") in (*(chain[0].get("approverTiers") or []), "vp")
+
+
 def _may_edit_ui(artifact: dict[str, Any], actor: dict[str, Any]) -> bool:
     """Who may change a screen: the VP who gates it, or the originator.
 
@@ -248,6 +263,7 @@ def _maybe_generate_report_and_split(
                 "chat_history": [
                     {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
                 ],
+                "models": artifact.get("modelOverrides") or {},
             }
             brd = brd_agent(state)["brd"]
             artifact["detailedReport"] = brd
@@ -286,7 +302,7 @@ def _maybe_generate_ui(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        ui = ui_agent({"brd": artifact["detailedReport"]})["ui"]
+        ui = ui_agent({"brd": artifact["detailedReport"], "models": artifact.get("modelOverrides") or {}})["ui"]
         artifact["ui"] = ui
         artifact["uiGeneratedAt"] = _utcnow()
         errors: dict[str, str] = {}
@@ -319,7 +335,10 @@ def _maybe_split(artifact: dict[str, Any]) -> dict:
     if not artifact.get("detailedReport"):
         return {}
     try:
-        result = decomposition_agent({"brd": artifact["detailedReport"]})["work_items"]
+        result = decomposition_agent({
+            "brd": artifact["detailedReport"],
+            "models": artifact.get("modelOverrides") or {},
+        })["work_items"]
         artifact["teamReports"] = result.get("packages", [])
         artifact["workItems"] = result.get("workItems", [])
         artifact["workItemIntegrity"] = result.get("integrity", {})
@@ -652,6 +671,64 @@ class ActionBody(BaseModel):
     finalApproverTier: str | None = None
 
 
+class ModelOverrides(BaseModel):
+    models: dict[str, str]
+
+
+@router.get("/{artifact_id}/models")
+def artifact_models(artifact_id: str, actor: dict = Depends(current_user)):
+    """Which model each stage will use for this requirement, and what else is offered."""
+    artifact = _load(artifact_id)
+    overrides = artifact.get("modelOverrides") or {}
+    return {
+        "roles": [
+            {
+                "role": role,
+                **meta,
+                "model": overrides.get(role) or config.default_model_for(role),
+                "isOverride": bool(overrides.get(role)),
+                "default": config.default_model_for(role),
+            }
+            for role, meta in config.AGENT_ROLES.items()
+        ],
+        "choices": config.model_choices(),
+        "canEdit": _may_choose_models(artifact, actor),
+    }
+
+
+@router.put("/{artifact_id}/models")
+def set_artifact_models(artifact_id: str, body: ModelOverrides, actor: dict = Depends(current_user)):
+    """Choose the model for one or more stages of this requirement.
+
+    An empty value clears the override and returns that stage to the
+    deployment default, so a choice can be undone without knowing what the
+    default happened to be.
+
+    Any id the provider router understands is accepted, not only the listed
+    choices — a model that turns out to suit a stage should be usable the day
+    it appears, not after a deploy.
+    """
+    artifact = _load(artifact_id)
+    if not _may_choose_models(artifact, actor):
+        raise HTTPException(status_code=403, detail="Only the originator or an approver can choose models")
+
+    unknown = [role for role in body.models if role not in config.AGENT_ROLES]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown stage(s): {', '.join(unknown)}")
+
+    overrides = dict(artifact.get("modelOverrides") or {})
+    for role, model in body.models.items():
+        if model.strip():
+            overrides[role] = model.strip()
+        else:
+            overrides.pop(role, None)
+
+    artifact["modelOverrides"] = overrides
+    artifact["updatedAt"] = _utcnow()
+    _save(artifact)
+    return {"modelOverrides": overrides}
+
+
 @router.get("/{artifact_id}/ui/screens")
 def ui_screens(artifact_id: str, actor: dict = Depends(current_user)):
     """The screens *with* their source, for the editor.
@@ -854,6 +931,7 @@ def _regenerate(artifact: dict[str, Any], action: str) -> dict:
                 "chat_history": [
                     {"role": m["role"], "content": m["content"]} for m in artifact.get("chatHistory") or []
                 ],
+                "models": artifact.get("modelOverrides") or {},
             }
             brd = brd_agent(state)["brd"]
             artifact["detailedReport"] = brd

@@ -199,3 +199,75 @@ def openrouter_api_key() -> str:
 
 def mongodb_uri() -> str:
     return os.environ.get("MONGODB_URI", "mongodb://127.0.0.1:27017/ai_factory")
+
+
+# ── Per-requirement model selection ──────────────────────────────────────────
+# The settings above are the defaults. A requirement can override any of them,
+# because the right model is a property of the work rather than of the
+# deployment: a small internal tool does not need the model a regulated
+# platform's BRD deserves, and this session alone moved three stages on
+# evidence. An override is stored on the artifact and read at generation time,
+# so changing it re-runs against the new model without touching config.
+AGENT_ROLES: dict[str, dict[str, str]] = {
+    "chat": {
+        "label": "Intake conversation",
+        "detail": "Asks the clarifying questions. Plain language, so a small fast model suits it.",
+    },
+    "requirement": {
+        "label": "Requirement structuring",
+        "detail": "Turns the finished conversation into the structured requirement.",
+    },
+    "brd": {
+        "label": "BRD / FSD",
+        "detail": "The largest document in the pipeline, plus its critique and patch passes.",
+    },
+    "uiPlan": {
+        "label": "Screen plan",
+        "detail": "Decides the screen set. Schema-following, not coding — two coder models have failed it.",
+    },
+    "ui": {
+        "label": "Screen source",
+        "detail": "Writes each screen's React. A code-specialised model earns its place here.",
+    },
+    "decomposition": {
+        "label": "Work-item split",
+        "detail": "The largest schema in the pipeline. Weak models drop fields or return an empty graph.",
+    },
+}
+
+
+def default_model_for(role: str) -> str:
+    return {
+        "chat": CHAT_MODEL,
+        "requirement": REPORT_MODEL,
+        "brd": DETAILED_REPORT_MODEL,
+        "uiPlan": UI_PLAN_MODEL,
+        "ui": UI_MODEL,
+        "decomposition": DECOMPOSITION_MODEL,
+    }[role]
+
+
+# Offered in the picker. Extend with MODEL_CHOICES in the environment — a
+# comma-separated list — rather than editing this, so a model that turns out
+# to suit a stage can be added without a deploy. Any id the provider router
+# understands works whether or not it is listed here.
+_BUILTIN_CHOICES = [
+    ("anthropic/claude-haiku-4.5", "Claude Haiku 4.5 — fast, strong at conversation"),
+    ("openai/gpt-4o-mini", "GPT-4o mini — cheap, reliable on small schemas"),
+    ("openai/gpt-4o", "GPT-4o — stronger on large schemas"),
+    ("deepseek/deepseek-v3.2:nitro", "DeepSeek V3.2 (nitro) — long technical documents, fastest route"),
+    ("deepseek/deepseek-v3.2", "DeepSeek V3.2 — same model, standard routing"),
+    ("qwen/qwen3-coder", "Qwen3 Coder — code-specialised, best measured for screens"),
+    ("qwen/qwen3-coder-30b-a3b-instruct", "Qwen3 Coder 30B — cheapest code-specialised option"),
+    ("groq/openai/gpt-oss-120b", "GPT-OSS 120B on Groq — free tier, 8k tokens/minute ceiling"),
+    ("groq/openai/gpt-oss-20b", "GPT-OSS 20B on Groq — free tier, smaller"),
+]
+
+
+def model_choices() -> list[dict[str, str]]:
+    extra = [m.strip() for m in os.environ.get("MODEL_CHOICES", "").split(",") if m.strip()]
+    listed = {model for model, _ in _BUILTIN_CHOICES}
+    return [
+        *({"model": m, "label": label} for m, label in _BUILTIN_CHOICES),
+        *({"model": m, "label": m} for m in extra if m not in listed),
+    ]

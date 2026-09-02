@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from langsmith import traceable
 
 from .. import config, llm
+from . import model_for
 from ..schemas import ScreenSource, UIPlan
 from ..state import PipelineState
 
@@ -66,7 +67,7 @@ _PRODUCT_SHAPE = (
 def ui_agent(state: PipelineState) -> dict:
     brd = state["brd"]
 
-    plan = _plan_screens(brd)
+    plan = _plan_screens(brd, model_for(state, "uiPlan"))
     if not plan.screens:
         raise RuntimeError("the UI agent planned no screens")
     _fill_blanks(plan)
@@ -76,9 +77,10 @@ def ui_agent(state: PipelineState) -> dict:
     # blind to its siblings and invents navigation targets that were never
     # generated.
     roster = ", ".join(f"{s.name} ({s.route})" for s in plan.screens)
+    screen_model = model_for(state, "ui")
 
     with ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_SCREENS) as pool:
-        sources = list(pool.map(lambda s: _write_screen(brd, s, roster), plan.screens))
+        sources = list(pool.map(lambda s: _write_screen(brd, s, roster, screen_model), plan.screens))
 
     screens: list[dict] = []
     failed: list[str] = []
@@ -179,7 +181,7 @@ def _fill_blanks(plan: UIPlan) -> None:
             screen.purpose = f"The {screen.name} screen."
 
 
-def _plan_screens(brd: dict) -> UIPlan:
+def _plan_screens(brd: dict, model: str) -> UIPlan:
     """Decide the screen set. Small output, so this call is cheap and reliable.
 
     Deliberately its own model. Planning is a schema-following task, not a
@@ -187,7 +189,7 @@ def _plan_screens(brd: dict) -> UIPlan:
     fine — see UI_PLAN_MODEL in config for what each did.
     """
     return llm.call_structured(
-        model=config.UI_PLAN_MODEL,
+        model=model,
         schema=UIPlan,
         max_tokens=4000,
         retries=1,
@@ -221,11 +223,11 @@ def _plan_screens(brd: dict) -> UIPlan:
     )
 
 
-def _write_screen(brd: dict, outline, roster: str) -> str | None:
+def _write_screen(brd: dict, outline, roster: str, model: str) -> str | None:
     """Generate one screen's source. Returns None so one failure costs one screen."""
     try:
         result = llm.call_structured(
-            model=config.UI_MODEL,
+            model=model,
             schema=ScreenSource,
             # A screen that reaches this ceiling truncates mid-JSON and fails
             # as a parse error, costing a full silent retry — observed at
