@@ -43,9 +43,9 @@ def set_models(models: dict[str, str], actor_id: str) -> dict[str, str]:
     environment, so a choice can be undone without knowing what it is
     reverting to.
     """
-    unknown = [role for role in models if role not in config.AGENT_ROLES]
+    unknown = [agent for agent in models if agent not in config.AGENT_ROLES]
     if unknown:
-        raise ValueError(f"Unknown stage(s): {', '.join(unknown)}")
+        raise ValueError(f"Unknown agent(s): {', '.join(unknown)}")
 
     current = stored_models()
     for role, model in models.items():
@@ -62,29 +62,44 @@ def set_models(models: dict[str, str], actor_id: str) -> dict[str, str]:
     return current
 
 
-def model_for_role(role: str, artifact: dict[str, Any] | None = None) -> str:
-    """The model a stage should use, most specific source winning."""
-    override = ((artifact or {}).get("modelOverrides") or {}).get(role)
-    if override:
-        return override
-    return stored_models().get(role) or config.default_model_for(role)
+def model_for_stage(stage: str, artifact: dict[str, Any] | None = None) -> str:
+    """The model an internal stage should use, most specific source winning.
+
+    Settings are keyed by *agent*, not by stage: choosing a model for the
+    intake agent sets it for both the conversation and the structuring it
+    does. A stage no agent owns — the screen plan — follows the environment,
+    because the thing that suits writing React is measurably wrong for
+    planning a schema.
+    """
+    owner = config.STAGE_OWNER.get(stage)
+    overrides = (artifact or {}).get("modelOverrides") or {}
+    chosen = overrides.get(stage) or (overrides.get(owner) if owner else None)
+    if chosen:
+        return chosen
+    stored = stored_models().get(owner) if owner else None
+    return stored or config.default_model_for(stage)
 
 
 def roles_view(artifact: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Every stage, what it will use, and where that came from — for the UI."""
+    """Each agent, the model it will use, and where that came from — for the UI."""
     stored = stored_models()
-    return [
-        {
-            "role": role,
-            **meta,
-            "model": model_for_role(role, artifact),
-            "stored": stored.get(role),
-            "environmentDefault": config.default_model_for(role),
-            "source": (
-                "artifact" if ((artifact or {}).get("modelOverrides") or {}).get(role)
-                else "setting" if stored.get(role)
-                else "environment"
-            ),
-        }
-        for role, meta in config.AGENT_ROLES.items()
-    ]
+    overrides = (artifact or {}).get("modelOverrides") or {}
+    view = []
+    for agent, meta in config.AGENT_ROLES.items():
+        primary = meta["stages"][0]
+        view.append(
+            {
+                "role": agent,
+                "label": meta["label"],
+                "detail": meta["detail"],
+                "model": model_for_stage(primary, artifact),
+                "stored": stored.get(agent),
+                "environmentDefault": config.default_model_for(primary),
+                "source": (
+                    "artifact" if overrides.get(agent) or overrides.get(primary)
+                    else "setting" if stored.get(agent)
+                    else "environment"
+                ),
+            }
+        )
+    return view

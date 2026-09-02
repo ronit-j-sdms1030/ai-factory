@@ -24,21 +24,21 @@ def store(monkeypatch):
 
 class TestResolutionOrder:
     def test_nothing_stored_uses_the_environment(self):
-        assert settings.model_for_role("ui") == config.default_model_for("ui")
+        assert settings.model_for_stage("ui") == config.default_model_for("ui")
 
     def test_a_stored_setting_beats_the_environment(self):
         settings.set_models({"ui": "acme/coder"}, "u1")
-        assert settings.model_for_role("ui") == "acme/coder"
+        assert settings.model_for_stage("ui") == "acme/coder"
 
     def test_an_artifact_override_beats_the_setting(self):
         """One requirement doing something unusual must not need a global change."""
         settings.set_models({"ui": "acme/coder"}, "u1")
-        assert settings.model_for_role("ui", {"modelOverrides": {"ui": "other/model"}}) == "other/model"
+        assert settings.model_for_stage("ui", {"modelOverrides": {"ui": "other/model"}}) == "other/model"
 
     def test_clearing_returns_to_the_environment(self):
         settings.set_models({"ui": "acme/coder"}, "u1")
         settings.set_models({"ui": ""}, "u1")
-        assert settings.model_for_role("ui") == config.default_model_for("ui")
+        assert settings.model_for_stage("ui") == config.default_model_for("ui")
 
     def test_the_agents_see_stored_settings(self):
         settings.set_models({"decomposition": "acme/big"}, "u1")
@@ -46,11 +46,11 @@ class TestResolutionOrder:
 
 
 class TestValidation:
-    def test_an_unknown_stage_is_refused(self):
-        with pytest.raises(ValueError, match="Unknown stage"):
+    def test_an_unknown_agent_is_refused(self):
+        with pytest.raises(ValueError, match="Unknown agent"):
             settings.set_models({"nonsense": "x/y"}, "u1")
 
-    def test_one_bad_stage_stores_nothing(self):
+    def test_one_bad_agent_stores_nothing(self):
         """Partial application would leave the deployment half-configured."""
         settings.set_models({"ui": "acme/coder"}, "u1")
         with pytest.raises(ValueError):
@@ -66,5 +66,29 @@ class TestRolesView:
         assert view["brd"]["source"] == "artifact"
         assert view["decomposition"]["source"] == "environment"
 
-    def test_every_stage_appears(self):
+    def test_only_the_four_agents_are_offered(self):
+        """Internal stages are not the unit anyone thinks in."""
+        assert {r["role"] for r in settings.roles_view()} == {"intake", "brd", "ui", "decomposition"}
+
+    def test_every_agent_appears(self):
         assert {r["role"] for r in settings.roles_view()} == set(config.AGENT_ROLES)
+
+
+class TestAgentsOwnTheirStages:
+    def test_one_choice_covers_every_stage_an_agent_runs(self):
+        """The intake agent both converses and structures; a chooser should
+        not have to know that, or set it twice."""
+        settings.set_models({"intake": "acme/small"}, "u1")
+        assert settings.model_for_stage("chat") == "acme/small"
+        assert settings.model_for_stage("requirement") == "acme/small"
+
+    def test_the_screen_plan_does_not_follow_the_ui_agent(self):
+        """Planning the screen set is schema-following, not coding, and both
+        coder models tried on it failed — one returning its own field names,
+        the other dropping route, purpose and keyElements from every screen."""
+        settings.set_models({"ui": "acme/coder"}, "u1")
+        assert settings.model_for_stage("ui") == "acme/coder"
+        assert settings.model_for_stage("uiPlan") == config.default_model_for("uiPlan")
+
+    def test_an_unowned_stage_still_resolves(self):
+        assert settings.model_for_stage("uiPlan") == config.default_model_for("uiPlan")

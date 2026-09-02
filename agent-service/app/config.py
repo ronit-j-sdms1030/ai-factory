@@ -208,35 +208,48 @@ def mongodb_uri() -> str:
 # platform's BRD deserves, and this session alone moved three stages on
 # evidence. An override is stored on the artifact and read at generation time,
 # so changing it re-runs against the new model without touching config.
-AGENT_ROLES: dict[str, dict[str, str]] = {
-    "chat": {
-        "label": "Intake conversation",
-        "detail": "Asks the clarifying questions. Plain language, so a small fast model suits it.",
-    },
-    "requirement": {
-        "label": "Requirement structuring",
-        "detail": "Turns the finished conversation into the structured requirement.",
+# The four agents, as agents.md names them. Each owns one or more internal
+# stages: choosing a model for an agent sets it for everything that agent
+# does, which is the unit people actually think in.
+#
+# uiPlan is deliberately absent. Planning the screen set is schema-following
+# rather than coding, and the two coder models tried on it both failed —
+# qwen3-coder returned its own field names, gpt-oss dropped route, purpose and
+# keyElements from every screen. Tying it to the UI agent's model would put
+# the plan on whatever suits writing React, which is the wrong thing for it.
+# It follows UI_PLAN_MODEL, settable in the environment for anyone who needs
+# to move it.
+AGENT_ROLES: dict[str, dict[str, Any]] = {
+    "intake": {
+        "label": "Intake agent",
+        "detail": "Asks the clarifying questions, then structures the conversation into a requirement.",
+        "stages": ["chat", "requirement"],
     },
     "brd": {
-        "label": "BRD / FSD",
-        "detail": "The largest document in the pipeline, plus its critique and patch passes.",
-    },
-    "uiPlan": {
-        "label": "Screen plan",
-        "detail": "Decides the screen set. Schema-following, not coding — two coder models have failed it.",
+        "label": "BRD agent",
+        "detail": "Writes the FSD, critiques it in a fresh context, and applies the fixes.",
+        "stages": ["brd"],
     },
     "ui": {
-        "label": "Screen source",
+        "label": "UI agent",
         "detail": "Writes each screen's React. A code-specialised model earns its place here.",
+        "stages": ["ui"],
     },
     "decomposition": {
-        "label": "Work-item split",
-        "detail": "The largest schema in the pipeline. Weak models drop fields or return an empty graph.",
+        "label": "Decomposition agent",
+        "detail": "Splits the FSD into work items and department packages — the largest schema in the pipeline.",
+        "stages": ["decomposition"],
     },
 }
 
+# stage -> the agent that owns it, so a stage can find its setting.
+STAGE_OWNER: dict[str, str] = {
+    stage: agent for agent, meta in AGENT_ROLES.items() for stage in meta["stages"]
+}
 
-def default_model_for(role: str) -> str:
+
+def default_model_for(stage: str) -> str:
+    """The environment's model for an internal stage."""
     return {
         "chat": CHAT_MODEL,
         "requirement": REPORT_MODEL,
@@ -244,7 +257,7 @@ def default_model_for(role: str) -> str:
         "uiPlan": UI_PLAN_MODEL,
         "ui": UI_MODEL,
         "decomposition": DECOMPOSITION_MODEL,
-    }[role]
+    }[stage]
 
 
 # Every model OpenRouter serves is offered — see model_catalogue. A curated

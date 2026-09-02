@@ -29,7 +29,7 @@ class TestResolution:
     def test_an_override_wins(self):
         assert model_for({"models": {"ui": "qwen/qwen3-coder"}}, "ui") == "qwen/qwen3-coder"
 
-    def test_an_unset_stage_falls_back_to_the_default(self):
+    def test_an_unset_agent_falls_back_to_the_default(self):
         assert model_for({"models": {"ui": "x/y"}}, "brd") == config.default_model_for("brd")
 
     def test_no_overrides_at_all_is_fine(self):
@@ -41,9 +41,10 @@ class TestResolution:
 
 
 class TestRoles:
-    def test_every_role_has_a_default(self):
-        for role in config.AGENT_ROLES:
-            assert config.default_model_for(role)
+    def test_every_agent_stage_has_a_default(self):
+        for meta in config.AGENT_ROLES.values():
+            for stage in meta["stages"]:
+                assert config.default_model_for(stage)
 
     def test_every_role_is_described(self):
         """The picker shows these; a role with no explanation is a guess."""

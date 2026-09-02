@@ -708,9 +708,9 @@ def set_artifact_models(artifact_id: str, body: ModelOverrides, actor: dict = De
     if not _may_choose_models(artifact, actor):
         raise HTTPException(status_code=403, detail="Only the originator or an approver can choose models")
 
-    unknown = [role for role in body.models if role not in config.AGENT_ROLES]
+    unknown = [agent for agent in body.models if agent not in config.AGENT_ROLES]
     if unknown:
-        raise HTTPException(status_code=400, detail=f"Unknown stage(s): {', '.join(unknown)}")
+        raise HTTPException(status_code=400, detail=f"Unknown agent(s): {', '.join(unknown)}")
 
     overrides = dict(artifact.get("modelOverrides") or {})
     for role, model in body.models.items():

@@ -1,6 +1,6 @@
 
 
-def model_for(state: dict, role: str) -> str:
+def model_for(state: dict, stage: str) -> str:
     """The model this run should use for ``role``.
 
     Most specific source wins: a requirement's own override, then the stored
@@ -14,12 +14,9 @@ def model_for(state: dict, role: str) -> str:
     """
     from .. import config
 
-    override = (state.get("models") or {}).get(role)
-    if override:
-        return override
     try:
-        from ..settings import stored_models
+        from ..settings import model_for_stage
 
-        return stored_models().get(role) or config.default_model_for(role)
+        return model_for_stage(stage, {"modelOverrides": state.get("models") or {}})
     except Exception:  # noqa: BLE001 — a preference must not break generation
-        return config.default_model_for(role)
+        return (state.get("models") or {}).get(stage) or config.default_model_for(stage)
