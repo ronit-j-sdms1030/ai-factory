@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" class="theme-client">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Change request</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/theme-client.css">
+</head>
+<body style="padding:2rem;max-width:32rem;margin:0 auto">
+  <p><a href="/login.html">Sign in</a></p>
+  <h1>Change request</h1>
+  <p>Post-release loop. References the approved BRD and opens a new Phase 1 cycle.</p>
+  <form id="cr">
+    <label>Requirement id <input name="requirement_id" required></label><br><br>
+    <label>Justification <textarea name="justification" required></textarea></label><br><br>
+    <label>Impact <textarea name="impact" required></textarea></label><br><br>
+    <button type="submit">Open cycle</button>
+  </form>
+  <pre id="out"></pre>
+  <script>
+    document.getElementById('cr').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const res = await fetch('/api/change-requests', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify(Object.fromEntries(form)),
+      });
+      document.getElementById('out').textContent = await res.text();
+    });
+  </script>
+</body>
+</html>

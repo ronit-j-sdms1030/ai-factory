@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "bmad-agent-analyst",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-agent-analyst/SKILL.md",
+      "target": "bmad-agent-analyst/SKILL.md",
+      "sha256": "ddcc24705a7d44001fecc321f43be07226fe63fc324fc8288690d8864d6c7f3f",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-agent-pm",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-agent-pm/SKILL.md",
+      "target": "bmad-agent-pm/SKILL.md",
+      "sha256": "b84a9039bd96c2039642deb94661fd28d0d60c290ffd6ffa010f280d3692a078",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-prd",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-prd/SKILL.md",
+      "target": "bmad-prd/SKILL.md",
+      "sha256": "a64d2a52025dc477215999da08b6b66efaafbb625007e30b3069a07e7866a3a9",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-advanced-elicitation",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-advanced-elicitation/SKILL.md",
+      "target": "bmad-advanced-elicitation/SKILL.md",
+      "sha256": "aa527cddaf776525a8002f49a078ccfa8f993e8f160f1b90fc4d0eda3b9fc97e",
+      "license": "MIT"
+    },
+    {
+      "name": "spec-driven-development",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/spec-driven-development/SKILL.md",
+      "target": "spec-driven-development/SKILL.md",
+      "sha256": "f7129bca8742bad73f60209bd237e8b10dab6f1fae8576dc552fb1923bc1e721",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-agent-architect",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-agent-architect/SKILL.md",
+      "target": "bmad-agent-architect/SKILL.md",
+      "sha256": "e2deb2205d6459ec228f3eb21f6d723bfd08dd2696aa201af00f8200a0ef1616",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-agent-ux-designer",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-agent-ux-designer/SKILL.md",
+      "target": "bmad-agent-ux-designer/SKILL.md",
+      "sha256": "20b56f4b5f90aa0bd25c8114acb56f54e4ca7e75b3ad287338b265e2f8eb571e",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-architecture",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-architecture/SKILL.md",
+      "target": "bmad-architecture/SKILL.md",
+      "sha256": "2c3401fe79e33fc12189f69d3f370db5390b12ae610ff8a14ea3b05bcd263e38",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-ux",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-ux/SKILL.md",
+      "target": "bmad-ux/SKILL.md",
+      "sha256": "cb9d640e1cfba85657a6b32ba06f827f239a754a0ffcfa2eb90c0ea0e10bc5bf",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-spec",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-spec/SKILL.md",
+      "target": "bmad-spec/SKILL.md",
+      "sha256": "779378dfc233fc5550126f7858fe22f75c1958d0e1097cf9f9820e87a36ac043",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-create-epics-and-stories",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-create-epics-and-stories/SKILL.md",
+      "target": "bmad-create-epics-and-stories/SKILL.md",
+      "sha256": "40187e22f664f0cd69a32c6a86b7005ed1a0519f3b0f902bb1fee1e200ce957a",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-sprint-planning",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-sprint-planning/SKILL.md",
+      "target": "bmad-sprint-planning/SKILL.md",
+      "sha256": "44582b865b3bd66a2793939134950712e641e46b16375b67b06da7122c0762fe",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-qa-generate-e2e-tests",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-qa-generate-e2e-tests/SKILL.md",
+      "target": "bmad-qa-generate-e2e-tests/SKILL.md",
+      "sha256": "0848db95bb4b7d9814c98896b46b325b7bb2200b296569761a16a324d3402067",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-product-brief",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-product-brief/SKILL.md",
+      "target": "bmad-product-brief/SKILL.md",
+      "sha256": "fa3fd21cd18846c1f7ed7d2f08f8c23d59aa41fc8b2b7c78024405965a9d7407",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-prfaq",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-prfaq/SKILL.md",
+      "target": "bmad-prfaq/SKILL.md",
+      "sha256": "0ba37b8d69fcff1091911c1ae3495cfc1527b7753996feae4eff7955b65a5bdf",
+      "license": "MIT"
+    },
+    {
+      "name": "deployment-pipeline-design",
+      "repository": "wshobson/agents",
+      "commit": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "path": "plugins/cicd-automation/skills/deployment-pipeline-design/SKILL.md",
+      "target": "deployment-pipeline-design/SKILL.md",
+      "sha256": "9a56bd9401c1dc8ef5a15758d7234f211193097ddb3895d46d1ddcd730687b18",
+      "license": "MIT"
+    }
+  ]
+}

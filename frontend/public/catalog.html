@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" class="theme-client">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Software catalog</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/theme-client.css">
+</head>
+<body style="padding:2rem;max-width:52rem;margin:0 auto">
+  <p><a href="/login.html">Sign in</a></p>
+  <h1>Software catalog</h1>
+  <p>Backstage Component entities from <code>GET /api/catalog</code>. Live portal needs Entra; this feed is the contract.</p>
+  <pre id="out">loading…</pre>
+  <script>
+    fetch('/api/catalog').then(r => r.json()).then(data => {
+      document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+    }).catch(err => { document.getElementById('out').textContent = String(err); });
+  </script>
+</body>
+</html>

@@ -1,8 +1,15 @@
 node_modules/
 .env
 *.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
 backend/.semgrep-venv/
 backend/.runtime/
+new/.runtime/
+new/.venv/
+new/.pytest_cache/
+
 
 # JetBrains IDE
 .idea/

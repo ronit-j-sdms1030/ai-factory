@@ -1,0 +1,9 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: governed-factory
+  description: Software catalog feed from the governed SDLC API
+spec:
+  type: url
+  targets:
+    - http://app-api:8787/api/catalog

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "governed-ai-factory"
+version = "0.1.0"
+description = "Credential-free governed SDLC runtime with Temporal orchestration"
+requires-python = ">=3.12,<3.13"
+dependencies = ["temporalio==1.33.0"]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]==3.2.10"]
+identity = ["PyJWT[crypto]==2.10.1"]
+telemetry = ["opentelemetry-api==1.37.0"]
+runtime = [
+  "temporalio==1.33.0",
+  "langgraph==1.2.11",
+  "psycopg[binary]==3.2.10",
+  "PyJWT[crypto]==2.10.1",
+  "opentelemetry-api==1.37.0",
+]
+test = ["pytest==9.1.1"]
+
+[tool.setuptools]
+py-modules = [
+  "attestation",
+  "gate_engine",
+  "intake_skill",
+  "requirement",
+  "run_ledger",
+  "workflow_templates",
+]
+
+[tool.setuptools.packages.find]
+include = ["phase1*"]
+
+[tool.setuptools.package-data]
+phase1 = ["workspace/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+exclude = [".venv", "build"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

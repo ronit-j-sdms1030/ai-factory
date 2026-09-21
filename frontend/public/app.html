@@ -192,6 +192,21 @@
   }
   .tab-view { display: flex; flex-direction: column; gap: 2.2rem; }
 
+  .usage-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.7rem; margin: 0 0 1.2rem;
+  }
+  .usage-stat {
+    border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 0.85rem; background: var(--surface-2);
+  }
+  .usage-stat .k { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-faint); font-family: var(--font-mono); }
+  .usage-stat .v { font-size: 1.25rem; font-weight: 700; margin-top: 0.2rem; color: var(--text); }
+  .usage-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  .usage-table th, .usage-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); text-align: left; }
+  .usage-table th { color: var(--text-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .usage-table td.num { font-family: var(--font-mono); font-size: 0.8rem; text-align: right; }
+
   .chat-box {
     border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
     display: flex; flex-direction: column; height: min(76vh, 820px); min-height: 460px; overflow: hidden;
@@ -518,7 +533,7 @@
         </svg>
         <div class="brand-text">
           <strong>Stark Digital</strong>
-          <span>Requirement Intake</span>
+          <span>Governed SDLC</span>
         </div>
       </div>
 
@@ -530,6 +545,7 @@
         <button class="side-nav-btn" id="tab-shared" type="button" data-tab="shared" style="display:none;">Discussions<span class="tab-badge" id="shared-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-history" type="button" data-tab="history" style="display:none;">History<span class="tab-badge" id="history-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-codegen" type="button" data-tab="codegen" style="display:none;">Code Generation</button>
+        <button class="side-nav-btn" id="tab-usage" type="button" data-tab="usage" style="display:none;">Usage</button>
         <button class="side-nav-btn" id="tab-settings" type="button" data-tab="settings" style="display:none;">Settings</button>
       </nav>
 
@@ -549,7 +565,7 @@
         <div>
           <div class="kicker" id="page-kicker">Requirement intake</div>
           <h1 id="page-heading">Welcome back.</h1>
-          <p class="sub" id="page-sub">Describe what you need — it'll route to the right approver automatically.</p>
+          <p class="sub" id="page-sub">Seven human gates. Sign only the gate your role is named on.</p>
         </div>
 
         <div class="tab-view" id="view-requirement">
@@ -568,14 +584,14 @@
                 <textarea id="chat-input" rows="1" placeholder="Type your reply..."></textarea>
                 <button class="btn" id="chat-send-btn" type="button">Send</button>
               </div>
-              <p class="chat-footnote">Claude Haiku 4.5 asks the questions &middot; GPT-4o Mini structures the requirement &middot; DeepSeek V3.2 writes the detailed report.</p>
+              <p class="chat-footnote">Intake talks through LiteLLM &rarr; OpenRouter. Model per agent is in Settings.</p>
             </div>
           </div>
         </div>
 
         <div class="tab-view" id="view-approvals" style="display:none;">
           <div class="card">
-            <h2>Awaiting your approval</h2>
+            <h2>Awaiting your gate</h2>
             <div class="list" id="approval-list"></div>
             <div class="pagination" id="approval-pagination"></div>
           </div>
@@ -601,7 +617,7 @@
         <div class="tab-view" id="view-shared" style="display:none;">
           <div class="card">
             <h2>Requirement discussions</h2>
-            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Requirement group chats opened by Team Leads. Assigned TLs, VP, MD, and CEO can participate. Use Request revision when the FSD or package must change.</p>
+            <p style="color:var(--text-soft); font-size:0.86rem; margin:-0.4rem 0 1rem;">Discussions on a requirement. Gate roles on the frozen approval chain can take part.</p>
             <div class="list" id="shared-list"></div>
             <div class="pagination" id="shared-pagination"></div>
           </div>
@@ -616,6 +632,24 @@
           </div>
         </div>
 
+        <div class="tab-view" id="view-usage" style="display:none;">
+          <section class="panel">
+            <h2 class="panel-title">Token usage</h2>
+            <p class="panel-sub">Recorded model calls on this runtime. Deterministic demo calls count estimated tokens (characters ÷ 4). USD uses OpenRouter list prices.</p>
+            <div id="usage-stats" class="usage-stats"></div>
+            <div id="usage-models"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">Estimated cost for one full cycle</h2>
+            <p class="panel-sub" id="usage-cycle-sub">If every agent ran once with the models in Settings.</p>
+            <div id="usage-cycle"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">Recent calls</h2>
+            <div id="usage-recent"></div>
+          </section>
+        </div>
+
         <div class="tab-view" id="view-settings" style="display:none;">
           <section class="panel">
             <h2 class="panel-title">Agent configuration</h2>
@@ -627,6 +661,24 @@
               <button class="btn" id="settings-save" type="button">Save</button>
               <span id="settings-status" style="font-size:0.85rem;color:var(--text-faint);"></span>
             </div>
+          </section>
+
+          <section class="panel">
+            <h2 class="panel-title">Capability boundary</h2>
+            <p class="panel-sub">The skill file the intake agent is held to — what this platform can
+              and cannot be asked to build, how it scopes a request that crosses the line, and the
+              client's own vocabulary. Applies from the next conversation onward. This is the widest
+              edit on this page: it changes what every future requirement is judged against, so each
+              save is versioned and attributed.</p>
+            <textarea id="settings-intake" spellcheck="false"
+              style="width:100%;min-height:20rem;font:12.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+                     padding:0.75rem;border:1px solid var(--line);border-radius:6px;resize:vertical;"></textarea>
+            <div style="display:flex;gap:0.6rem;align-items:center;margin-top:0.75rem;flex-wrap:wrap;">
+              <button class="btn" id="settings-intake-save" type="button">Save</button>
+              <button class="btn secondary" id="settings-intake-reset" type="button">Restore default</button>
+              <span id="settings-intake-status" style="font-size:0.85rem;color:var(--text-faint);"></span>
+            </div>
+            <div id="settings-intake-history" style="margin-top:0.85rem;"></div>
           </section>
 
           <section class="panel">
@@ -733,7 +785,25 @@
 
 
   <script>
-    var TIER_LABELS = { md: 'Managing Director', ceo: 'Chief Executive Officer', vp: 'Vice President', pm: 'Project Manager', tl: 'Team Lead' };
+    var TIER_LABELS = {
+      po: 'Product Owner',
+      bo: 'Business Owner',
+      ctl: 'Client Tech Lead',
+      requester: 'Requester',
+      stakeholder: 'Business stakeholder',
+      architect: 'Architect',
+      ux: 'UI/UX',
+      ba: 'Business Analyst',
+      tech: 'Tech Lead',
+      sl: 'Stream Lead',
+      se: 'Senior Engineer',
+      rm: 'Release Manager',
+      pm: 'Requester',
+      vp: 'Product Owner',
+      md: 'Business Owner',
+      tl: 'Client Tech Lead',
+      ceo: 'Business Owner'
+    };
     var me = null;
 
     if (window.mermaid) {
@@ -762,7 +832,8 @@
     function fmtChain(artifact) {
       return artifact.approvalChain.map(function (step, i) {
         var marker = i < artifact.currentApprovalIndex ? '✓' : (i === artifact.currentApprovalIndex ? '▸' : '·');
-        return marker + ' ' + step.approverTiers.join('/').toUpperCase() + ' (' + step.mode + ')';
+        var names = step.approverTiers.map(function (t) { return TIER_LABELS[t] || t; }).join(' / ');
+        return marker + ' G' + (step.gate || (i + 1)) + ' ' + names;
       }).join('  ');
     }
 
@@ -808,7 +879,15 @@
       pending_client_review: 'pending client review',
       team_revision_requested: 'TL revision requested',
     };
-    function stageLabel(stage) { return STAGE_LABELS[stage] || stage.replace(/_/g, ' '); }
+    function stageLabel(stage, artifact) {
+      if (artifact && artifact.phase1 && artifact.awaitingGate) {
+        return 'Gate ' + artifact.awaitingGate;
+      }
+      if (artifact && artifact.phase1 && artifact.currentStage === 'approved') {
+        return 'complete';
+      }
+      return STAGE_LABELS[stage] || String(stage || '').replace(/_/g, ' ');
+    }
 
     // Finds the most recent history entry with a comment, for one of the
     // given actions — used to surface "why" (rejection reason, requested
@@ -846,49 +925,70 @@
       if (!me.isClient) {
         if (stage === 'pending_approval') {
           var step = artifact.approvalChain[artifact.currentApprovalIndex];
-          if (step && step.approverTiers.indexOf(me.tierId) !== -1) {
-            var sendsFsdToProduction = me.tierId === 'vp' && artifact.currentApprovalIndex > 0 &&
-              ['md', 'ceo', 'tl'].indexOf(artifact.originator.tierId) !== -1 && artifact.detailedReport;
-            buttons.push({ action: 'approve', label: sendsFsdToProduction ? 'Send to TL for production' : 'Approve' });
-            if (artifact.currentApprovalIndex === 0) {
-              buttons.push({ action: 'proposeChanges', label: 'Propose changes', secondary: true, modal: 'proposeChanges' });
-            }
-            if (sendsFsdToProduction) {
-              buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
+          if (step && step.approverTiers.indexOf(me.tierId) !== -1 && !artifact.viewerHasSigned) {
+            if (artifact.phase1) {
+              var g = artifact.awaitingGate || step.gate;
+              var GATE_BTNS = {
+                1: { ok: 'Approve scope', rev: 'Request revision', no: 'Discard' },
+                2: { ok: 'Approve BRD', rev: 'Request revision', no: 'Discard' },
+                3: { ok: 'Approve design', rev: 'Request design changes', no: 'Reject' },
+                4: { ok: 'Approve plan', rev: 'Revise plan', no: 'Reject' },
+                5: { ok: 'Approve merge', rev: 'Request changes', no: 'Reject' },
+                6: { ok: 'Approve UAT', rev: null, no: 'Reject UAT' },
+                7: { ok: 'Approve release', rev: null, no: 'Hold release' }
+              };
+              var L = GATE_BTNS[g] || { ok: 'Approve', rev: 'Request revision', no: 'Reject' };
+              buttons.push({ action: 'approve', label: L.ok });
+              if (L.rev) buttons.push({ action: 'requestRevision', label: L.rev, secondary: true });
+              buttons.push({ action: 'reject', label: L.no, danger: g <= 2, secondary: g > 2 });
             } else {
-              buttons.push({ action: 'requestRevision', label: 'Request revision', secondary: true });
-            }
-            if (!(me.tierId === 'vp' && artifact.currentApprovalIndex > 0 && ['md', 'ceo', 'tl'].indexOf(artifact.originator.tierId) !== -1)) {
-              buttons.push({ action: 'reject', label: 'Reject', danger: true });
+              var sendsFsdToProduction = me.tierId === 'po' && artifact.currentApprovalIndex > 0 &&
+                ['bo', 'ctl', 'tech'].indexOf(artifact.originator.tierId) !== -1 && artifact.detailedReport;
+              if (!(artifact.phase2 && artifact.currentApprovalIndex >= 2 && artifact.currentApprovalIndex !== 3)) {
+                buttons.push({ action: 'approve', label: sendsFsdToProduction ? 'Send to Tech Lead' : 'Approve' });
+              }
+              if (artifact.phase2 && artifact.currentApprovalIndex === 3) {
+                buttons.push({ action: 'approvePlan', label: 'Approve plan' });
+              }
+              if (artifact.currentApprovalIndex === 0) {
+                buttons.push({ action: 'proposeChanges', label: 'Propose changes', secondary: true, modal: 'proposeChanges' });
+              }
+              if (sendsFsdToProduction) {
+                buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
+              } else if (!(artifact.phase2 && artifact.currentApprovalIndex >= 2 && artifact.currentApprovalIndex !== 3)) {
+                buttons.push({ action: 'requestRevision', label: 'Request revision', secondary: true });
+              }
+              if (artifact.phase2 && artifact.currentApprovalIndex === 3) {
+                buttons.push({ action: 'requestRevision', label: 'Revise plan', secondary: true });
+              }
+              if (!(me.tierId === 'po' && artifact.currentApprovalIndex > 0 && ['bo', 'ctl', 'tech'].indexOf(artifact.originator.tierId) !== -1)) {
+                if (!(artifact.phase2 && artifact.currentApprovalIndex === 2)) {
+                  buttons.push({ action: 'reject', label: 'Reject', danger: true });
+                }
+              }
             }
           }
         }
-        // fsd_review / fsd_final_approval are gated by the requirement's own
-        // gate-0 reviewer pool (md/ceo for client & VP; md/ceo/vp for PM &
-        // TL), not a hardcoded tier — mirrors the backend authorization.
-        var reviewerPool = artifact.approvalChain[0].approverTiers;
-        if (stage === 'fsd_review' && reviewerPool.indexOf(me.tierId) !== -1) {
-          buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
-          if (artifact.originator.tierId === 'tl') {
-            buttons.push({ action: 'sendFsdToClient', label: 'Send to VP for production review' });
-          } else {
-            // Self-originated requirements loop back to the same person, so
-            // "Send for review" would read as sending it to themselves.
-            buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to VP for production' : 'Send for review' });
+        if (!artifact.phase1) {
+          var reviewerPool = artifact.approvalChain[0].approverTiers;
+          if (stage === 'fsd_review' && reviewerPool.indexOf(me.tierId) !== -1) {
+            buttons.push({ action: 'editFsd', label: 'Edit FSD', secondary: true, modal: 'fsdChat' });
+            if (artifact.originator.tierId === 'tech') {
+              buttons.push({ action: 'sendFsdToClient', label: 'Send to Product Owner for production review' });
+            } else {
+              buttons.push({ action: 'sendFsdToClient', label: isOriginator ? 'Send to Product Owner for production' : 'Send for review' });
+            }
           }
-        }
-        if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
-          buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
-        }
-        // Recovery for VP-originated artifacts created under the old
-        // workflow, which stopped at fsd_final_approval and expected an
-        // unnecessary MD/CEO bounce-back.
-        if (stage === 'fsd_final_approval' && isOriginator && me.tierId === 'vp') {
-          buttons.push({ action: 'giveFinalFsdApproval', label: 'Send to TL for production' });
-        }
-        if (stage === 'team_revision_requested' && me.tierId === 'vp') {
-          buttons.push({ action: 'editFsd', label: 'Revise FSD', secondary: true, modal: 'fsdChat' });
-          buttons.push({ action: 'regenerateTeamSplit', label: 'Resend to TL for production' });
+          if (stage === 'fsd_final_approval' && reviewerPool.indexOf(me.tierId) !== -1) {
+            buttons.push({ action: 'giveFinalFsdApproval', label: 'Give final approval' });
+          }
+          if (stage === 'fsd_final_approval' && isOriginator && me.tierId === 'po') {
+            buttons.push({ action: 'giveFinalFsdApproval', label: 'Send to Tech Lead' });
+          }
+          if (stage === 'team_revision_requested' && me.tierId === 'po') {
+            buttons.push({ action: 'editFsd', label: 'Revise FSD', secondary: true, modal: 'fsdChat' });
+            buttons.push({ action: 'regenerateTeamSplit', label: 'Resend to Tech Lead' });
+          }
         }
       }
 
@@ -897,25 +997,23 @@
       // call slower) — if it never landed, whoever can normally act on this
       // requirement can retry it. Mirrors the backend's check: gate 0
       // clearing is what makes a report apply, not a fixed stage list — so
-      // this also covers a self-origin MD/CEO artifact stuck at
-      // pending_approval (gate 0 cleared, waiting on VP), not just
-      // 'approved'/'fsd_review'.
-      var canRegenerate = !artifact.detailedReport && artifact.currentApprovalIndex >= 1 &&
+      // also covers a self-origin artifact waiting on a later gate.
+      var canRegenerate = !artifact.phase1 && !artifact.detailedReport && artifact.currentApprovalIndex >= 1 &&
         (isOriginator || (!me.isClient && artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1));
       if (canRegenerate) {
         buttons.push({ action: 'regenerateFsd', label: 'Regenerate FSD', secondary: true });
       }
 
-      if (isOriginator) {
+      if (isOriginator && !artifact.phase1) {
         if (stage === 'pending_client_review') buttons.push({ action: 'acceptChanges', label: 'Accept changes' });
         if (stage === 'fsd_pending_client') {
-          buttons.push({ action: 'approveFsd', label: me.tierId === 'vp' ? 'Send to TL for production' : 'Approve FSD' });
+          buttons.push({ action: 'approveFsd', label: me.tierId === 'po' ? 'Send to Tech Lead for production' : 'Approve FSD' });
           buttons.push({ action: 'requestFsdChanges', label: 'Request changes', secondary: true, modal: 'fsdChat' });
         }
         if (stage === 'revision_requested') buttons.push({ action: 'resubmit', label: 'Edit & resubmit', secondary: true, modal: 'resubmit' });
       }
 
-      var assignedTeamPackage = !me.isClient && me.tierId === 'tl' && me.department &&
+      var assignedTeamPackage = !artifact.phase1 && !me.isClient && me.tierId === 'tech' && me.department &&
         (artifact.teamReports || []).some(function (report) { return report.team === me.department; });
       if (assignedTeamPackage && stage === 'approved') {
         buttons.push({ action: 'editTeamReport', label: 'Edit split package', secondary: true, modal: 'teamReportChat' });
@@ -928,39 +1026,58 @@
       // Non-TL roles receive a deliberately redacted teamReports array, so
       // its length cannot indicate generation status. The timestamp is the
       // safe status signal: it confirms delivery without exposing another
-      // department's package content to VP/MD/CEO.
-      // GATE 2 holds this back: the packages a team lead executes against
-      // must not exist for an interface nobody has signed off.
+      // Packages exist after Gate 4. Stream leads see their own stream only.
       var uiCleared = !(artifact.uiGate && artifact.uiGate.blocksSplit);
-      var canGenerateMissingPackages = stage === 'approved' && artifact.detailedReport && uiCleared &&
+      var canGenerateMissingPackages = !artifact.phase1 && stage === 'approved' && artifact.detailedReport && uiCleared &&
         !artifact.teamReportsGeneratedAt && !me.isClient &&
-        (isOriginator || me.tierId === 'vp' || artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1);
+        (isOriginator || me.tierId === 'po' || artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1);
       if (canGenerateMissingPackages) {
         buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
-      // The generated screens are what GATE 2 is meant to be about, so the
-      // people who approve the requirement have to be able to look at them:
-      // the originator, MD/CEO on the chain, and VP. Opens the preview rather
-      // than posting an action — it is a view, not a decision.
+      // Gate 3 screens: anyone named on this gate, plus originator.
       var hasScreens = artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
-      // A TL builds against these screens, so they can see them once their own
-      // package exists — the same condition that governs whether they are sent
-      // the package at all.
-      var tlHasPackage = me.tierId === 'tl' && (artifact.teamReports || []).length;
+      var stepNow = artifact.approvalChain[artifact.currentApprovalIndex] || {};
+      var namedOnCurrent = (stepNow.approverTiers || []).indexOf(me.tierId) !== -1;
+      var gate = artifact.uiGate || {};
+      var governed = artifact.governedPhase || (artifact.phase2 ? 2 : 1);
       if (hasScreens && !me.isClient &&
-          (isOriginator || me.tierId === 'vp' || tlHasPackage ||
-           artifact.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1)) {
-        buttons.push({ href: window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/preview',
-                       label: 'View UI (' + artifact.ui.screens.length + ')' });
+          (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
+           ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
+        buttons.push({
+          modal: 'uiEditor',
+          label: 'Review screens (' + artifact.ui.screens.length + ')',
+        });
       }
 
-      // GATE 2. Who may edit and who may approve is decided by the server and
-      // reported in uiGate, so the button and the endpoint cannot drift into
-      // disagreeing about who is allowed.
-      var gate = artifact.uiGate || {};
-      if (gate.canEdit) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
-      if (gate.canApprove) {
+      if (artifact.phase1 && artifact.brdText && gate.canEdit && governed < 2) {
+        buttons.push({ modal: 'brdEditor', label: 'Edit BRD', secondary: true });
+      }
+      if (artifact.phase1) return buttons;
+      if (governed >= 2 && gate.canEdit) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
+      if (governed >= 2 && gate.canApprove && governed < 3) {
+        buttons.push({ action: 'approveUi', label: 'Approve design' });
+        buttons.push({ action: 'requestUiChanges', label: 'Request design changes', secondary: true });
+      }
+      if (governed === 3 && gate.canApprove) {
+        buttons.push({ action: 'approvePlan', label: 'Approve plan' });
+        buttons.push({ action: 'requestRevision', label: 'Revise plan', secondary: true });
+      }
+      if (governed === 4 && gate.canApprove) {
+        buttons.push({ action: 'approve', label: 'Approve merge' });
+        buttons.push({ action: 'requestRevision', label: 'Request changes', secondary: true });
+      }
+      if (governed === 5 && gate.canApprove) {
+        buttons.push({ action: 'approve', label: 'Approve UAT' });
+        buttons.push({ action: 'reject', label: 'Reject UAT', secondary: true });
+      }
+      if (governed === 6 && gate.canApprove) {
+        buttons.push({ action: 'approve', label: 'Approve release' });
+        buttons.push({ action: 'reject', label: 'Hold release', secondary: true });
+      }
+      if (artifact.phase1 && governed <= 6) return buttons;
+      if (!artifact.phase1 && gate.canEdit && governed < 2) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
+      if (!artifact.phase1 && gate.canApprove && governed < 2) {
         buttons.push({ action: 'approveUi', label: 'Approve UI' });
         buttons.push({ action: 'requestUiChanges', label: 'Request UI changes', secondary: true });
       }
@@ -1028,7 +1145,7 @@
 
       el.querySelector('.item-title').textContent = artifact.title;
       el.querySelector('.item-meta').textContent = originatorLabel + ' · ' + new Date(artifact.createdAt).toLocaleString();
-      el.querySelector('.stage-pill').appendChild(document.createTextNode(stageLabel(artifact.currentStage)));
+      el.querySelector('.stage-pill').appendChild(document.createTextNode(stageLabel(artifact.currentStage, artifact)));
       var contentEl = el.querySelector('.item-content');
       contentEl.textContent = preview.text;
       contentEl.classList.toggle('is-empty', preview.empty);
@@ -1041,7 +1158,8 @@
         b.textContent = text;
         badgesEl.appendChild(b);
       }
-      if (artifact.detailedReport) addBadge('FSD ready — open View');
+      if (artifact.detailedReport && !artifact.phase1) addBadge('FSD ready — open View');
+      if (artifact.phase1 && artifact.brdText) addBadge('BRD ready');
       if (artifact.ui && artifact.ui.screens && artifact.ui.screens.length) {
         var broken = artifact.ui.clarifications && artifact.ui.clarifications.filter(function (c) {
           return /could not be generated/.test(c);
@@ -1050,8 +1168,13 @@
                  (artifact.ui.screens.length === 1 ? '' : 's') +
                  (broken ? ' (some need another pass)' : ''));
       }
-      if (artifact.uiGate && artifact.uiGate.blocksSplit) {
-        addBadge('UI awaiting VP approval — split is held');
+      if ((artifact.outstandingLabels || []).length) {
+        addBadge(
+          (artifact.viewerHasSigned ? 'You signed. Waiting on ' : 'Needs ') +
+            artifact.outstandingLabels.join(', ')
+        );
+      } else if (artifact.uiGate && artifact.uiGate.blocksSplit) {
+        addBadge('Gate 3 — Architect, UI/UX and BA must all sign');
       } else if (artifact.uiGate && artifact.uiGate.approvedAt) {
         addBadge('UI approved', true);
       }
@@ -1066,7 +1189,16 @@
         whyEl.textContent = (WHY_PREFIX[why.action] || '') + why.comment;
       }
 
-      el.querySelector('[data-view]').addEventListener('click', function () { openViewModal(artifact); });
+      var viewBtn = el.querySelector('[data-view]');
+      var g3screens = artifact.awaitingGate === 3 && artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
+      if (g3screens) {
+        viewBtn.textContent = 'View screens';
+        viewBtn.className = 'btn';
+      }
+      viewBtn.addEventListener('click', function () {
+        if (g3screens) return openUiEditorModal(artifact);
+        openViewModal(artifact);
+      });
 
       var actionsEl = el.querySelector('.item-actions');
 
@@ -1091,6 +1223,7 @@
           if (btnDef.modal === 'proposeChanges') return openProposeChangesModal(artifact);
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
+          if (btnDef.modal === 'brdEditor') return openBrdEditorModal(artifact);
           if (btnDef.modal === 'uiEditor') return openUiEditorModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
@@ -1385,13 +1518,13 @@
       // summary rows above (real security/CI findings, not just progress) —
       // a TL only ever sees their own department's; VP (and anyone else who
       // can reach this page) sees every department's.
-      var visibleModules = me.tierId === 'tl'
+      var visibleModules = me.tierId === 'tech'
         ? entry.modules.filter(function (m) { return m.department === me.department; })
         : entry.modules;
 
       var stagesHtml = visibleModules.map(function (m) {
         if (!m.security) return '';
-        var isOwnDept = !me.isClient && me.tierId === 'tl' && me.department === m.department;
+        var isOwnDept = !me.isClient && me.tierId === 'tech' && me.department === m.department;
         var verdictClass = m.security.verdict === 'pass' ? 'pass' : m.security.exhausted ? 'flagged' : 'needs_fixes';
         var verdictLabel = m.securityFixRunning ? 'Fixing…' : m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
 
@@ -1710,10 +1843,10 @@
       });
     }
 
-    // Only meaningful for VP/TL — fetches per-department code-gen progress
+    // Product Owner and Tech Lead — per-stream code-gen progress
     // for every approved, team-split artifact already in this user's list.
     function loadCodegenStatusList(artifacts) {
-      if (me.isClient || (me.tierId !== 'vp' && me.tierId !== 'tl')) return;
+      if (me.isClient || (me.tierId !== 'po' && me.tierId !== 'tech')) return;
       var candidates = artifacts.filter(function (a) { return a.currentStage === 'approved' && a.teamReportsGeneratedAt; });
       if (!candidates.length) {
         codegenStatusData = [];
@@ -1739,7 +1872,7 @@
         // A TL's own "Generate Code" button depends on whether a job already
         // exists for their department — re-render Team Work now that this
         // just-arrived data can answer that (see findCodegenModuleStatus).
-        if (me.tierId === 'tl') renderTeamworkList();
+        if (me.tierId === 'tech') renderTeamworkList();
       });
     }
 
@@ -1790,10 +1923,19 @@
         return '<p class="modal-empty">This intake session was not finished, so there is no structured requirement yet.</p>';
       }
       var html = '<div><div class="modal-section-label">Summary</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.summary) + '</p></div>';
+      if (c.users) {
+        html += '<div><div class="modal-section-label">Who uses it</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.users) + '</p></div>';
+      }
+      if (c.currentState) {
+        html += '<div><div class="modal-section-label">What happens today</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.currentState) + '</p></div>';
+      }
       html += listSection('In scope', c.inScope);
       html += listSection('Out of scope', c.outOfScope);
-      html += listSection('Functional requirements', c.functionalRequirements);
+      if (asArray(c.functionalRequirements).length && JSON.stringify(c.functionalRequirements) !== JSON.stringify(c.inScope)) {
+        html += listSection('Functional requirements', c.functionalRequirements);
+      }
       html += listSection('Non-functional requirements', c.nonFunctionalRequirements);
+      html += listSection('Assumptions', c.assumptions);
       if (asArray(c.recommendedModels).length) {
         html += '<div><div class="modal-section-label">Recommended models</div><ul class="modal-list">' +
           asArray(c.recommendedModels).map(function (m) { return '<li><strong>' + escapeHtml(m.model) + '</strong> — ' + escapeHtml(m.purpose) + ' <span style="color:var(--text-faint);">(' + escapeHtml(m.rationale) + ')</span></li>'; }).join('') +
@@ -1825,21 +1967,23 @@
 
     function openViewModal(artifact) {
       document.getElementById('modal-title').textContent = artifact.title || 'Untitled requirement';
-      var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage)) + '</span></div>';
+      var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage, artifact)) + '</span></div>';
       var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'requestTeamRevision', 'proposeChanges']);
       if (viewWhy) {
         body += '<p class="item-why" style="margin:0;">' + escapeHtml((WHY_PREFIX[viewWhy.action] || '') + viewWhy.comment) + '</p>';
       }
 
-      // The FSD is rendered as an actual markdown document by default — the
-      // same fsdToMarkdown() output the download button produces, so what's
-      // on screen always matches what gets downloaded.
+      if (artifact.ui && artifact.ui.screens && artifact.ui.screens.length) {
+        body += '<div style="margin:0.8rem 0 1rem;"><button class="btn" id="open-screens-btn" type="button">Open screens (' +
+          artifact.ui.screens.length + ')</button></div>';
+      }
       var md = fsdToMarkdown(artifact);
       var rendered = window.marked ? marked.parse(md) : '<pre style="white-space:pre-wrap;">' + escapeHtml(md) + '</pre>';
       body += '<div class="md-viewer" id="fsd-md-viewer">' + rendered + '</div>';
 
-      if (artifact.detailedReport) {
-        body += '<div><button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">Download FSD</button></div>';
+      if (artifact.detailedReport || (artifact.phase1 && artifact.brdText)) {
+        var downloadLabel = 'Download FSD';
+        body += '<div><button class="btn secondary" id="download-fsd-btn" type="button" style="padding:0.4rem 0.7rem;font-size:0.8rem;">' + downloadLabel + '</button></div>';
       }
 
 
@@ -1853,7 +1997,48 @@
 
       var downloadBtn = document.getElementById('download-fsd-btn');
       if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
+      var openScreens = document.getElementById('open-screens-btn');
+      if (openScreens) openScreens.addEventListener('click', function () {
+        closeModal();
+        openUiEditorModal(artifact);
+      });
 
+    }
+
+    function openBrdEditorModal(artifact) {
+      document.getElementById('modal-title').textContent = (artifact.title || 'Requirement') + ' — Edit BRD';
+      document.getElementById('modal-body').innerHTML =
+        '<div class="field"><label>BRD (Markdown)</label><textarea id="brd-editor-content" rows="22"></textarea></div>' +
+        '<div class="error-banner" id="brd-editor-error"></div>' +
+        '<button class="btn" id="brd-editor-save" type="button" style="align-self:flex-start;">Save BRD</button>';
+      document.getElementById('brd-editor-content').value = artifact.brdText || '';
+      document.getElementById('modal-overlay').classList.add('open');
+
+      document.getElementById('brd-editor-save').addEventListener('click', function () {
+        var btn = document.getElementById('brd-editor-save');
+        var error = document.getElementById('brd-editor-error');
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+        error.classList.remove('visible');
+        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/brd', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: document.getElementById('brd-editor-content').value }),
+        })
+          .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.body.error || 'Could not save BRD');
+            closeModal();
+            loadArtifacts();
+          })
+          .catch(function (err) {
+            error.textContent = err.message;
+            error.classList.add('visible');
+            btn.disabled = false;
+            btn.textContent = 'Save BRD';
+          });
+      });
     }
 
     // A separate modal for the team split report — kept apart from
@@ -1868,7 +2053,7 @@
     // never actually renders for anyone else.
     function canRegenerateTeamSplit(artifact) {
       if (!artifact.detailedReport) return false;
-      return !me.isClient && me.tierId === 'tl' && me.department && (artifact.teamReports || []).some(function (t) { return t.team === me.department; });
+      return !me.isClient && me.tierId === 'tech' && me.department && (artifact.teamReports || []).some(function (t) { return t.team === me.department; });
     }
 
     function openTeamReportModal(artifact) {
@@ -1922,18 +2107,16 @@
       }
     }
 
-    // A TL's idea has no fixed second gate — the reviewer sending the FSD
-    // can finish it straight through (today's default) or route it to one
-    // specific person (VP, CEO, or MD) for a real extra layer of sign-off.
     function openRouteTlFsdModal(artifact) {
+      if (artifact.phase1) return;
       document.getElementById('modal-title').textContent = 'Send FSD';
       document.getElementById('modal-body').innerHTML =
         '<p style="margin:0 0 0.9rem;font-size:0.86rem;color:var(--text-soft);">This idea has no fixed second approver. Finish it now, or send it to one more person for final sign-off.</p>' +
         '<div style="display:flex;flex-direction:column;gap:0.5rem;">' +
           '<button class="btn" id="route-finish-btn" type="button">Finish now — no further approval</button>' +
-          '<button class="btn secondary" id="route-vp-btn" type="button">Send to VP for final approval</button>' +
-          '<button class="btn secondary" id="route-ceo-btn" type="button">Send to CEO for final approval</button>' +
-          '<button class="btn secondary" id="route-md-btn" type="button">Send to MD for final approval</button>' +
+          '<button class="btn secondary" id="route-vp-btn" type="button">Send to Product Owner for Gate 1</button>' +
+          '<button class="btn secondary" id="route-ceo-btn" type="button">Send to Business Owner for Gate 2</button>' +
+          '<button class="btn secondary" id="route-md-btn" type="button">Send to Client Tech Lead for Gate 2</button>' +
         '</div>' +
         '<div class="error-banner" id="route-error"></div>';
 
@@ -1966,9 +2149,9 @@
       }
 
       document.getElementById('route-finish-btn').addEventListener('click', function () { submit(null, this); });
-      document.getElementById('route-vp-btn').addEventListener('click', function () { submit('vp', this); });
-      document.getElementById('route-ceo-btn').addEventListener('click', function () { submit('ceo', this); });
-      document.getElementById('route-md-btn').addEventListener('click', function () { submit('md', this); });
+      document.getElementById('route-vp-btn').addEventListener('click', function () { submit('po', this); });
+      document.getElementById('route-ceo-btn').addEventListener('click', function () { submit('bo', this); });
+      document.getElementById('route-md-btn').addEventListener('click', function () { submit('ctl', this); });
 
       document.getElementById('modal-overlay').classList.add('open');
     }
@@ -2175,6 +2358,7 @@
     }
 
     function fsdToMarkdown(artifact) {
+      if (artifact.phase1 && artifact.brdText) return artifact.brdText;
       var d = artifact.detailedReport || {};
       var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
       var lines = ['# ' + (artifact.title || 'Untitled requirement'), ''];
@@ -2212,7 +2396,7 @@
     // The backend scopes this array to the TL's own department plus any
     // department package explicitly shared with them for discussion.
     function getVisibleTeamReports(artifact) {
-      return (me && !me.isClient && me.tierId === 'tl') ? (artifact.teamReports || []) : [];
+      return (me && !me.isClient && me.tierId === 'tech') ? (artifact.teamReports || []) : [];
     }
 
     // The team split report is its own document, separate from the FSD —
@@ -2399,9 +2583,7 @@
       });
     }
 
-    // Edit FSD via chat: MD/CEO (during fsd_review) or the client (during
-    // fsd_pending_client) describe a change in plain language and the AI
-    // applies a small patch to the detailed report.
+    // Edit FSD via chat (legacy artefacts only; governed runs use BRD/design).
     function openFsdChatModal(artifact) {
       document.getElementById('modal-title').textContent = 'Edit detailed report';
       document.getElementById('modal-body').innerHTML =
@@ -2660,6 +2842,77 @@
       }
     });
 
+    // The capability boundary. Same shape as the design system above: a
+    // shipped default, a stored override, a version and a revision list — the
+    // difference is only which agent reads it.
+    function loadIntakeSkill() {
+      var box = document.getElementById('settings-intake');
+      if (!box) return;
+      var status = document.getElementById('settings-intake-status');
+      var histEl = document.getElementById('settings-intake-history');
+
+      fetch(window.API_BASE + '/api/settings/intake-skill', { credentials: 'include' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          box.value = data.content || '';
+          box.readOnly = !data.canEdit;
+          ['settings-intake-save', 'settings-intake-reset'].forEach(function (id) {
+            var b = document.getElementById(id);
+            if (b) b.style.display = data.canEdit ? '' : 'none';
+          });
+          status.textContent = data.isDefault
+            ? 'Built-in default — never edited for this deployment.'
+            : 'Version ' + (data.version != null ? data.version : '?') +
+              (data.updatedBy ? ' · last changed by ' + data.updatedBy : '');
+
+          var past = data.history || [];
+          histEl.innerHTML = past.length
+            ? '<div style="font-size:0.78rem;color:var(--text-faint);">Previous versions: ' +
+              past.map(function (h) {
+                return 'v' + h.version + (h.updatedBy ? ' (' + escapeHtml(h.updatedBy) + ')' : '');
+              }).join(' · ') + '</div>'
+            : '';
+        })
+        .catch(function () {
+          box.readOnly = true;
+          ['settings-intake-save', 'settings-intake-reset'].forEach(function (id) {
+            var b = document.getElementById(id);
+            if (b) b.style.display = 'none';
+          });
+          status.textContent = 'Could not load the capability boundary.';
+        });
+    }
+
+    function saveIntakeSkill(content) {
+      var status = document.getElementById('settings-intake-status');
+      status.textContent = 'Saving…';
+      fetch(window.API_BASE + '/api/settings/intake-skill', {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content }),
+      })
+        .then(function (res) {
+          if (!res.ok) throw new Error('save failed');
+          return res.json();
+        })
+        .then(function () { loadIntakeSkill(); })
+        .catch(function () { status.textContent = 'Could not save — you may not have permission.'; });
+    }
+
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'settings-intake-save') {
+        saveIntakeSkill(document.getElementById('settings-intake').value);
+      }
+      if (e.target && e.target.id === 'settings-intake-reset') {
+        // Empty means "restore the built-in default", never "leave intake
+        // with no boundary at all".
+        saveIntakeSkill('');
+      }
+    });
+
     function loadPrompts() {
       var el = document.getElementById('settings-prompts');
       if (!el) return;
@@ -2802,6 +3055,84 @@
     // running it — this pipeline moved three stages onto different models on
     // evidence in one afternoon — and a setting that needs a deploy to change
     // is one nobody changes.
+    function fmtUsd(n) {
+      var v = Number(n);
+      if (!isFinite(v)) return '—';
+      if (v === 0) return '$0';
+      if (v < 0.01) return '$' + v.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+      return '$' + v.toFixed(4);
+    }
+    function fmtTokens(n) {
+      var v = Number(n) || 0;
+      return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+    function loadUsageDashboard() {
+      var stats = document.getElementById('usage-stats');
+      var modelsEl = document.getElementById('usage-models');
+      var cycleEl = document.getElementById('usage-cycle');
+      var recentEl = document.getElementById('usage-recent');
+      var cycleSub = document.getElementById('usage-cycle-sub');
+      if (!stats) return;
+      stats.innerHTML = '<p class="modal-empty">Loading…</p>';
+      fetch(window.API_BASE + '/api/usage', { credentials: 'include' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
+        .then(function (data) {
+          var rec = data.recorded || {};
+          var cells = [
+            ['Calls', fmtTokens(rec.calls)],
+            ['Prompt tokens', fmtTokens(rec.prompt_tokens)],
+            ['Completion tokens', fmtTokens(rec.completion_tokens)],
+            ['Total tokens', fmtTokens(rec.total_tokens)],
+            ['Recorded spend', fmtUsd(rec.usd)]
+          ];
+          stats.innerHTML = cells.map(function (c) {
+            return '<div class="usage-stat"><div class="k">' + c[0] + '</div><div class="v">' + escapeHtml(c[1]) + '</div></div>';
+          }).join('');
+          var by = data.byModel || [];
+          if (!by.length) {
+            modelsEl.innerHTML = '<p class="modal-empty">No model calls recorded yet. Intake and later agents write rows here as they run.</p>';
+          } else {
+            modelsEl.innerHTML = '<table class="usage-table"><thead><tr>' +
+              '<th>Model</th><th class="num">Calls</th><th class="num">Prompt</th><th class="num">Completion</th><th class="num">USD</th>' +
+              '</tr></thead><tbody>' +
+              by.map(function (row) {
+                return '<tr><td>' + escapeHtml(row.model) + '</td>' +
+                  '<td class="num">' + fmtTokens(row.calls) + '</td>' +
+                  '<td class="num">' + fmtTokens(row.prompt_tokens) + '</td>' +
+                  '<td class="num">' + fmtTokens(row.completion_tokens) + '</td>' +
+                  '<td class="num">' + fmtUsd(row.usd) + '</td></tr>';
+              }).join('') + '</tbody></table>';
+          }
+          var cycle = data.cycleEstimate || {};
+          if (cycleSub) cycleSub.textContent = (cycle.assumption || 'One full cycle') +
+            ' · ~' + fmtUsd(cycle.usd) + ' USD';
+          cycleEl.innerHTML = '<table class="usage-table"><thead><tr>' +
+            '<th>Agent</th><th>Model</th><th class="num">Calls</th><th class="num">USD</th></tr></thead><tbody>' +
+            (cycle.agents || []).map(function (row) {
+              return '<tr><td>' + escapeHtml(row.role) + '</td><td>' + escapeHtml(row.model) + '</td>' +
+                '<td class="num">' + fmtTokens(row.calls) + '</td><td class="num">' + fmtUsd(row.usd) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+          var recent = data.recent || [];
+          if (!recent.length) {
+            recentEl.innerHTML = '<p class="modal-empty">No calls yet.</p>';
+          } else {
+            recentEl.innerHTML = '<table class="usage-table"><thead><tr>' +
+              '<th>When</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th class="num">USD</th></tr></thead><tbody>' +
+              recent.map(function (row) {
+                return '<tr><td>' + escapeHtml(row.at || '') + '</td><td>' + escapeHtml(row.agent || '') + '</td>' +
+                  '<td>' + escapeHtml(row.model || '') + (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
+                  '<td class="num">' + fmtTokens(row.total_tokens) + '</td><td class="num">' + fmtUsd(row.usd) + '</td></tr>';
+              }).join('') + '</tbody></table>';
+          }
+        })
+        .catch(function (e) {
+          stats.innerHTML = '<p class="modal-empty">Could not load usage: ' + escapeHtml(e.message) + '</p>';
+        });
+    }
+
     function loadSettingsModels() {
       var rowsEl = document.getElementById('settings-models');
       var statusEl = document.getElementById('settings-status');
@@ -2809,24 +3140,39 @@
       if (!rowsEl) return;
 
       fetch(window.API_BASE + '/api/settings/models', { credentials: 'include' })
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.json();
+        })
         .then(function (data) {
           rowsEl.innerHTML = '';
-          (data.roles || []).forEach(function (r) {
+          var roles = data.roles || [];
+          if (!roles.length) {
+            rowsEl.innerHTML = '<p class="modal-empty">No agents listed.</p>';
+          }
+          roles.forEach(function (r) {
             var row = document.createElement('div');
-            row.style.cssText = 'display:grid;grid-template-columns:1fr 300px;gap:1rem;align-items:start;' +
+            row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) minmax(12rem,300px);gap:1rem;align-items:start;' +
               'padding:0.7rem 0;border-bottom:1px solid var(--line);';
             row.innerHTML =
               '<div><div style="font-weight:600;font-size:0.9rem;">' + escapeHtml(r.label) + '</div>' +
               '<div style="font-size:0.8rem;color:var(--text-faint);margin-top:0.15rem;">' +
-                escapeHtml(r.detail) + '</div></div>';
+                escapeHtml(r.detail) + '</div>' +
+              '<div style="font-size:0.78rem;margin-top:0.25rem;">' +
+                escapeHtml(r.model || r.environmentDefault || '') +
+                (r.source === 'setting' ? '' : ' <span style="color:var(--text-faint)">(default)</span>') +
+              '</div></div>';
 
             row.appendChild(buildModelPicker(r, data.choices || [], !data.canEdit));
             rowsEl.appendChild(row);
           });
 
           saveBtn.style.display = data.canEdit ? '' : 'none';
-          statusEl.textContent = data.canEdit ? '' : 'Read-only — MD, CEO or VP can change these.';
+          var cost = data.cycleCost || {};
+          var usd = cost.usd != null ? cost.usd : '—';
+          statusEl.textContent = 'Estimated OpenRouter spend for one full cycle: $' + usd +
+            ' USD (agentless build, list prices)' +
+            (data.canEdit ? '.' : '. Read-only — Product Owner or Business Owner can change models.');
         })
         .catch(function (e) { statusEl.textContent = 'Could not load settings: ' + e.message; });
 
@@ -2878,15 +3224,16 @@
         host.className = 'uied';
         document.body.appendChild(host);
       }
+      var canEditUi = !!(artifact.uiGate && artifact.uiGate.canEdit);
       host.innerHTML =
         '<div class="uied-bar">' +
-          '<span class="t">' + escapeHtml(artifact.title) + '</span>' +
+          '<span class="t">' + escapeHtml(artifact.title) + ' — screens</span>' +
           '<select id="ue-screen"></select>' +
-          '<button id="ue-direct" class="on" type="button">Click to edit: on</button>' +
+          (canEditUi ? '<button id="ue-direct" class="on" type="button">Click to edit: on</button>' +
           '<input id="ue-prompt" placeholder="Describe a change — &quot;add a status column&quot;">' +
-          '<button id="ue-ask" type="button">Ask agent</button>' +
+          '<button id="ue-ask" type="button">Ask agent</button>' : '') +
           '<button id="ue-src" type="button">Source</button>' +
-          '<button id="ue-save" class="primary" type="button">Save</button>' +
+          (canEditUi ? '<button id="ue-save" class="primary" type="button">Save</button>' : '') +
           '<button id="ue-close" type="button">Close</button>' +
           '<span class="status" id="ue-status"></span>' +
         '</div>' +
@@ -2903,7 +3250,7 @@
       var directBtn = host.querySelector('#ue-direct');
       var screens = [];
       var current = 0;
-      var direct = true;
+      var direct = canEditUi;
       // Sent with the save so the lesson extractor sees the reviewer's own
       // words. A diff alone cannot say whether "$" became "₹" because of a
       // house standard or because this one screen is priced in rupees.
@@ -2987,7 +3334,7 @@
           .then(function (r) {
             if (!r.ok) throw new Error(r.body.detail || 'Save failed');
             lastInstruction = '';
-            status('Saved — VP approval withdrawn, and the agent is reviewing what changed');
+            status('Saved — Gate 3 approval withdrawn, and the agent is reviewing what changed');
           })
           .catch(function (e) { status(e.message, true); });
       }
@@ -3015,13 +3362,16 @@
       }
 
       host.querySelector('#ue-close').addEventListener('click', close);
-      host.querySelector('#ue-save').addEventListener('click', save);
-      host.querySelector('#ue-ask').addEventListener('click', ask);
-      host.querySelector('#ue-prompt').addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
+      var saveBtn = host.querySelector('#ue-save');
+      if (saveBtn) saveBtn.addEventListener('click', save);
+      var askBtn = host.querySelector('#ue-ask');
+      if (askBtn) askBtn.addEventListener('click', ask);
+      var promptEl = host.querySelector('#ue-prompt');
+      if (promptEl) promptEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
       host.querySelector('#ue-src').addEventListener('click', function () {
         host.querySelector('#ue-srcpane').classList.toggle('open');
       });
-      directBtn.addEventListener('click', function () {
+      if (directBtn) directBtn.addEventListener('click', function () {
         direct = !direct;
         directBtn.classList.toggle('on', direct);
         directBtn.textContent = 'Click to edit: ' + (direct ? 'on' : 'off');
@@ -3049,7 +3399,7 @@
           });
           sourceEl.value = screens[0].source || '';
           render();
-          status('Click any text on the page to edit it');
+          status(canEditUi ? 'Click any text on the page to edit it' : 'Read-only preview — switch screens in the dropdown');
         })
         .catch(function (e) { status('Could not load screens: ' + e.message, true); });
     }
@@ -3343,28 +3693,25 @@
         var artifacts = data.artifacts || [];
         var mine = artifacts.filter(function (a) { return a.originator.userId === me.id; });
         var awaiting = me.isClient ? [] : artifacts.filter(function (a) {
-          if (a.originator.userId === me.id) return false;
-          if (a.currentStage === 'pending_approval') {
-            return a.approvalChain[a.currentApprovalIndex] && a.approvalChain[a.currentApprovalIndex].approverTiers.indexOf(me.tierId) !== -1;
+          if (a.currentStage !== 'pending_approval') {
+            if (a.phase1) return false;
+            if ((a.currentStage === 'fsd_review' || a.currentStage === 'fsd_final_approval') && a.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1) {
+              return true;
+            }
+            if (a.currentStage === 'team_revision_requested' && me.tierId === 'po') return true;
+            return false;
           }
-          // fsd_review / fsd_final_approval aren't chain-indexed — the
-          // gate-0 reviewer pool acts on these regardless of which index
-          // the chain is currently at.
-          if ((a.currentStage === 'fsd_review' || a.currentStage === 'fsd_final_approval') && a.approvalChain[0].approverTiers.indexOf(me.tierId) !== -1) {
-            return true;
-          }
-          if (a.currentStage === 'team_revision_requested' && me.tierId === 'vp') return true;
-          return false;
+          var step = a.approvalChain[a.currentApprovalIndex];
+          if (!step || step.approverTiers.indexOf(me.tierId) === -1) return false;
+          if (a.originator.userId === me.id && step.gate !== 6) return false;
+          return true;
         });
-        var teamwork = (!me.isClient && me.tierId === 'tl' && me.department)
+        var teamwork = (!me.isClient && (me.tierId === 'tech' || me.tierId === 'sl') && me.department)
           ? artifacts.filter(function (a) { return (a.teamReports || []).some(function (t) { return t.team === me.department; }); })
           : [];
-        // One group discussion per requirement assigned to this TL. This is
-        // intentionally the same requirement set as Team Work, presented as
-        // chats instead of report cards.
-        var shared = (!me.isClient && me.tierId === 'tl')
+        var shared = (!me.isClient && (me.tierId === 'tech' || me.tierId === 'sl'))
           ? teamwork.slice()
-          : (!me.isClient && ['md', 'ceo', 'vp'].indexOf(me.tierId) !== -1)
+          : (!me.isClient && ['po', 'bo', 'ctl', 'architect', 'ux', 'ba', 'tech', 'sl', 'se', 'rm'].indexOf(me.tierId) !== -1)
             ? artifacts.filter(function (a) { return (a.discussionMessages || []).length > 0; })
             : [];
         // Anything I acted on at some point (approved a gate, gave final
@@ -3419,7 +3766,7 @@
 
         var sharedTab = document.getElementById('tab-shared');
         var sharedBadge = document.getElementById('shared-badge');
-        if (!me.isClient && ['tl', 'md', 'ceo', 'vp'].indexOf(me.tierId) !== -1) {
+        if (!me.isClient && ['tech', 'po', 'bo', 'ctl', 'architect', 'ux', 'ba', 'sl', 'se', 'rm'].indexOf(me.tierId) !== -1) {
           sharedTab.style.display = '';
           if (sharedData.length > 0) {
             sharedBadge.textContent = String(sharedData.length);
@@ -3441,15 +3788,14 @@
       });
     }
 
-    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history', 'codegen', 'settings'];
+    var TAB_NAMES = ['requirement', 'approvals', 'submissions', 'teamwork', 'shared', 'history', 'codegen', 'usage', 'settings'];
     function switchTab(tabName) {
       TAB_NAMES.forEach(function (name) {
         document.getElementById('tab-' + name).classList.toggle('active', name === tabName);
         document.getElementById('view-' + name).style.display = name === tabName ? '' : 'none';
       });
-      // Fetched on open rather than kept in sync: another approver may have
-      // changed a model since this page loaded.
-      if (tabName === 'settings') { loadSettingsModels(); loadDesignSystem(); loadPrompts(); loadLessons(); }
+      if (tabName === 'settings') { loadSettingsModels(); loadIntakeSkill(); loadDesignSystem(); loadPrompts(); loadLessons(); }
+      if (tabName === 'usage') loadUsageDashboard();
     }
     TAB_NAMES.forEach(function (name) {
       document.getElementById('tab-' + name).addEventListener('click', function () { switchTab(name); });
@@ -3458,7 +3804,7 @@
     function initPage() {
       document.getElementById('who-name').textContent = me.name;
       document.getElementById('who-email').textContent = me.email;
-      document.getElementById('who-tier').textContent = me.isClient ? 'CLIENT' : me.tierId.toUpperCase() + (me.department ? ' · ' + me.department : '');
+      document.getElementById('who-tier').textContent = me.isClient ? 'CLIENT' : ((TIER_LABELS[me.tierId] || me.tierId) + (me.department ? ' · ' + me.department : ''));
 
       var kicker = document.getElementById('page-kicker');
       var heading = document.getElementById('page-heading');
@@ -3474,22 +3820,23 @@
         sub.textContent = "Whatever you're picturing, we'll help you build it.";
         document.getElementById('tab-approvals').style.display = 'none';
       } else {
-        kicker.textContent = TIER_LABELS[me.tierId] + ' · ' + me.tierId.toUpperCase() + (me.department ? ' (' + me.department + ')' : '');
+        kicker.textContent = (TIER_LABELS[me.tierId] || me.tierId) + (me.department ? ' · ' + me.department : '');
         heading.textContent = 'Welcome back, ' + me.name.split(' ')[0] + '.';
-        sub.textContent = 'Describe what you need — it routes to the right approver automatically.';
-        if (me.tierId === 'tl') {
+        sub.textContent = 'Seven human gates. Sign only the gate your role is named on.';
+        if (me.tierId === 'tech' || me.tierId === 'sl') {
           document.getElementById('tab-teamwork').style.display = '';
           document.getElementById('teamwork-subtitle').textContent = me.department
-            ? 'Read-only — ' + me.department + " team's work, broken out from fully-approved requirements."
-            : 'Read-only — department-specific work broken out from fully-approved requirements.';
+            ? 'Read-only — ' + me.department + " stream, broken out after Gate 4."
+            : 'Read-only — stream work broken out after Gate 4.';
         }
-        if (me.tierId === 'vp' || me.tierId === 'tl') {
+        if (me.tierId === 'po' || me.tierId === 'tech' || me.tierId === 'se') {
           document.getElementById('tab-codegen').style.display = '';
         }
         // Visible to every internal user: knowing which model wrote a
         // document is part of reading it. Changing one is restricted
         // server-side, and the panel renders read-only for anyone else.
         document.getElementById('tab-settings').style.display = '';
+        document.getElementById('tab-usage').style.display = '';
       }
 
       document.getElementById('loading-note').style.display = 'none';
@@ -4075,7 +4422,7 @@
       ideOpenTabs = [];
       ideCurrentCodeGenId = codeGenId;
       ideSecurity = null;
-      ideCanEdit = !me.isClient && me.tierId === 'tl' && me.department === (department || me.department);
+      ideCanEdit = !me.isClient && me.tierId === 'tech' && me.department === (department || me.department);
 
       document.getElementById('ide-save-btn').style.display = ideCanEdit ? '' : 'none';
       document.getElementById('ide-save-btn').disabled = true;

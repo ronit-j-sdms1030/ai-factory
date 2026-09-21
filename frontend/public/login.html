@@ -10,7 +10,7 @@
 <style>
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
   .card {
-    width: 100%; max-width: 380px;
+    width: 100%; max-width: 420px;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -31,13 +31,17 @@
     display: block; color: var(--text-soft); font-family: var(--font-mono);
     font-size: 0.72rem; margin-bottom: 0.7rem;
   }
-  .demo-fill-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-  .demo-fill-btn {
-    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
-    border-radius: 6px; padding: 0.35rem 0.6rem; font-size: 0.76rem; cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease;
+  .demo-fill-grid { display: flex; flex-direction: column; gap: 0.45rem; }
+  .demo-fill-grid select {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.82rem;
   }
-  .demo-fill-btn:hover { background: var(--surface); border-color: var(--line-strong); }
+  .demo-hint { margin: 0; color: var(--text-soft); font-size: 0.75rem; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -54,12 +58,12 @@
       </svg>
       <div class="brand-text">
         <strong>Stark Digital</strong>
-        <span>Requirement Intake</span>
+        <span>Governed SDLC</span>
       </div>
     </div>
 
     <h1>Internal sign-in</h1>
-    <p class="sub">For MD, CEO, VP, PM, and TL accounts.</p>
+    <p class="sub">Governed roles from the seven human gates. Requester cannot approve Gate 1.</p>
 
     <div class="error-banner" id="error-banner"></div>
 
@@ -76,9 +80,11 @@
     </form>
 
     <p class="foot-link">Signing in as a client? <a href="/client-login.html">Go to client sign-in &rarr;</a></p>
+    <p class="foot-link"><a href="/catalog.html">Software catalog</a> · <a href="/change-request.html">Change request</a></p>
+    <p class="foot-link">Demo: seed G1–G7 with <code>python3 scripts/demo_seed.py</code> from <code>new/</code>.</p>
 
     <div class="demo-note">
-      <strong>Quick fill (demo accounts, password123)</strong>
+      <strong>Sign in as a gate role · password123</strong>
       <div class="demo-fill-grid" id="demo-fill-grid"></div>
     </div>
   </div>
@@ -92,6 +98,85 @@
       errorBanner.textContent = message;
       errorBanner.classList.add('visible');
     }
+
+    var DEMO_GROUPS = [
+      {
+        label: 'Intake',
+        options: [
+          { label: 'Requester — originator, also Gate 6 UAT', email: 'requester@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 1 · Scope',
+        options: [
+          { label: 'Product Owner — not the requester', email: 'po@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 2 · BRD (both must sign, distinct teams)',
+        options: [
+          { label: 'Business Owner', email: 'bo@client.example' },
+          { label: 'Client tech lead', email: 'ctl@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 3 · Design (all three must sign)',
+        options: [
+          { label: 'Architect', email: 'architect@client.example' },
+          { label: 'UI/UX', email: 'ux@client.example' },
+          { label: 'Business Analyst', email: 'ba@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 4 · Plan (tech lead + every stream lead)',
+        options: [
+          { label: 'Tech Lead', email: 'techlead@client.example' },
+          { label: 'QA stream lead', email: 'qa-lead@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 5 · Merge',
+        options: [
+          { label: 'Senior engineer — not the author', email: 'senior@client.example' },
+        ],
+      },
+      {
+        label: 'Gate 7 · Release',
+        options: [
+          { label: 'Release manager', email: 'release@client.example' },
+        ],
+      },
+    ];
+    var demoGrid = document.getElementById('demo-fill-grid');
+    var select = document.createElement('select');
+    select.id = 'demo-role';
+    select.setAttribute('aria-label', 'Governed gate role');
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Choose a role…';
+    select.appendChild(blank);
+    DEMO_GROUPS.forEach(function (group) {
+      var optgroup = document.createElement('optgroup');
+      optgroup.label = group.label;
+      group.options.forEach(function (account) {
+        var option = document.createElement('option');
+        option.value = account.email;
+        option.textContent = account.label;
+        optgroup.appendChild(option);
+      });
+      select.appendChild(optgroup);
+    });
+    select.addEventListener('change', function () {
+      if (!select.value) return;
+      document.getElementById('email').value = select.value;
+      document.getElementById('password').value = 'password123';
+      document.getElementById('email').focus();
+    });
+    var hint = document.createElement('p');
+    hint.className = 'demo-hint';
+    hint.textContent = 'Gate 6 UAT uses the requester. Discard exists only at Gates 1 and 2.';
+    demoGrid.appendChild(select);
+    demoGrid.appendChild(hint);
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();

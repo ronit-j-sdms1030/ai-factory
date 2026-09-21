@@ -1,1 +1,2 @@
-window.API_BASE = 'http://localhost:4000';
+// The frontend server proxies /api to Phase 1, keeping cookies same-origin.
+window.API_BASE = '';

@@ -1,0 +1,393 @@
+name: governed-ai-factory
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17-bookworm
+    environment:
+      POSTGRES_DB: factory
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init/00-init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d factory"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.27.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: ${POSTGRES_PASSWORD:-local-postgres}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    volumes:
+      - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    ports:
+      - "127.0.0.1:7233:7233"
+    healthcheck:
+      test: ["CMD-SHELL", "tctl --address temporal:7233 cluster health 2>/dev/null | grep -q SERVING"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  litellm:
+    profiles: ["litellm"]
+    image: ghcr.io/berriai/litellm:1.100.0
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-litellm}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-}
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:4000:4000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  opa:
+    image: openpolicyagent/opa:1.4.2-static
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    volumes:
+      - ./opa:/policies:ro
+    ports:
+      - "127.0.0.1:8181:8181"
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "true"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  presidio-analyzer:
+    image: mcr.microsoft.com/presidio-analyzer:2.2.358
+    ports:
+      - "127.0.0.1:5002:3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  presidio-anonymizer:
+    image: mcr.microsoft.com/presidio-anonymizer:2.2.358
+    ports:
+      - "127.0.0.1:5001:3000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  app-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+    depends_on:
+      temporal:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      opa:
+        condition: service_healthy
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+      signing-init:
+        condition: service_completed_successfully
+    environment:
+      ORCHESTRATION_MODE: temporal
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: governed-requirements
+      STORE_ADAPTER: postgres
+      MODEL_ADAPTER: ${MODEL_ADAPTER:-deterministic}
+      POLICY_ADAPTER: opa
+      PRIVACY_ADAPTER: presidio
+      PRECEDENT_ADAPTER: disabled
+      IDENTITY_ADAPTER: ${IDENTITY_ADAPTER:-dev}
+      REPOSITORY_ADAPTER: ${REPOSITORY_ADAPTER:-local}
+      GITHUB_OWNER: ${GITHUB_OWNER:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      SIGNER_ADAPTER: cosign
+      TELEMETRY_ADAPTER: noop
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/factory
+      LITELLM_API_BASE: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-litellm}
+      LITELLM_MODEL: ${LITELLM_MODEL:-openai/local-model}
+      OPA_URL: http://opa:8181
+      PRESIDIO_ANALYZER_URL: http://presidio-analyzer:3000
+      PRESIDIO_ANONYMIZER_URL: http://presidio-anonymizer:3000
+      COSIGN_KEY: /signing/cosign.key
+      COSIGN_PUBLIC_KEY: /signing/cosign.pub
+      COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-dev-webhook-secret}
+      E2B_API_KEY: ${E2B_API_KEY:-}
+      OPENHANDS_URL: ${OPENHANDS_URL:-}
+      SWE_AGENT: ${SWE_AGENT:-}
+      PHASE1_DEV_MODE: ${PHASE1_DEV_MODE:-1}
+      PHASE1_HOST: 0.0.0.0
+      RUNTIME_ROOT: /data
+    command: ["python", "-m", "phase1"]
+    volumes:
+      - app-data:/data
+      - signing-data:/signing:ro
+    ports:
+      - "127.0.0.1:8787:8787"
+    restart: unless-stopped
+
+  temporal-worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+    depends_on:
+      temporal:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      opa:
+        condition: service_healthy
+      presidio-analyzer:
+        condition: service_healthy
+      presidio-anonymizer:
+        condition: service_healthy
+      signing-init:
+        condition: service_completed_successfully
+    command: ["python", "-m", "phase1.temporal_worker"]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: governed-requirements
+      RUNTIME_ROOT: /data
+      WORKER_READY_FILE: /tmp/worker-ready
+      STORE_ADAPTER: postgres
+      MODEL_ADAPTER: ${MODEL_ADAPTER:-deterministic}
+      POLICY_ADAPTER: opa
+      PRIVACY_ADAPTER: presidio
+      PRECEDENT_ADAPTER: disabled
+      IDENTITY_ADAPTER: ${IDENTITY_ADAPTER:-dev}
+      REPOSITORY_ADAPTER: ${REPOSITORY_ADAPTER:-local}
+      GITHUB_OWNER: ${GITHUB_OWNER:-}
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      SIGNER_ADAPTER: cosign
+      TELEMETRY_ADAPTER: noop
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/factory
+      LITELLM_API_BASE: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-litellm}
+      LITELLM_MODEL: ${LITELLM_MODEL:-openai/local-model}
+      OPA_URL: http://opa:8181
+      PRESIDIO_ANALYZER_URL: http://presidio-analyzer:3000
+      PRESIDIO_ANONYMIZER_URL: http://presidio-anonymizer:3000
+      COSIGN_KEY: /signing/cosign.key
+      COSIGN_PUBLIC_KEY: /signing/cosign.pub
+      COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+      E2B_API_KEY: ${E2B_API_KEY:-}
+      OPENHANDS_URL: ${OPENHANDS_URL:-}
+      SWE_AGENT: ${SWE_AGENT:-}
+    volumes:
+      - app-data:/data
+      - signing-data:/signing:ro
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/worker-ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  signing-init:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: runtime
+    user: "10001:10001"
+    environment:
+      COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+    command:
+      - sh
+      - -ec
+      - |
+        if [ ! -s /signing/cosign.key ] || [ ! -s /signing/cosign.pub ]; then
+          cosign generate-key-pair --output-key-prefix /signing/cosign
+        fi
+        test -s /signing/cosign.key
+        test -s /signing/cosign.pub
+    volumes:
+      - signing-data:/signing
+    restart: "no"
+
+  clickhouse:
+    profiles: ["observability"]
+    image: clickhouse/clickhouse-server:25.3.6.56-alpine
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-local-clickhouse}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    profiles: ["observability"]
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD:-local-redis}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${LANGFUSE_REDIS_PASSWORD:-local-redis} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    profiles: ["observability"]
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: ${LANGFUSE_MINIO_USER:-local-minio}
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:-local-minio-password}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  langfuse-worker:
+    profiles: ["observability"]
+    image: langfuse/langfuse-worker:3.225.5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment: &langfuse-environment
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/langfuse
+      SALT: ${LANGFUSE_SALT:-local-salt-change-me}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:${LANGFUSE_CLICKHOUSE_PASSWORD:-local-clickhouse}@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-local-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_USER:-local-minio}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:-local-minio-password}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-local-redis}
+    restart: unless-stopped
+
+  langfuse-web:
+    profiles: ["observability"]
+    image: langfuse/langfuse:3.225.5
+    depends_on:
+      langfuse-worker:
+        condition: service_started
+    environment:
+      <<: *langfuse-environment
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-local-nextauth-secret-change-me}
+      NEXTAUTH_URL: http://localhost:3000
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/public/health 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  otel-collector:
+    profiles: ["observability"]
+    image: otel/opentelemetry-collector-contrib:0.128.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backstage:
+    profiles: ["backstage"]
+    image: nginx:1.27-alpine
+    volumes:
+      - ../backstage:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:7007:80"
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  signing-data:
+  postgres-data:
+  clickhouse-data:
+  redis-data:
+  minio-data:

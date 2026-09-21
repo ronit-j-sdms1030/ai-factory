@@ -1,0 +1,17 @@
+app:
+  title: Governed Factory
+  baseUrl: http://127.0.0.1:7007
+
+organization:
+  name: Governed Factory
+
+backend:
+  baseUrl: http://127.0.0.1:7007
+  listen: ':7007'
+
+catalog:
+  locations:
+    - type: url
+      target: http://app-api:8787/api/catalog
+    - type: file
+      target: /catalog/catalog-info.yaml

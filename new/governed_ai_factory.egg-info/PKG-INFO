@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: governed-ai-factory
+Version: 0.1.0
+Summary: Credential-free governed SDLC runtime with Temporal orchestration
+Requires-Python: <3.13,>=3.12
+Requires-Dist: temporalio==1.33.0
+Provides-Extra: postgres
+Requires-Dist: psycopg[binary]==3.2.10; extra == "postgres"
+Provides-Extra: identity
+Requires-Dist: PyJWT[crypto]==2.10.1; extra == "identity"
+Provides-Extra: telemetry
+Requires-Dist: opentelemetry-api==1.37.0; extra == "telemetry"
+Provides-Extra: runtime
+Requires-Dist: temporalio==1.33.0; extra == "runtime"
+Requires-Dist: langgraph==1.2.11; extra == "runtime"
+Requires-Dist: psycopg[binary]==3.2.10; extra == "runtime"
+Requires-Dist: PyJWT[crypto]==2.10.1; extra == "runtime"
+Requires-Dist: opentelemetry-api==1.37.0; extra == "runtime"
+Provides-Extra: test
+Requires-Dist: pytest==9.1.1; extra == "test"

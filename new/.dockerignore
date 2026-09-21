@@ -1,0 +1,15 @@
+.git
+.gitignore
+.pytest_cache
+.runtime
+.venv
+**/__pycache__
+**/*.py[cod]
+docs
+tests
+deploy
+scripts
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
