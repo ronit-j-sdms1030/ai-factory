@@ -54,7 +54,16 @@ def models(root: Path) -> dict[str, Any]:
             for name, meta in agent_settings.AGENT_ROLES.items()
         ]
         cost = {"usd": 0, "currency": "USD", "assumption": "unavailable"}
-    return {"roles": roles, "choices": choices, "cycleCost": cost}
+    try:
+        ui_context = agent_settings.ui_context(root)
+    except Exception:
+        ui_context = "fetch"
+    return {
+        "roles": roles,
+        "choices": choices,
+        "cycleCost": cost,
+        "uiContext": ui_context,
+    }
 
 
 def intake_skill_doc(git: Any) -> dict[str, Any]:
@@ -92,6 +101,9 @@ def design_system_doc(git: Any) -> dict[str, Any]:
 
 
 def prompts(root: Path | None = None) -> list[dict[str, Any]]:
+    from phase1 import prompt_registry
+
+    registry = {row["name"]: row for row in prompt_registry.inventory(root)}
     rows = []
     for agent, meta in agent_settings.AGENT_ROLES.items():
         try:
@@ -103,6 +115,7 @@ def prompts(root: Path | None = None) -> list[dict[str, Any]]:
                 f"# {meta['label']}\n\n{meta['detail']}\n"
             )
             version = "shipped"
+        snap = registry.get(agent) or {}
         rows.append(
             {
                 "name": agent,
@@ -111,7 +124,10 @@ def prompts(root: Path | None = None) -> list[dict[str, Any]]:
                 "detail": meta["detail"],
                 "content": content,
                 "isDefault": True,
-                "version": version,
+                "version": snap.get("version") or version,
+                "files": snap.get("files") or [],
+                "approver": snap.get("approver") or "shipped",
+                "history": snap.get("history") or [],
             }
         )
     return rows

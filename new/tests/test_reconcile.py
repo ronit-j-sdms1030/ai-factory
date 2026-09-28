@@ -6,14 +6,13 @@ from pathlib import Path
 
 from phase1 import directory
 from phase1.platform import Phase1
-from tests.test_phase3 import reach_plan
+from tests.test_phase3 import reach_plan, sign_gate_4
 
 
 def test_tick_applies_github_review_without_webhook(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_plan(p1)
-    p1.decide(rid, directory.actor("u-tl"), "approve")
-    p1.decide(rid, directory.actor("u-sl-qa"), "approve")
+    sign_gate_4(p1, rid)
     run = p1.get(rid)
     assert run["awaiting"] == 5
     ticket = run["tickets"][1]["id"]

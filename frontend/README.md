@@ -18,6 +18,8 @@ Demo login (`PHASE1_DEV_MODE=1`, password `password123`):
 | ux@client.example | UI/UX | 3 |
 | ba@client.example | Business Analyst | 3 |
 | techlead@client.example | Tech Lead | 4 |
+| dev-lead@client.example | Stream Lead (Development) | 4 |
+| ai-lead@client.example | Stream Lead (AI) | 4 |
 | qa-lead@client.example | Stream Lead (QA) | 4 |
 | senior@client.example | Senior Engineer | 5 |
 | release@client.example | Release Manager | 7 |

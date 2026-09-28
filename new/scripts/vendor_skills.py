@@ -40,6 +40,21 @@ EXPECTED_NAMES = {
     "bmad-product-brief",
     "bmad-prfaq",
     "deployment-pipeline-design",
+    "interview-me",
+    "documentation-and-adrs",
+    "api-and-interface-design",
+    "planning-and-task-breakdown",
+    "test-driven-development",
+    "ci-cd-and-automation",
+    "code-review-and-quality",
+    "security-and-hardening",
+    "incremental-implementation",
+    "observability-and-instrumentation",
+    "frontend-ui-engineering",
+    "secrets-management",
+    "e2e-testing-patterns",
+    "avoid-ai-writing",
+    "bmad-code-review",
 }
 
 

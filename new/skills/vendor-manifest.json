@@ -144,6 +144,141 @@
       "target": "deployment-pipeline-design/SKILL.md",
       "sha256": "9a56bd9401c1dc8ef5a15758d7234f211193097ddb3895d46d1ddcd730687b18",
       "license": "MIT"
+    },
+    {
+      "name": "interview-me",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/interview-me/SKILL.md",
+      "target": "interview-me/SKILL.md",
+      "sha256": "ace4b675999bb504593d572e0f73f3d7e803ad6fddf318445598c82c11939db2",
+      "license": "MIT"
+    },
+    {
+      "name": "documentation-and-adrs",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/documentation-and-adrs/SKILL.md",
+      "target": "documentation-and-adrs/SKILL.md",
+      "sha256": "87ae44a0c7bb3eefc2131a9d11caabcc14e4d8dcb27d66a3a675551ee2ce1671",
+      "license": "MIT"
+    },
+    {
+      "name": "api-and-interface-design",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/api-and-interface-design/SKILL.md",
+      "target": "api-and-interface-design/SKILL.md",
+      "sha256": "5dafd0c44a3aabf11cae5bcb34f6fcc24dfa5c01ba6e0d3176bce997f4d68bc8",
+      "license": "MIT"
+    },
+    {
+      "name": "planning-and-task-breakdown",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/planning-and-task-breakdown/SKILL.md",
+      "target": "planning-and-task-breakdown/SKILL.md",
+      "sha256": "ed0f90cc5951ddd4bcab7f871f64efec93a49af9279ef93bc470da77ad8da3f7",
+      "license": "MIT"
+    },
+    {
+      "name": "test-driven-development",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/test-driven-development/SKILL.md",
+      "target": "test-driven-development/SKILL.md",
+      "sha256": "7c0c6ac057c19d7f8be65d9f49c3a638703b868f4625c78b70da5439d5d74fca",
+      "license": "MIT"
+    },
+    {
+      "name": "ci-cd-and-automation",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/ci-cd-and-automation/SKILL.md",
+      "target": "ci-cd-and-automation/SKILL.md",
+      "sha256": "a6ed8ed56456b01ff8314c44eefc69897d9905ae4e06bb2b7036286efb79b5f0",
+      "license": "MIT"
+    },
+    {
+      "name": "code-review-and-quality",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/code-review-and-quality/SKILL.md",
+      "target": "code-review-and-quality/SKILL.md",
+      "sha256": "8f3cabca581bbf7cb5f0add3f7454e7a4523f9d4353a6a4a217e6fa515309612",
+      "license": "MIT"
+    },
+    {
+      "name": "security-and-hardening",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/security-and-hardening/SKILL.md",
+      "target": "security-and-hardening/SKILL.md",
+      "sha256": "3015b6b7d3ce7c20d1092ed363047e9946eea947b2161673dd0bfa65b8a4c0e8",
+      "license": "MIT"
+    },
+    {
+      "name": "incremental-implementation",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/incremental-implementation/SKILL.md",
+      "target": "incremental-implementation/SKILL.md",
+      "sha256": "df66536610071727feae1ca95f3c391c248ad828041750ccd3699cce763aa00b",
+      "license": "MIT"
+    },
+    {
+      "name": "observability-and-instrumentation",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/observability-and-instrumentation/SKILL.md",
+      "target": "observability-and-instrumentation/SKILL.md",
+      "sha256": "e7fcb0820306d46268de9594d676ad98e35040858926c412b7000faa52a61f87",
+      "license": "MIT"
+    },
+    {
+      "name": "frontend-ui-engineering",
+      "repository": "addyosmani/agent-skills",
+      "commit": "dc27a9c2e13721158157632de61b4106c6c2a2a1",
+      "path": "skills/frontend-ui-engineering/SKILL.md",
+      "target": "frontend-ui-engineering/SKILL.md",
+      "sha256": "549044e9bd8d7fe993ce8e5c0d2b0f5465650676dc15805329973f936179eb1e",
+      "license": "MIT"
+    },
+    {
+      "name": "secrets-management",
+      "repository": "wshobson/agents",
+      "commit": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "path": "plugins/cicd-automation/skills/secrets-management/SKILL.md",
+      "target": "secrets-management/SKILL.md",
+      "sha256": "da14565446a404c0a3ca2cf4363f755dc06a351c4b588be453ea73680d5658d0",
+      "license": "MIT"
+    },
+    {
+      "name": "e2e-testing-patterns",
+      "repository": "wshobson/agents",
+      "commit": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "path": "plugins/developer-essentials/skills/e2e-testing-patterns/SKILL.md",
+      "target": "e2e-testing-patterns/SKILL.md",
+      "sha256": "1653690dde9eeca6dcb66086277791c2a3ccc2b37eaab6ec9b627a10adfb94be",
+      "license": "MIT"
+    },
+    {
+      "name": "avoid-ai-writing",
+      "repository": "wshobson/agents",
+      "commit": "4236bb91f8395b0435f1d8b8baf9e8e4c69a8620",
+      "path": "plugins/avoid-ai-writing/skills/avoid-ai-writing/SKILL.md",
+      "target": "avoid-ai-writing/SKILL.md",
+      "sha256": "3b0940b0014a64aaff405f367e44241095c96856cabcd0a01adf0ec33bbc1a66",
+      "license": "MIT"
+    },
+    {
+      "name": "bmad-code-review",
+      "repository": "bmad-code-org/BMAD-METHOD",
+      "commit": "f033e70a2c0a3751aaab17dfdd29839ac621f541",
+      "path": "skills/bmad-code-review/SKILL.md",
+      "target": "bmad-code-review/SKILL.md",
+      "sha256": "f7719e1339e5a919df9e03f8967dca9f886bd26c5d27c58c050836dc38977292",
+      "license": "MIT"
     }
   ]
 }

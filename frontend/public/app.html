@@ -4,12 +4,41 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Requirement Intake - Stark Digital</title>
-<link rel="stylesheet" href="/theme.css">
-<link rel="stylesheet" href="/theme-client.css">
-<script src="/config.js"></script>
+<link rel="stylesheet" href="/theme.css?v=20260924-fonts4">
+<link rel="stylesheet" href="/theme-client.css?v=20260924-fonts4">
+<script src="/config.js?v=20260922"></script>
+<script>window.API_BASE = '';</script>
+<script>
+  (function () {
+    var nativeFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      return nativeFetch(input, init).then(function (res) {
+        var url = String((input && input.url) || input || '');
+        if (res.status !== 401 || url.indexOf('/api/') < 0 || url.indexOf('/api/auth/') >= 0) return res;
+        return res.clone().json().catch(function () { return {}; }).then(function (body) {
+          if (/bearer token required|invalid bearer token/i.test(String(body && body.error || ''))) {
+            window.location.href = '/login.html?expired=1';
+          }
+          return res;
+        });
+      });
+    };
+  })();
+</script>
+<script>
+  if (location.hostname === 'localhost') {
+    location.replace('http://127.0.0.1:' + (location.port || '5173') + location.pathname + location.search + location.hash);
+  }
+</script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <style>
+  html, body, button, input, textarea, select {
+    font-family: Ubuntu, 'DejaVu Sans', 'Liberation Sans', 'Noto Sans', sans-serif !important;
+    font-synthesis: none !important;
+    letter-spacing: 0 !important;
+    word-spacing: normal !important;
+  }
   /* Fixed to the viewport height so the sidebar stays in place and only
      #main scrolls — previously min-height let the whole shell grow with
      the page's content, so the sidebar (and its Log out button) scrolled
@@ -33,8 +62,8 @@
   .content { max-width: 760px; margin: 0 auto; padding: 2.4rem 2rem 4rem; display: flex; flex-direction: column; gap: 2.2rem; }
   .content.hidden { display: none; }
 
-  .content h1 { margin: 0 0 0.4rem; font-size: 1.7rem; font-weight: 700; letter-spacing: -0.01em; }
-  :root.theme-client .content h1 { font-family: var(--font-display); font-style: italic; font-weight: 600; font-size: 2.05rem; }
+  .content h1 { margin: 0 0 0.4rem; font-size: 1.7rem; font-weight: 700; letter-spacing: 0; word-spacing: normal; }
+  :root.theme-client .content h1 { font-family: inherit; font-style: normal; font-weight: 700; font-size: 2.05rem; }
   .content p.sub { margin: 0; color: var(--text-soft); }
 
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.3rem 1.4rem 1.4rem; }
@@ -110,26 +139,141 @@
   .mpick-opt.measured .meta { color: var(--accent-strong); }
   .mpick-none { padding: 0.5rem 0.55rem; font-size: 0.8rem; color: var(--text-faint); }
   .uied { position: fixed; inset: 0; z-index: 80; display: none; flex-direction: column;
-          background: var(--bg, #f6f6f4); }
+          background: var(--bg); color: var(--text); }
   .uied.open { display: flex; }
-  .uied-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem;
-              background: #1f2430; color: #cdd3e0; flex: none; flex-wrap: wrap; }
-  .uied-bar .t { font-size: 0.85rem; font-weight: 600; margin-right: 0.4rem; }
-  .uied-bar button, .uied-bar select, .uied-bar input {
-    font: inherit; font-size: 0.8rem; padding: 0.32rem 0.6rem; border-radius: 6px;
-    border: 1px solid #3a4152; background: #2a3040; color: #cdd3e0; }
+  .uied-bar { display: flex; align-items: center; gap: 0.45rem; padding: 0.5rem 0.9rem;
+              background: var(--bg-sidebar); color: var(--text); flex: none;
+              border-bottom: 1px solid var(--line); }
+  .uied-bar .t { display: none; }
+  .uied-bar select { min-width: 12rem; max-width: 22rem; }
+  .uied-bar .uied-spacer { flex: 1; }
+  .uied-bar button, .uied-bar select {
+    font: inherit; font-size: 0.8rem; padding: 0.4rem 0.85rem; border-radius: 8px;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); }
   .uied-bar button { cursor: pointer; }
   .uied-bar button.on, .uied-bar button.primary {
-    background: #c2603f; border-color: #c2603f; color: #fff; }
-  .uied-bar input { min-width: 220px; flex: 1; }
-  .uied-bar .status { font-size: 0.78rem; opacity: 0.85; margin-left: auto; }
-  .uied-main { flex: 1; display: flex; min-height: 0; }
-  .uied-canvas { flex: 1; border: 0; background: #fff; min-width: 0; }
+    background: var(--accent); border-color: transparent; color: var(--accent-ink); }
+  .uied-toast { flex: none; padding: 0.35rem 0.9rem; font-size: 0.74rem; color: var(--text-soft);
+                background: var(--bg); border-bottom: 1px solid var(--line); min-height: 1.4rem; }
+  .uied-toast.bad { color: var(--bad); }
+  .uied-askrow {
+    display: none; gap: 0.5rem; align-items: center; padding: 0.55rem 0.9rem;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .uied-askrow.open { display: flex; }
+  .uied-askrow input {
+    flex: 1; font: inherit; font-size: 0.88rem; padding: 0.55rem 0.8rem;
+    border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
+  }
+  .uied-askrow button {
+    font: inherit; font-size: 0.8rem; padding: 0.5rem 1rem; border-radius: 8px;
+    border: 0; background: var(--accent); color: var(--accent-ink); cursor: pointer;
+  }
+  .uied-work { flex: 1; display: flex; min-width: 0; min-height: 0; }
+  .uied-palette {
+    width: 168px; flex-shrink: 0; overflow-y: auto; padding: 0.85rem 0.7rem;
+    background: var(--bg-sidebar); border-right: 1px solid var(--line); color: var(--text);
+  }
+  .uied-palette h4 {
+    margin: 0.85rem 0 0.4rem; font-size: 0.64rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .uied-palette h4:first-child { margin-top: 0; }
+  .uied-pal-item {
+    display: block; width: 100%; text-align: left; margin: 0 0 0.3rem;
+    padding: 0.48rem 0.55rem; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit; font-size: 0.78rem; cursor: pointer;
+  }
+  .uied-pal-item:hover, .uied-pal-item.on { border-color: var(--accent); }
+  .uied-pal-item.on { background: var(--accent); color: var(--accent-ink); }
+  .uied-pal-item small { display: none; }
+  .uied-align-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.28rem; }
+  .uied-align-grid button {
+    font: inherit; font-size: 0.7rem; padding: 0.4rem 0.2rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text); cursor: pointer;
+  }
+  .uied-align-grid button:hover, .uied-align-grid button.on { border-color: var(--accent); color: var(--accent); }
+  .uied-align-grid button.on { background: var(--accent-soft); }
+  .uied-board-wrap {
+    flex: 1; min-width: 0; min-height: 0; position: relative;
+    overflow: hidden; background: var(--bg); padding: 0;
+  }
+  .uied-board {
+    position: relative; width: 880px; min-height: 720px; margin: 0 auto;
+    background: var(--surface); color: var(--text); border-radius: 12px;
+    box-shadow: var(--shadow);
+    font-family: Ubuntu, 'DejaVu Sans', sans-serif;
+  }
+  .uied-block {
+    position: absolute; box-sizing: border-box; touch-action: none;
+    cursor: grab; min-height: 28px; min-width: 48px;
+  }
+  .uied-block.sel { outline: 2px solid var(--accent); outline-offset: 3px; cursor: move; z-index: 3; }
+  .uied-block.sel .uied-resize {
+    display: block;
+  }
+  .uied-resize {
+    display: none; position: absolute; right: -6px; bottom: -6px; width: 12px; height: 12px;
+    background: var(--accent); border-radius: 2px; cursor: nwse-resize;
+  }
+  .uied-block h1 { font-size: 1.55rem; font-weight: 700; margin: 0; letter-spacing: -0.03em; }
+  .uied-block p { margin: 0; line-height: 1.5; color: var(--text-soft); }
+  .uied-w-btn {
+    appearance: none; border: 0; border-radius: 8px; font: inherit; font-weight: 650;
+    background: var(--accent); color: var(--accent-ink); padding: 0.72rem 1.15rem; pointer-events: none;
+  }
+  .uied-w-field {
+    display: flex; flex-direction: column; gap: 6px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-soft);
+  }
+  .uied-w-field input {
+    text-transform: none; letter-spacing: 0; font-weight: 450; font-size: 0.95rem;
+    height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; pointer-events: none;
+    background: var(--bg); color: var(--text);
+  }
+  .uied-w-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .uied-w-table th, .uied-w-table td { text-align: left; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--line); font-size: 0.88rem; }
+  .uied-w-table th { font-size: 0.7rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); }
+  .uied-w-nav { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+  .uied-inspector {
+    width: 220px; flex-shrink: 0; overflow-y: auto; padding: 0.85rem 0.75rem;
+    background: var(--bg-sidebar); border-left: 1px solid var(--line); color: var(--text);
+  }
+  .uied-inspector h4 {
+    margin: 0 0 0.5rem; font-size: 0.64rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .uied-ins-row { display: flex; flex-direction: column; gap: 0.25rem; margin: 0 0 0.65rem; }
+  .uied-ins-row label { font-size: 0.68rem; color: var(--text-soft); }
+  .uied-ins-row input, .uied-ins-row textarea {
+    font: inherit; font-size: 0.8rem; padding: 0.4rem 0.5rem; border-radius: 8px;
+    border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); width: 100%;
+  }
+  .uied-ins-empty { font-size: 0.78rem; color: var(--text-faint); line-height: 1.45; }
+  .uied-inspector button {
+    font: inherit; font-size: 0.8rem; padding: 0.4rem 0.55rem; border-radius: 8px;
+    border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); cursor: pointer; width: 100%;
+  }
+  .uied-canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; background: var(--bg); display: none;
+  }
+  .uied-canvas.show { display: block; }
   .uied-src { width: 40%; max-width: 620px; display: none; flex-direction: column;
               border-left: 1px solid var(--line); background: var(--surface); }
   .uied-src.open { display: flex; }
   .uied-src textarea { flex: 1; border: 0; resize: none; padding: 0.7rem;
                        font: 12px/1.6 ui-monospace, monospace; }
+  @media (max-width: 860px) {
+    .uied-work { flex-direction: column; }
+    .uied-palette, .uied-inspector { width: auto; max-height: 22vh; }
+    .uied-palette { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: flex-start; }
+    .uied-palette h4 { width: 100%; }
+    .uied-pal-item { width: auto; margin: 0; }
+    .uied-board { width: 100%; min-width: 320px; }
+    .uied-src { width: 100%; max-width: none; max-height: 30vh; }
+  }
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(20, 16, 10, 0.5);
     display: none; align-items: center; justify-content: center;
@@ -180,7 +324,7 @@
   .side-nav-btn {
     display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
     background: none; border: none; border-radius: 7px;
-    color: var(--text-soft); font-weight: 600; font-size: 0.87rem;
+    color: var(--text-soft); font-weight: 500; font-size: 0.87rem;
     padding: 0.55rem 0.7rem; cursor: pointer; text-align: left;
     transition: background 120ms ease, color 120ms ease;
   }
@@ -191,6 +335,9 @@
     font-size: 0.66rem; font-weight: 600; border-radius: 999px; padding: 0.05rem 0.42rem; line-height: 1.5;
   }
   .tab-view { display: flex; flex-direction: column; gap: 2.2rem; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem 1.3rem 1.35rem; }
+  .panel-title { margin: 0 0 0.35rem; font-size: 1.05rem; font-weight: 700; letter-spacing: 0; word-spacing: normal; }
+  .panel-sub { margin: 0 0 1rem; color: var(--text-soft); font-size: 0.88rem; line-height: 1.5; letter-spacing: 0; word-spacing: normal; }
 
   .usage-stats {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
@@ -206,6 +353,14 @@
   .usage-table th, .usage-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); text-align: left; }
   .usage-table th { color: var(--text-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
   .usage-table td.num { font-family: var(--font-mono); font-size: 0.8rem; text-align: right; }
+  .settings-cycle-total {
+    position: sticky; top: 0; z-index: 2;
+    margin: 0 0 1rem; padding: 0.75rem 0.9rem;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
+    font-weight: 700; font-size: 1.05rem;
+  }
+  .settings-cycle-total .amt { font-family: var(--font-mono); color: var(--accent-strong); }
+  .agent-cost { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 600; white-space: nowrap; padding-top: 0.35rem; }
 
   .chat-box {
     border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
@@ -538,7 +693,7 @@
       </div>
 
       <nav class="side-nav" id="side-nav">
-        <button class="side-nav-btn active" id="tab-requirement" type="button" data-tab="requirement">Requirement</button>
+        <button class="side-nav-btn" id="tab-requirement" type="button" data-tab="requirement" style="display:none;">Requirement</button>
         <button class="side-nav-btn" id="tab-approvals" type="button" data-tab="approvals">Approvals<span class="tab-badge" id="approvals-badge" style="display:none;"></span></button>
         <button class="side-nav-btn" id="tab-submissions" type="button" data-tab="submissions">Submissions</button>
         <button class="side-nav-btn" id="tab-teamwork" type="button" data-tab="teamwork" style="display:none;">Team Work<span class="tab-badge" id="teamwork-badge" style="display:none;"></span></button>
@@ -568,7 +723,7 @@
           <p class="sub" id="page-sub">Seven human gates. Sign only the gate your role is named on.</p>
         </div>
 
-        <div class="tab-view" id="view-requirement">
+        <div class="tab-view" id="view-requirement" style="display:none;">
           <div class="card">
             <h2>New requirement</h2>
             <div class="error-banner" id="intake-error"></div>
@@ -634,19 +789,32 @@
 
         <div class="tab-view" id="view-usage" style="display:none;">
           <section class="panel">
-            <h2 class="panel-title">Token usage</h2>
-            <p class="panel-sub">Recorded model calls on this runtime. Deterministic demo calls count estimated tokens (characters ÷ 4). USD uses OpenRouter list prices.</p>
+            <h2 class="panel-title">Spend</h2>
+            <p class="panel-sub">Recorded model calls on this runtime. USD uses OpenRouter list prices. History is kept in the usage log.</p>
             <div id="usage-stats" class="usage-stats"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">By requirement</h2>
+            <div id="usage-requirements"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">By agent</h2>
+            <div id="usage-agents"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">By model</h2>
             <div id="usage-models"></div>
+          </section>
+          <section class="panel">
+            <h2 class="panel-title">Trace history</h2>
+            <p class="panel-sub">Newest first. Filter by requirement.</p>
+            <select id="usage-req-filter" aria-label="Filter traces by requirement" style="margin-bottom:0.7rem;max-width:22rem;"></select>
+            <div id="usage-history"></div>
           </section>
           <section class="panel">
             <h2 class="panel-title">Estimated cost for one full cycle</h2>
             <p class="panel-sub" id="usage-cycle-sub">If every agent ran once with the models in Settings.</p>
             <div id="usage-cycle"></div>
-          </section>
-          <section class="panel">
-            <h2 class="panel-title">Recent calls</h2>
-            <div id="usage-recent"></div>
           </section>
         </div>
 
@@ -656,6 +824,11 @@
             <p class="panel-sub" id="settings-sub">Which model each agent runs on. Applies to every
               requirement generated from now on — an agent that has already run keeps its output until it
               is regenerated.</p>
+            <label style="display:flex;gap:0.55rem;align-items:flex-start;margin:0.85rem 0 0.4rem;font-size:0.85rem;line-height:1.4;">
+              <input type="checkbox" id="settings-ui-fetch" checked>
+              <span>Skill fetch (MCP): agents load a short core file, then pull at most two extra skills. On for intake, architect, UI, decomposer, QA, DevOps. Cheaper than dumping the whole bundle.</span>
+            </label>
+            <div id="settings-cycle-total" class="settings-cycle-total">Estimated cycle —</div>
             <div id="settings-models"></div>
             <div style="display:flex;gap:0.6rem;align-items:center;margin-top:1rem;">
               <button class="btn" id="settings-save" type="button">Save</button>
@@ -806,6 +979,102 @@
     };
     var me = null;
 
+    function canStartRequirement(user) {
+      return !!(user && (user.isClient || ['requester', 'stakeholder', 'pm'].indexOf(user.tierId) !== -1));
+    }
+
+    // Gate 3 has three signers with three questions — each opens a different artefact.
+    function gate3Lens(tierId) {
+      if (tierId === 'architect') return 'architecture';
+      if (tierId === 'ux') return 'screens';
+      if (tierId === 'ba') return 'business';
+      return 'all';
+    }
+
+    function architectureMarkdown(artifact) {
+      var text = (artifact.architectureText || '').trim();
+      if (!text && artifact.detailedReport && artifact.detailedReport.architecture) {
+        text = String(artifact.detailedReport.architecture || '').trim();
+      }
+      var lines = ['# Architecture', ''];
+      if (text) lines.push(text, '');
+      else lines.push('_No architecture artefact yet._', '');
+      var profile = artifact.stackProfile;
+      if (profile) {
+        lines.push('## Locked stack profile', '');
+        lines.push('```json', JSON.stringify(profile, null, 2), '```', '');
+      }
+      var report = artifact.detailedReport || {};
+      if (report.architectureDiagram) {
+        lines.push('## Diagram', '', '```mermaid', report.architectureDiagram, '```', '');
+      }
+      if (asArray(report.techStack).length) {
+        lines.push('## Tech stack', '');
+        asArray(report.techStack).forEach(function (t) {
+          lines.push('- **' + t.layer + '**: ' + t.choice + (t.rationale ? ' — ' + t.rationale : ''));
+        });
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
+    function brdSection(md, heading) {
+      var text = String(md || '');
+      var lines = text.split(/\n/);
+      var start = -1;
+      var headingRe = new RegExp(
+        '^##\\s+(?:\\d+\\.\\s+)?' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b',
+        'i'
+      );
+      for (var i = 0; i < lines.length; i++) {
+        if (headingRe.test(lines[i])) { start = i; break; }
+      }
+      if (start < 0) return '';
+      var out = [lines[start]];
+      for (var j = start + 1; j < lines.length; j++) {
+        if (/^##\s/.test(lines[j])) break;
+        out.push(lines[j]);
+      }
+      return out.join('\n').trim();
+    }
+
+    function businessGate3Markdown(artifact) {
+      var brd = artifact.brdText || '';
+      var lines = ['# Business review — Gate 3', '',
+        'Confirm the screens cover what the approved BRD asked for. You sign for business fit, not stack choice or pixel polish.',
+        ''];
+      var purpose = brdSection(brd, 'Purpose') || brdSection(brd, 'Objective') || brdSection(brd, 'Summary');
+      var pages = brdSection(brd, 'Page behaviour') || brdSection(brd, 'Page Behavior');
+      var success = brdSection(brd, 'Success');
+      var scope = brdSection(brd, 'In scope') || brdSection(brd, 'In Scope');
+      if (purpose) lines.push(purpose, '');
+      if (success) lines.push(success, '');
+      if (scope) lines.push(scope, '');
+      if (pages) lines.push(pages, '');
+      else if (brd) lines.push('## Approved BRD (excerpt)', '', brd.slice(0, 6000), '');
+      lines.push('## Screens generated for this design', '');
+      var screens = (artifact.ui && artifact.ui.screens) || [];
+      if (!screens.length) lines.push('_No screens yet._', '');
+      screens.forEach(function (s) {
+        lines.push('- **' + (s.name || 'Screen') + '**' + (s.description ? ': ' + s.description : ''));
+      });
+      lines.push('');
+      var cov = artifact.coverage || {};
+      if (asArray(cov.pages).length) {
+        lines.push('## Coverage vs BRD pages', '');
+        asArray(cov.pages).forEach(function (p) {
+          lines.push('- ' + (p.id || p.name || JSON.stringify(p)) + (p.description ? ': ' + p.description : ''));
+        });
+        lines.push('');
+      }
+      if (asArray(cov.repaired).length) {
+        lines.push('## Repaired / filled gaps', '');
+        asArray(cov.repaired).forEach(function (p) { lines.push('- ' + (typeof p === 'string' ? p : (p.id || p.name || JSON.stringify(p)))); });
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
     if (window.mermaid) {
       mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' });
     }
@@ -928,10 +1197,11 @@
           if (step && step.approverTiers.indexOf(me.tierId) !== -1 && !artifact.viewerHasSigned) {
             if (artifact.phase1) {
               var g = artifact.awaitingGate || step.gate;
+              var lens = gate3Lens(me.tierId);
               var GATE_BTNS = {
                 1: { ok: 'Approve scope', rev: 'Request revision', no: 'Discard' },
                 2: { ok: 'Approve BRD', rev: 'Request revision', no: 'Discard' },
-                3: { ok: 'Approve design', rev: 'Request design changes', no: 'Reject' },
+                3: { ok: 'Approve design', rev: (lens === 'architecture' ? 'Revise architecture' : (lens === 'screens' ? 'Revise screens' : 'Request design changes')), no: 'Reject' },
                 4: { ok: 'Approve plan', rev: 'Revise plan', no: 'Reject' },
                 5: { ok: 'Approve merge', rev: 'Request changes', no: 'Reject' },
                 6: { ok: 'Approve UAT', rev: null, no: 'Reject UAT' },
@@ -939,7 +1209,12 @@
               };
               var L = GATE_BTNS[g] || { ok: 'Approve', rev: 'Request revision', no: 'Reject' };
               buttons.push({ action: 'approve', label: L.ok });
-              if (L.rev) buttons.push({ action: 'requestRevision', label: L.rev, secondary: true });
+              if (L.rev) {
+                var revAction = 'requestRevision';
+                if (g === 3 && lens === 'architecture') revAction = 'requestFsdChanges';
+                if (g === 3 && lens === 'screens') revAction = 'requestUiChanges';
+                buttons.push({ action: revAction, label: L.rev, secondary: true });
+              }
               buttons.push({ action: 'reject', label: L.no, danger: g <= 2, secondary: g > 2 });
             } else {
               var sendsFsdToProduction = me.tierId === 'po' && artifact.currentApprovalIndex > 0 &&
@@ -1035,13 +1310,28 @@
         buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
-      // Gate 3 screens: anyone named on this gate, plus originator.
+      // Gate 3: each signer opens their own lens — architect sees architecture,
+      // UI/UX sees screens, BA sees BRD coverage. Same approval, different artefact.
       var hasScreens = artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
+      var hasArchitecture = !!(artifact.architectureText || (artifact.detailedReport && artifact.detailedReport.architecture));
       var stepNow = artifact.approvalChain[artifact.currentApprovalIndex] || {};
       var namedOnCurrent = (stepNow.approverTiers || []).indexOf(me.tierId) !== -1;
       var gate = artifact.uiGate || {};
       var governed = artifact.governedPhase || (artifact.phase2 ? 2 : 1);
-      if (hasScreens && !me.isClient &&
+      var atGate3 = artifact.awaitingGate === 3 || (artifact.uiGate && artifact.uiGate.blocksSplit);
+      var lens = gate3Lens(me.tierId);
+      if (atGate3 && !me.isClient && (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
+           ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
+        if (lens === 'architecture' && hasArchitecture) {
+          buttons.push({ modal: 'gate3Architecture', label: 'View architecture' });
+        } else if (lens === 'screens' && hasScreens) {
+          buttons.push({ modal: 'uiEditor', label: 'Review screens (' + artifact.ui.screens.length + ')' });
+        } else if (lens === 'business' && (artifact.brdText || hasScreens)) {
+          buttons.push({ modal: 'gate3Business', label: 'Review BRD coverage' });
+        } else if (hasScreens) {
+          buttons.push({ modal: 'uiEditor', label: 'Review screens (' + artifact.ui.screens.length + ')' });
+        }
+      } else if (hasScreens && !me.isClient &&
           (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
            ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
         buttons.push({
@@ -1054,7 +1344,9 @@
         buttons.push({ modal: 'brdEditor', label: 'Edit BRD', secondary: true });
       }
       if (artifact.phase1) return buttons;
-      if (governed >= 2 && gate.canEdit) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
+      if (governed >= 2 && gate.canEdit && lens !== 'architecture' && lens !== 'business') {
+        buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
+      }
       if (governed >= 2 && gate.canApprove && governed < 3) {
         buttons.push({ action: 'approveUi', label: 'Approve design' });
         buttons.push({ action: 'requestUiChanges', label: 'Request design changes', secondary: true });
@@ -1174,7 +1466,7 @@
             artifact.outstandingLabels.join(', ')
         );
       } else if (artifact.uiGate && artifact.uiGate.blocksSplit) {
-        addBadge('Gate 3 — Architect, UI/UX and BA must all sign');
+        addBadge('Gate 3 — Architect: architecture · UI/UX: screens · BA: BRD coverage');
       } else if (artifact.uiGate && artifact.uiGate.approvedAt) {
         addBadge('UI approved', true);
       }
@@ -1190,13 +1482,28 @@
       }
 
       var viewBtn = el.querySelector('[data-view]');
-      var g3screens = artifact.awaitingGate === 3 && artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
-      if (g3screens) {
+      var atGate3 = artifact.awaitingGate === 3 || (artifact.uiGate && artifact.uiGate.blocksSplit);
+      var lens = gate3Lens(me.tierId);
+      var g3screens = atGate3 && lens === 'screens' && artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
+      var g3arch = atGate3 && lens === 'architecture' &&
+        (artifact.architectureText || (artifact.detailedReport && artifact.detailedReport.architecture));
+      var g3biz = atGate3 && lens === 'business' && (artifact.brdText || (artifact.ui && artifact.ui.screens && artifact.ui.screens.length));
+      if (g3arch) {
+        viewBtn.textContent = 'View architecture';
+        viewBtn.className = 'btn';
+      } else if (g3biz) {
+        viewBtn.textContent = 'Review BRD coverage';
+        viewBtn.className = 'btn';
+      } else if (g3screens || (atGate3 && artifact.ui && artifact.ui.screens && artifact.ui.screens.length && lens === 'all')) {
         viewBtn.textContent = 'View screens';
         viewBtn.className = 'btn';
       }
       viewBtn.addEventListener('click', function () {
-        if (g3screens) return openUiEditorModal(artifact);
+        if (g3arch) return openGate3ArchitectureModal(artifact);
+        if (g3biz) return openGate3BusinessModal(artifact);
+        if (g3screens || (atGate3 && lens === 'all' && artifact.ui && artifact.ui.screens && artifact.ui.screens.length)) {
+          return openUiEditorModal(artifact);
+        }
         openViewModal(artifact);
       });
 
@@ -1225,6 +1532,8 @@
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
           if (btnDef.modal === 'brdEditor') return openBrdEditorModal(artifact);
           if (btnDef.modal === 'uiEditor') return openUiEditorModal(artifact);
+          if (btnDef.modal === 'gate3Architecture') return openGate3ArchitectureModal(artifact);
+          if (btnDef.modal === 'gate3Business') return openGate3BusinessModal(artifact);
           if (btnDef.modal === 'resubmit') return openEditModal(artifact);
           if (btnDef.modal === 'reviewSend') return openReviewModal(artifact, function () {});
           if (btnDef.modal === 'routeTlFsd') return openRouteTlFsdModal(artifact);
@@ -2005,6 +2314,29 @@
 
     }
 
+    function openMarkdownReviewModal(title, md) {
+      document.getElementById('modal-title').textContent = title;
+      var rendered = window.marked ? marked.parse(md) : '<pre style="white-space:pre-wrap;">' + escapeHtml(md) + '</pre>';
+      document.getElementById('modal-body').innerHTML = '<div class="md-viewer" id="gate3-md-viewer">' + rendered + '</div>';
+      document.getElementById('modal-overlay').classList.add('open');
+      var viewer = document.getElementById('gate3-md-viewer');
+      if (viewer) renderMermaidBlocksIn(viewer);
+    }
+
+    function openGate3ArchitectureModal(artifact) {
+      openMarkdownReviewModal(
+        (artifact.title || 'Requirement') + ' — Architecture (Architect review)',
+        architectureMarkdown(artifact)
+      );
+    }
+
+    function openGate3BusinessModal(artifact) {
+      openMarkdownReviewModal(
+        (artifact.title || 'Requirement') + ' — BRD coverage (BA review)',
+        businessGate3Markdown(artifact)
+      );
+    }
+
     function openBrdEditorModal(artifact) {
       document.getElementById('modal-title').textContent = (artifact.title || 'Requirement') + ' — Edit BRD';
       document.getElementById('modal-body').innerHTML =
@@ -2396,7 +2728,13 @@
     // The backend scopes this array to the TL's own department plus any
     // department package explicitly shared with them for discussion.
     function getVisibleTeamReports(artifact) {
-      return (me && !me.isClient && me.tierId === 'tech') ? (artifact.teamReports || []) : [];
+      if (!me || me.isClient) return [];
+      var reports = artifact.teamReports || [];
+      if (me.tierId === 'sl' && me.department) {
+        return reports.filter(function (t) { return t.team === me.department; });
+      }
+      if (['tech', 'po', 'architect', 'ba'].indexOf(me.tierId) !== -1) return reports;
+      return [];
     }
 
     // The team split report is its own document, separate from the FSD —
@@ -2406,8 +2744,31 @@
     function teamReportsToMarkdown(artifact) {
       var lines = ['# ' + (artifact.title || 'Untitled requirement') + ' — Team Work Packages', ''];
       var visibleTeamReports = getVisibleTeamReports(artifact);
+      var ticketIndex = {};
+      asArray(artifact.tickets).forEach(function (ticket) {
+        if (ticket && ticket.id) ticketIndex[ticket.id] = ticket;
+      });
+      if (!visibleTeamReports.length) {
+        lines.push('_No team package is available for your department yet._', '');
+        return lines.join('\n');
+      }
+      var first = visibleTeamReports[0] || {};
+      lines.push('## One product', '');
+      lines.push(first.contract || 'Development and AI are folders in one app, not two deploys.');
+      if (first.integratesInto) lines.push('', 'Assembled tree: `' + first.integratesInto + '`.');
+      if (asArray(first.productScreens).length) {
+        lines.push('', '### Screens from the approved UI (all streams share this shell)', '');
+        asArray(first.productScreens).forEach(function (name) { lines.push('- ' + name); });
+      }
+      lines.push('');
       visibleTeamReports.forEach(function (t) {
         lines.push('## ' + t.team, '');
+        if (t.summary) lines.push(t.summary, '');
+        if (asArray(t.screens).length) {
+          lines.push('### Screens this stream implements', '');
+          asArray(t.screens).forEach(function (name) { lines.push('- ' + name); });
+          lines.push('');
+        }
         appendReportSections(lines, t, { plan: true, headingLevel: '###' });
         if (!asArray(t.dataModel).length && asArray(t.relevantDataEntities).length) {
           // Older artifacts generated before the dataModel schema — fall back to the plain entity-name list.
@@ -2415,7 +2776,22 @@
           asArray(t.relevantDataEntities).forEach(function (e) { lines.push('- ' + e); });
           lines.push('');
         }
+        // Phase 1 packages are ticket lists, not mini-FSDs — show the work.
+        if (!asArray(t.plan).length && !asArray(t.tasks).length && asArray(t.tickets).length) {
+          lines.push('### Tickets', '');
+          asArray(t.tickets).forEach(function (id) {
+            var ticket = ticketIndex[id] || {};
+            var title = ticket.title || id;
+            var paths = asArray(ticket.paths).length ? ' — `' + asArray(ticket.paths).join('`, `') + '`' : '';
+            var depends = asArray(ticket.depends_on).length ? ' (depends on ' + asArray(ticket.depends_on).join(', ') + ')' : '';
+            lines.push('- **' + id + '**: ' + title + paths + depends);
+          });
+          lines.push('');
+        }
       });
+      if (artifact.planText) {
+        lines.push('## Full plan', '', artifact.planText, '');
+      }
       return lines.join('\n');
     }
 
@@ -2678,7 +3054,7 @@
     // find one defeats the point of offering them all. Models this project has
     // measured keep their hand-written note and stay at the top; the rest
     // carry vendor price and context, which is enough to choose between them.
-    function buildModelPicker(role, choices, readOnly) {
+    function buildModelPicker(role, choices, readOnly, onChange) {
       var wrap = document.createElement('div');
       wrap.className = 'mpick';
       wrap.dataset.role = role.role;
@@ -2703,6 +3079,7 @@
         wrap.dataset.value = opt.model;
         input.value = opt.model || ('Default — ' + role.environmentDefault);
         list.classList.remove('open');
+        if (onChange) onChange();
       }
 
       function draw(term) {
@@ -3066,18 +3443,68 @@
       var v = Number(n) || 0;
       return String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
+    function usageSpendTable(rows, nameKey, nameHeader) {
+      if (!rows || !rows.length) {
+        return '<p class="modal-empty">No spend recorded yet.</p>';
+      }
+      return '<table class="usage-table"><thead><tr>' +
+        '<th>' + nameHeader + '</th><th class="num">Calls</th><th class="num">Tokens</th><th class="num">USD</th>' +
+        '</tr></thead><tbody>' +
+        rows.map(function (row) {
+          return '<tr><td>' + escapeHtml(row[nameKey] || '') + '</td>' +
+            '<td class="num">' + fmtTokens(row.calls) + '</td>' +
+            '<td class="num">' + fmtTokens(row.total_tokens) + '</td>' +
+            '<td class="num">' + fmtUsd(row.usd) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    function renderUsageHistory(rows, filterId) {
+      var el = document.getElementById('usage-history');
+      var shown = (rows || []).filter(function (row) {
+        return !filterId || (row.requirement_id || '(no requirement)') === filterId;
+      });
+      if (!shown.length) {
+        el.innerHTML = '<p class="modal-empty">No traces in this filter.</p>';
+        return;
+      }
+      el.innerHTML = '<table class="usage-table"><thead><tr>' +
+        '<th>When</th><th>Requirement</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th class="num">USD</th>' +
+        '</tr></thead><tbody>' +
+        shown.map(function (row) {
+          return '<tr><td>' + escapeHtml(row.at || '') + '</td>' +
+            '<td>' + escapeHtml(row.requirement_id || '—') + '</td>' +
+            '<td>' + escapeHtml(row.agent || '') + '</td>' +
+            '<td>' + escapeHtml(row.model || '') + (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
+            '<td class="num">' + fmtTokens(row.total_tokens) + '</td>' +
+            '<td class="num">' + fmtUsd(row.usd) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    var usageHistoryCache = [];
     function loadUsageDashboard() {
       var stats = document.getElementById('usage-stats');
       var modelsEl = document.getElementById('usage-models');
       var cycleEl = document.getElementById('usage-cycle');
-      var recentEl = document.getElementById('usage-recent');
       var cycleSub = document.getElementById('usage-cycle-sub');
       if (!stats) return;
       stats.innerHTML = '<p class="modal-empty">Loading…</p>';
-      fetch(window.API_BASE + '/api/usage', { credentials: 'include' })
+      fetch((window.API_BASE || '') + '/api/usage', { credentials: 'same-origin' })
         .then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.json();
+          return res.text().then(function (text) {
+            var body = {};
+            try { body = text ? JSON.parse(text) : {}; } catch (ignore) {}
+            if (!res.ok) {
+              throw new Error(
+                body.error ||
+                  (res.status === 502
+                    ? 'Phase 1 API is down on :8787. Start it, then refresh.'
+                    : res.status === 403
+                      ? 'Usage is staff-only.'
+                    : 'HTTP ' + res.status)
+              );
+            }
+            return body;
+          });
         })
         .then(function (data) {
           var rec = data.recorded || {};
@@ -3091,10 +3518,13 @@
           stats.innerHTML = cells.map(function (c) {
             return '<div class="usage-stat"><div class="k">' + c[0] + '</div><div class="v">' + escapeHtml(c[1]) + '</div></div>';
           }).join('');
+          document.getElementById('usage-requirements').innerHTML = usageSpendTable(data.byRequirement, 'requirementId', 'Requirement');
+          document.getElementById('usage-agents').innerHTML = usageSpendTable(data.byAgent, 'agent', 'Agent');
           var by = data.byModel || [];
-          if (!by.length) {
-            modelsEl.innerHTML = '<p class="modal-empty">No model calls recorded yet. Intake and later agents write rows here as they run.</p>';
-          } else {
+          modelsEl.innerHTML = by.length
+            ? usageSpendTable(by, 'model', 'Model').replace('Tokens</th>', 'Tokens</th>')
+            : '<p class="modal-empty">No model calls recorded yet.</p>';
+          if (by.length) {
             modelsEl.innerHTML = '<table class="usage-table"><thead><tr>' +
               '<th>Model</th><th class="num">Calls</th><th class="num">Prompt</th><th class="num">Completion</th><th class="num">USD</th>' +
               '</tr></thead><tbody>' +
@@ -3115,44 +3545,90 @@
               return '<tr><td>' + escapeHtml(row.role) + '</td><td>' + escapeHtml(row.model) + '</td>' +
                 '<td class="num">' + fmtTokens(row.calls) + '</td><td class="num">' + fmtUsd(row.usd) + '</td></tr>';
             }).join('') + '</tbody></table>';
-          var recent = data.recent || [];
-          if (!recent.length) {
-            recentEl.innerHTML = '<p class="modal-empty">No calls yet.</p>';
-          } else {
-            recentEl.innerHTML = '<table class="usage-table"><thead><tr>' +
-              '<th>When</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th class="num">USD</th></tr></thead><tbody>' +
-              recent.map(function (row) {
-                return '<tr><td>' + escapeHtml(row.at || '') + '</td><td>' + escapeHtml(row.agent || '') + '</td>' +
-                  '<td>' + escapeHtml(row.model || '') + (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
-                  '<td class="num">' + fmtTokens(row.total_tokens) + '</td><td class="num">' + fmtUsd(row.usd) + '</td></tr>';
-              }).join('') + '</tbody></table>';
+          usageHistoryCache = data.history || data.recent || [];
+          var filter = document.getElementById('usage-req-filter');
+          var ids = [''].concat((data.byRequirement || []).map(function (r) { return r.requirementId; }));
+          var prev = filter.value;
+          filter.innerHTML = ids.map(function (id) {
+            return '<option value="' + escapeAttr(id) + '">' + escapeHtml(id || 'All requirements') + '</option>';
+          }).join('');
+          if (ids.indexOf(prev) !== -1) filter.value = prev;
+          if (!filter.dataset.wired) {
+            filter.dataset.wired = '1';
+            filter.addEventListener('change', function () {
+              renderUsageHistory(usageHistoryCache, filter.value);
+            });
           }
+          renderUsageHistory(usageHistoryCache, filter.value);
         })
         .catch(function (e) {
-          stats.innerHTML = '<p class="modal-empty">Could not load usage: ' + escapeHtml(e.message) + '</p>';
+          stats.innerHTML = '<p class="modal-empty">Could not load usage: ' + escapeHtml(e.message) +
+            ' Start Phase 1 on port 8787, then refresh.</p>';
+          ['usage-requirements', 'usage-agents', 'usage-models'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.innerHTML = '<p class="modal-empty">No data until the API is up.</p>';
+          });
+          if (cycleEl) cycleEl.innerHTML = '<p class="modal-empty">Cycle estimate needs the API.</p>';
+          renderUsageHistory([], '');
         });
     }
 
+    var settingsRates = {};
+    var settingsUsage = {};
+    function agentCycleUsd(role, modelId) {
+      var use = settingsUsage[role] || { calls: 1, prompt: 1000, completion: 400 };
+      var rates = settingsRates[modelId] || { prompt_per_million: 0.15, completion_per_million: 0.60 };
+      return use.calls * (
+        use.prompt * Number(rates.prompt_per_million || 0.15) / 1000000 +
+        use.completion * Number(rates.completion_per_million || 0.60) / 1000000
+      );
+    }
+    function refreshSettingsCosts() {
+      var total = 0;
+      Array.prototype.forEach.call(document.querySelectorAll('#settings-models .mpick'), function (el) {
+        var role = el.dataset.role;
+        var model = el.dataset.value || el.dataset.env || '';
+        var usd = agentCycleUsd(role, model);
+        total += usd;
+        var costEl = el.parentNode && el.parentNode.querySelector('.agent-cost');
+        if (costEl) costEl.textContent = fmtUsd(usd);
+      });
+      var bar = document.getElementById('settings-cycle-total');
+      if (bar) bar.innerHTML = 'Estimated cycle <span class="amt">' + fmtUsd(total) + '</span>';
+    }
     function loadSettingsModels() {
       var rowsEl = document.getElementById('settings-models');
       var statusEl = document.getElementById('settings-status');
       var saveBtn = document.getElementById('settings-save');
       if (!rowsEl) return;
 
-      fetch(window.API_BASE + '/api/settings/models', { credentials: 'include' })
+      fetch('/api/settings/models', { credentials: 'same-origin' })
         .then(function (res) {
           if (!res.ok) throw new Error('HTTP ' + res.status);
           return res.json();
         })
         .then(function (data) {
           rowsEl.innerHTML = '';
+          settingsRates = {};
+          (data.choices || []).forEach(function (c) {
+            if (c.model) settingsRates[c.model] = c;
+          });
+          settingsUsage = {};
+          ((data.cycleCost || {}).agents || []).forEach(function (a) {
+            settingsUsage[a.role] = a;
+          });
+          var fetchBox = document.getElementById('settings-ui-fetch');
+          if (fetchBox) {
+            fetchBox.checked = data.uiContext !== 'bundle';
+            fetchBox.disabled = !data.canEdit;
+          }
           var roles = data.roles || [];
           if (!roles.length) {
             rowsEl.innerHTML = '<p class="modal-empty">No agents listed.</p>';
           }
           roles.forEach(function (r) {
             var row = document.createElement('div');
-            row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) minmax(12rem,300px);gap:1rem;align-items:start;' +
+            row.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) minmax(12rem,300px) 6.5rem;gap:1rem;align-items:start;' +
               'padding:0.7rem 0;border-bottom:1px solid var(--line);';
             row.innerHTML =
               '<div><div style="font-weight:600;font-size:0.9rem;">' + escapeHtml(r.label) + '</div>' +
@@ -3162,17 +3638,21 @@
                 escapeHtml(r.model || r.environmentDefault || '') +
                 (r.source === 'setting' ? '' : ' <span style="color:var(--text-faint)">(default)</span>') +
               '</div></div>';
-
-            row.appendChild(buildModelPicker(r, data.choices || [], !data.canEdit));
+            var picker = buildModelPicker(r, data.choices || [], !data.canEdit, refreshSettingsCosts);
+            picker.dataset.env = r.environmentDefault || '';
+            row.appendChild(picker);
+            var cost = document.createElement('div');
+            cost.className = 'agent-cost';
+            cost.textContent = '—';
+            row.appendChild(cost);
             rowsEl.appendChild(row);
           });
 
           saveBtn.style.display = data.canEdit ? '' : 'none';
-          var cost = data.cycleCost || {};
-          var usd = cost.usd != null ? cost.usd : '—';
-          statusEl.textContent = 'Estimated OpenRouter spend for one full cycle: $' + usd +
-            ' USD (agentless build, list prices)' +
-            (data.canEdit ? '.' : '. Read-only — Product Owner or Business Owner can change models.');
+          statusEl.textContent = data.canEdit
+            ? 'List prices. Total updates as you change a model. Save to keep it.'
+            : 'Read-only — Product Owner or Business Owner can change models.';
+          refreshSettingsCosts();
         })
         .catch(function (e) { statusEl.textContent = 'Could not load settings: ' + e.message; });
 
@@ -3189,7 +3669,10 @@
             method: 'PUT',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ models: picked }),
+            body: JSON.stringify({
+              models: picked,
+              uiContext: (document.getElementById('settings-ui-fetch') || {}).checked ? 'fetch' : 'bundle',
+            }),
           })
             .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
             .then(function (r) {
@@ -3198,6 +3681,10 @@
               statusEl.textContent = n
                 ? n + ' stage(s) set. Takes effect on the next generation.'
                 : 'All stages back to defaults.';
+              ((r.body.cycleCost || {}).agents || []).forEach(function (a) {
+                settingsUsage[a.role] = a;
+              });
+              refreshSettingsCosts();
             })
             .catch(function (e) { statusEl.textContent = e.message; })
             .then(function () { saveBtn.disabled = false; });
@@ -3206,16 +3693,249 @@
     }
 
     // ── UI editor ────────────────────────────────────────────────────────────
-    // A full-screen surface, not a dialog: the thing being edited is an
-    // application screen, and a 620px modal beside a source pane made both
-    // unusable. The rendered page is the canvas and you edit on it directly —
-    // click any text and type. The source is a drawer, closed by default,
-    // for the changes clicking cannot express.
-    //
-    // Three ways to change a screen, because they fail at different things:
-    // clicking handles text, the agent handles structure, the source handles
-    // anything. Regenerating is the blunt alternative to all three and returns
-    // a different set of screens rather than the same set with one changed.
+    // Visual artboard: drag widgets, insert from the palette, inspect props.
+    // Save still writes factory JSX (Page / Button / Field / Table). Source
+    // and Ask agent stay for anything the canvas cannot express.
+    function ueJsxText(value) {
+      return String(value || '')
+        .replace(/[<>{}]/g, ' ')
+        .replace(/"/g, "'")
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function ueAttr(raw, name) {
+      var m = new RegExp('\\b' + name + '\\s*=\\s*"([^"]*)"').exec(raw)
+        || new RegExp('\\b' + name + "\\s*=\\s*'([^']*)'").exec(raw);
+      return m ? m[1] : '';
+    }
+
+    function ueInnerText(raw) {
+      var m = />([\s\S]*)<\//.exec(raw);
+      return m ? m[1].replace(/<[^>]+>/g, '').trim() : '';
+    }
+
+    function ueGuessH(block) {
+      if (block.kind === 'Table') return 140;
+      if (block.kind === 'Field') return 78;
+      if (block.kind === 'nav') return 52;
+      if (block.kind === 'h1') return 44;
+      if (block.kind === 'p') return 48;
+      if (block.kind === 'Button') return 48;
+      return 56;
+    }
+
+    function ueParseOpenTag(jsx, i) {
+      var n = jsx.length;
+      var m = /^<([A-Za-z][A-Za-z0-9]*)/.exec(jsx.slice(i));
+      if (!m) return null;
+      var name = m[1];
+      var start = i;
+      i += m[0].length;
+      var inS = null;
+      var brace = 0;
+      while (i < n) {
+        var c = jsx[i];
+        if (inS) {
+          if (c === inS && jsx[i - 1] !== '\\') inS = null;
+          i += 1;
+          continue;
+        }
+        if (c === '"' || c === "'") { inS = c; i += 1; continue; }
+        if (c === '{') { brace += 1; i += 1; continue; }
+        if (c === '}') { brace = Math.max(0, brace - 1); i += 1; continue; }
+        if (brace) { i += 1; continue; }
+        if (c === '/' && jsx[i + 1] === '>') {
+          return { name: name, self: true, start: start, end: i + 2, raw: jsx.slice(start, i + 2) };
+        }
+        if (c === '>') {
+          return { name: name, self: false, start: start, openEnd: i + 1 };
+        }
+        i += 1;
+      }
+      return { name: name, self: true, start: start, end: n, raw: jsx.slice(start) };
+    }
+
+    function ueParseNodes(jsx) {
+      var i = 0;
+      var n = jsx.length;
+      var nodes = [];
+      function skipWs() { while (i < n && /\s/.test(jsx[i])) i += 1; }
+      while (i < n) {
+        skipWs();
+        if (i >= n) break;
+        if (jsx.slice(i, i + 4) === '<!--') {
+          var cend = jsx.indexOf('-->', i + 4);
+          i = cend < 0 ? n : cend + 3;
+          continue;
+        }
+        if (jsx[i] !== '<') {
+          var tStart = i;
+          while (i < n && jsx[i] !== '<') i += 1;
+          if (jsx.slice(tStart, i).trim()) {
+            nodes.push({ kind: 'p', jsx: '<p>' + ueJsxText(jsx.slice(tStart, i)) + '</p>' });
+          }
+          continue;
+        }
+        if (jsx[i + 1] === '/') { i += 1; continue; }
+        var open = ueParseOpenTag(jsx, i);
+        if (!open) { i += 1; continue; }
+        if (open.self) {
+          nodes.push({ kind: open.name, jsx: open.raw });
+          i = open.end;
+          continue;
+        }
+        var close = '</' + open.name + '>';
+        var depth = 1;
+        var j = open.openEnd;
+        var inS = null;
+        var brace = 0;
+        while (j < n) {
+          var ch = jsx[j];
+          if (inS) {
+            if (ch === inS && jsx[j - 1] !== '\\') inS = null;
+            j += 1;
+            continue;
+          }
+          if (ch === '"' || ch === "'") { inS = ch; j += 1; continue; }
+          if (ch === '{') { brace += 1; j += 1; continue; }
+          if (ch === '}') { brace = Math.max(0, brace - 1); j += 1; continue; }
+          if (!brace && jsx.startsWith('<' + open.name, j) && /[\s>/]/.test(jsx[j + open.name.length + 1] || ' ')) {
+            var nested = ueParseOpenTag(jsx, j);
+            if (nested && nested.name === open.name && !nested.self) depth += 1;
+          }
+          if (!brace && jsx.startsWith(close, j)) {
+            depth -= 1;
+            if (depth === 0) {
+              var raw = jsx.slice(open.start, j + close.length);
+              nodes.push({ kind: open.name, jsx: raw, inner: jsx.slice(open.openEnd, j) });
+              i = j + close.length;
+              break;
+            }
+            j += close.length;
+            continue;
+          }
+          j += 1;
+        }
+        if (depth !== 0) {
+          nodes.push({ kind: open.name, jsx: jsx.slice(open.start) });
+          break;
+        }
+      }
+      return nodes;
+    }
+
+    function ueReadPos(raw) {
+      var left = /left\s*:\s*"(-?\d+)px"/.exec(raw);
+      var top = /top\s*:\s*"(-?\d+)px"/.exec(raw);
+      var width = /width\s*:\s*"(\d+)px"/.exec(raw);
+      var abs = /position\s*:\s*"absolute"/.test(raw);
+      return {
+        abs: abs,
+        x: left ? Number(left[1]) : null,
+        y: top ? Number(top[1]) : null,
+        w: width ? Number(width[1]) : null,
+      };
+    }
+
+    function uePageParts(source, name) {
+      var fn = source.search(new RegExp('function\\s+' + name + '\\s*\\('));
+      if (fn < 0) return null;
+      var rest = source.slice(fn);
+      var pageAt = rest.search(/<Page[\s>]/);
+      if (pageAt < 0) return null;
+      var absAt = fn + pageAt;
+      var open = ueParseOpenTag(source, absAt);
+      if (!open || open.self) return null;
+      var close = '</Page>';
+      var depth = 1;
+      var j = open.openEnd;
+      while (j < source.length) {
+        if (source.startsWith('<Page', j) && /[\s>]/.test(source[j + 5] || ' ')) {
+          var nested = ueParseOpenTag(source, j);
+          if (nested && !nested.self) depth += 1;
+        }
+        if (source.startsWith(close, j)) {
+          depth -= 1;
+          if (depth === 0) {
+            return {
+              helpers: source.slice(0, absAt),
+              inner: source.slice(open.openEnd, j),
+              tail: source.slice(j),
+            };
+          }
+          j += close.length;
+          continue;
+        }
+        j += 1;
+      }
+      return null;
+    }
+
+    function ueBlocksFromSource(source, name) {
+      var parts = uePageParts(source, name);
+      if (!parts) return null;
+      var nodes = ueParseNodes(parts.inner);
+      if (nodes.length === 1 && nodes[0].kind === 'div' && /position\s*:\s*"relative"/.test(nodes[0].jsx)) {
+        nodes = ueParseNodes(nodes[0].inner || '');
+      }
+      var blocks = [];
+      var y = 28;
+      nodes.forEach(function (node, index) {
+        if (node.kind === 'div' && /position\s*:\s*"absolute"/.test(node.jsx)) {
+          var pos = ueReadPos(node.jsx);
+          var kids = ueParseNodes(node.inner || '');
+          var kid = kids[0] || { kind: 'p', jsx: (node.inner || '').trim() || '<p></p>' };
+          blocks.push({
+            id: 'b' + index,
+            kind: kid.kind,
+            jsx: kid.jsx,
+            x: pos.x == null ? 28 : pos.x,
+            y: pos.y == null ? y : pos.y,
+            w: pos.w,
+          });
+          y = (pos.y == null ? y : pos.y) + ueGuessH({ kind: kid.kind }) + 16;
+          return;
+        }
+        blocks.push({
+          id: 'b' + index,
+          kind: node.kind,
+          jsx: node.jsx,
+          x: 28,
+          y: y,
+          w: node.kind === 'Table' ? 520 : node.kind === 'Field' ? 360 : node.kind === 'h1' || node.kind === 'p' ? 520 : null,
+        });
+        y += ueGuessH(node) + 16;
+      });
+      return { parts: parts, blocks: blocks };
+    }
+
+    function ueNewWidget(kind) {
+      if (kind === 'h1') return { kind: 'h1', jsx: '<h1>Heading</h1>', w: 480 };
+      if (kind === 'p') return { kind: 'p', jsx: '<p>New text</p>', w: 480 };
+      if (kind === 'Button') return { kind: 'Button', jsx: '<Button>Button</Button>', w: 140 };
+      if (kind === 'Field') return { kind: 'Field', jsx: '<Field name="field" label="Label" />', w: 360 };
+      if (kind === 'Table') {
+        return {
+          kind: 'Table',
+          jsx: '<Table heading="Rows">\n            <tr><td>Row 1</td></tr>\n            <tr><td>Row 2</td></tr>\n          </Table>',
+          w: 520,
+        };
+      }
+      return { kind: 'Button', jsx: '<Button>Button</Button>', w: 140 };
+    }
+
+    function ueSerialize(parts, blocks) {
+      var inner = '\n      <div style={{position:"relative", minHeight:"720px"}}>\n' +
+        blocks.map(function (b) {
+          var style = 'position:"absolute", left:"' + Math.round(b.x) + 'px", top:"' + Math.round(b.y) + 'px"';
+          if (b.w) style += ', width:"' + Math.round(b.w) + 'px"';
+          return '        <div style={{' + style + '}}>\n          ' + b.jsx + '\n        </div>';
+        }).join('\n') +
+        '\n      </div>\n    ';
+      return parts.helpers + inner + parts.tail;
+    }
+
     function openUiEditorModal(artifact) {
       var host = document.getElementById('ui-editor');
       if (!host) {
@@ -3227,18 +3947,51 @@
       var canEditUi = !!(artifact.uiGate && artifact.uiGate.canEdit);
       host.innerHTML =
         '<div class="uied-bar">' +
-          '<span class="t">' + escapeHtml(artifact.title) + ' — screens</span>' +
-          '<select id="ue-screen"></select>' +
-          (canEditUi ? '<button id="ue-direct" class="on" type="button">Click to edit: on</button>' +
-          '<input id="ue-prompt" placeholder="Describe a change — &quot;add a status column&quot;">' +
-          '<button id="ue-ask" type="button">Ask agent</button>' : '') +
-          '<button id="ue-src" type="button">Source</button>' +
+          '<select id="ue-screen" aria-label="Screen"></select>' +
+          '<span class="uied-spacer"></span>' +
+          (canEditUi ? '<button id="ue-mode" type="button">Design</button>' : '') +
+          (canEditUi ? '<button id="ue-ask" type="button">Ask</button>' : '') +
           (canEditUi ? '<button id="ue-save" class="primary" type="button">Save</button>' : '') +
           '<button id="ue-close" type="button">Close</button>' +
-          '<span class="status" id="ue-status"></span>' +
         '</div>' +
-        '<div class="uied-main">' +
-          '<iframe id="ue-canvas" class="uied-canvas" sandbox="allow-scripts allow-same-origin"></iframe>' +
+        (canEditUi
+          ? '<div class="uied-askrow" id="ue-askrow">' +
+              '<input id="ue-prompt" placeholder="Reimagine this screen, change the theme, add a column…">' +
+              '<button id="ue-ask-go" type="button">Send</button>' +
+            '</div>'
+          : '') +
+        '<div class="uied-toast" id="ue-status"></div>' +
+        '<div class="uied-work">' +
+          (canEditUi
+            ? '<aside class="uied-palette" id="ue-palette" style="display:none">' +
+                '<h4>Insert</h4>' +
+                '<button class="uied-pal-item" type="button" data-kind="h1">Heading</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="p">Text</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Button">Button</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Field">Field</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Table">Table</button>' +
+                '<h4>Align</h4>' +
+                '<div class="uied-align-grid">' +
+                  '<button type="button" data-align="left">Left</button>' +
+                  '<button type="button" data-align="center">Centre</button>' +
+                  '<button type="button" data-align="right">Right</button>' +
+                  '<button type="button" data-align="top">Top</button>' +
+                  '<button type="button" data-align="middle">Middle</button>' +
+                  '<button type="button" data-align="bottom">Bottom</button>' +
+                '</div>' +
+                '<div class="uied-align-grid" style="margin-top:0.28rem;grid-template-columns:1fr 1fr">' +
+                  '<button type="button" data-align="spread-y">Stack</button>' +
+                  '<button type="button" data-align="spread-x">Row</button>' +
+                '</div>' +
+                '<h4>Advanced</h4>' +
+                '<button class="uied-pal-item" type="button" id="ue-src">Source</button>' +
+              '</aside>'
+            : '') +
+          '<div class="uied-board-wrap">' +
+            '<div class="uied-board" id="ue-board" style="display:none"></div>' +
+            '<iframe id="ue-canvas" class="uied-canvas show" sandbox="allow-scripts allow-same-origin"></iframe>' +
+          '</div>' +
+          (canEditUi ? '<aside class="uied-inspector" id="ue-ins" style="display:none"></aside>' : '') +
           '<div class="uied-src" id="ue-srcpane"><textarea id="ue-source" spellcheck="false"></textarea></div>' +
         '</div>';
       host.classList.add('open');
@@ -3247,78 +4000,582 @@
       var statusEl = host.querySelector('#ue-status');
       var selectEl = host.querySelector('#ue-screen');
       var frame = host.querySelector('#ue-canvas');
-      var directBtn = host.querySelector('#ue-direct');
+      var board = host.querySelector('#ue-board');
+      var ins = host.querySelector('#ue-ins');
+      var palette = host.querySelector('#ue-palette');
+      var modeBtn = host.querySelector('#ue-mode');
       var screens = [];
       var current = 0;
-      var direct = canEditUi;
-      // Sent with the save so the lesson extractor sees the reviewer's own
-      // words. A diff alone cannot say whether "$" became "₹" because of a
-      // house standard or because this one screen is priced in rupees.
       var lastInstruction = '';
+      var blocks = [];
+      var parts = null;
+      var selectedId = '';
+      var previewMode = true;
+      var placing = null;
+      var drag = null;
+      var uid = 1;
 
       function status(text, bad) {
         statusEl.textContent = text || '';
-        statusEl.style.color = bad ? '#ffb4a2' : '';
+        statusEl.classList.toggle('bad', !!bad);
       }
 
-      function render() {
+      function snap(n) { return Math.round(n / 8) * 8; }
+
+      function syncSource() {
+        if (!parts || !screens[current]) return;
+        sourceEl.value = ueSerialize(parts, blocks);
+        screens[current].source = sourceEl.value;
+      }
+
+      function loadBlocks() {
+        var s = screens[current];
+        if (!s) return false;
+        var parsed = ueBlocksFromSource(sourceEl.value || s.source || '', s.name);
+        if (!parsed) {
+          parts = null;
+          blocks = [];
+          return false;
+        }
+        parts = parsed.parts;
+        blocks = parsed.blocks.map(function (b) {
+          b.id = 'b' + (uid++);
+          return b;
+        });
+        selectedId = blocks[0] ? blocks[0].id : '';
+        return true;
+      }
+
+      function blockById(id) {
+        return blocks.filter(function (b) { return b.id === id; })[0];
+      }
+
+      function renderWidget(block) {
+        var kind = block.kind;
+        var jsx = block.jsx || '';
+        if (kind === 'h1') return '<h1>' + escapeHtml(ueInnerText(jsx) || 'Heading') + '</h1>';
+        if (kind === 'p') return '<p>' + escapeHtml(ueInnerText(jsx) || 'Text') + '</p>';
+        if (kind === 'Button') return '<button class="uied-w-btn" type="button">' + escapeHtml(ueInnerText(jsx) || 'Button') + '</button>';
+        if (kind === 'Field') {
+          return '<label class="uied-w-field">' + escapeHtml(ueAttr(jsx, 'label') || 'Label') +
+            '<input value="" placeholder="' + escapeAttr(ueAttr(jsx, 'name') || 'field') + '" readonly></label>';
+        }
+        if (kind === 'Table') {
+          var heading = ueAttr(jsx, 'heading') || ueInnerText(jsx) || 'Rows';
+          var cells = (jsx.match(/<td>([\s\S]*?)<\/td>/g) || []).map(function (td) {
+            return td.replace(/<\/?td>/g, '');
+          });
+          if (!cells.length) cells = ['Row 1'];
+          return '<table class="uied-w-table"><thead><tr><th>' + escapeHtml(heading) +
+            '</th></tr></thead><tbody>' + cells.map(function (c) {
+              return '<tr><td>' + escapeHtml(c) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }
+        if (kind === 'nav') {
+          var labels = (jsx.match(/<Button[\s\S]*?<\/Button>/g) || []).map(function (btn) {
+            return ueInnerText(btn);
+          });
+          if (!labels.length) labels = ['Nav'];
+          return '<div class="uied-w-nav">' + labels.map(function (l) {
+            return '<button class="uied-w-btn" type="button">' + escapeHtml(l || 'Nav') + '</button>';
+          }).join('') + '</div>';
+        }
+        return '<p>' + escapeHtml(ueInnerText(jsx) || kind) + '</p>';
+      }
+
+      function renderInspector() {
+        if (!ins) return;
+        var b = blockById(selectedId);
+        if (!b) {
+          ins.innerHTML = '<h4>Inspector</h4><p class="uied-ins-empty">Click a block. Drag from the left to add one. Delete removes it.</p>';
+          return;
+        }
+        var html = '<h4>' + escapeHtml(b.kind) + '</h4>';
+        if (b.kind === 'Field') {
+          html += '<div class="uied-ins-row"><label>Label</label><input data-ins="label" value="' + escapeAttr(ueAttr(b.jsx, 'label')) + '"></div>';
+          html += '<div class="uied-ins-row"><label>Name</label><input data-ins="name" value="' + escapeAttr(ueAttr(b.jsx, 'name')) + '"></div>';
+        } else if (b.kind === 'Table') {
+          html += '<div class="uied-ins-row"><label>Heading</label><input data-ins="text" value="' + escapeAttr(ueAttr(b.jsx, 'heading') || ueInnerText(b.jsx)) + '"></div>';
+        } else {
+          html += '<div class="uied-ins-row"><label>Text</label><input data-ins="text" value="' + escapeAttr(ueInnerText(b.jsx)) + '"></div>';
+        }
+        html += '<div class="uied-ins-row"><label>Width (px)</label><input data-ins="w" type="number" min="80" step="8" value="' + escapeAttr(String(b.w || '')) + '"></div>';
+        if (canEditUi) html += '<button type="button" id="ue-del" style="margin-top:0.4rem;width:100%;">Delete</button>';
+        ins.innerHTML = html;
+        Array.prototype.forEach.call(ins.querySelectorAll('[data-ins]'), function (el) {
+          el.addEventListener('input', function () {
+            var key = el.getAttribute('data-ins');
+            var val = el.value;
+            if (key === 'w') {
+              b.w = Number(val) || null;
+            } else if (b.kind === 'Field' && key === 'label') {
+              b.jsx = b.jsx.replace(/\blabel="[^"]*"/, 'label="' + ueJsxText(val) + '"');
+              if (!/\blabel=/.test(b.jsx)) b.jsx = b.jsx.replace(/\/?>/, ' label="' + ueJsxText(val) + '"/>');
+            } else if (b.kind === 'Field' && key === 'name') {
+              b.jsx = b.jsx.replace(/\bname="[^"]*"/, 'name="' + ueJsxText(val) + '"');
+              if (!/\bname=/.test(b.jsx)) b.jsx = b.jsx.replace(/\/?>/, ' name="' + ueJsxText(val) + '"/>');
+            } else if (b.kind === 'Table') {
+              if (/\bheading=/.test(b.jsx)) b.jsx = b.jsx.replace(/\bheading="[^"]*"/, 'heading="' + ueJsxText(val) + '"');
+              else b.jsx = b.jsx.replace('<Table', '<Table heading="' + ueJsxText(val) + '"');
+            } else if (b.kind === 'Button' || b.kind === 'h1' || b.kind === 'p') {
+              b.jsx = b.jsx.replace(/>[\s\S]*<\//, '>' + ueJsxText(val) + '</');
+            }
+            paintBoard();
+            syncSource();
+            status('Unsaved changes');
+          });
+        });
+        var del = ins.querySelector('#ue-del');
+        if (del) del.addEventListener('click', function () { removeBlock(b.id); });
+      }
+
+      function paintBoard() {
+        var html = '';
+        blocks.forEach(function (b) {
+          html += '<div class="uied-block' + (b.id === selectedId ? ' sel' : '') + '" data-id="' + escapeAttr(b.id) +
+            '" style="left:' + b.x + 'px;top:' + b.y + 'px;' + (b.w ? 'width:' + b.w + 'px;' : '') + '">' +
+            renderWidget(b) + '<span class="uied-resize" data-resize="1"></span></div>';
+        });
+        board.innerHTML = html;
+        renderInspector();
+      }
+
+      var liveAlign = '';
+
+      function currentTheme() {
+        var palettes = ['midnight','aurora','paper','grove','coral','ink','glacier','sand'];
+        var themeMatch = String(sourceEl.value || '').match(/data-theme=["']([a-z]+)["']/);
+        if (themeMatch && palettes.indexOf(themeMatch[1]) >= 0) return themeMatch[1];
+        for (var si = 0; si < screens.length; si++) {
+          var m = String(screens[si].source || '').match(/data-theme=["']([a-z]+)["']/);
+          if (m && palettes.indexOf(m[1]) >= 0) return m[1];
+        }
+        var key = screens.map(function (sc) { return sc.name; }).join('|') || 'app';
+        var n = 0;
+        for (var i = 0; i < key.length; i++) n += key.charCodeAt(i);
+        return palettes[n % palettes.length];
+      }
+
+      function navLabel(name) {
+        return String(name).replace(/([a-z])([A-Z])/g, '$1 $2');
+      }
+
+      var NAV_JS =
+        'function resolveScreen(target,names){var raw=String(target||"");if(names.indexOf(raw)>=0)return raw;' +
+        'var flat=raw.replace(/[^a-z0-9]/gi,"").toLowerCase();if(!flat)return "";' +
+        'for(var i=0;i<names.length;i++){if(names[i].toLowerCase()===flat)return names[i];}' +
+        'var stop={the:1,can:1,and:1,"for":1,"with":1,via:1,"this":1,that:1,your:1,my:1,all:1,"new":1,view:1,page:1,screen:1,see:1,sees:1,"in":1,of:1,to:1};' +
+        'function words(s){return String(s).replace(/([a-z])([A-Z])/g,"$1 $2").toLowerCase().split(/[^a-z0-9]+/).filter(function(w){return w.length>2&&!stop[w];}).map(function(w){return w.replace(/(ings|ing|ed|s)$/,"");});}' +
+        'var want=words(raw),best="",score=0;names.forEach(function(n){var have=words(n),s=0;want.forEach(function(w){if(have.indexOf(w)>=0)s+=1;});if(s>score){score=s;best=n;}});return best;}' +
+        'window.navigate=function(t){var n=resolveScreen(t,window.NAMES);if(n)parent.postMessage({type:"ue-nav",name:n},"*");};' +
+        'document.addEventListener("click",function(e){var el=e.target&&e.target.closest?e.target.closest("button,a"):null;if(!el)return;' +
+        'var ex=el.getAttribute("data-nav");if(!ex&&!el.closest(".sidebar,aside,nav,[data-appnav]"))return;' +
+        'var n=ex||resolveScreen(el.textContent,window.NAMES);if(!n)return;e.preventDefault();window.navigate(n);},true);';
+
+      var UI_LIBS = [
+        'https://unpkg.com/prop-types@15.8.1/prop-types.min.js',
+        'https://unpkg.com/lucide-react@0.460.0/dist/umd/lucide-react.min.js',
+        'https://unpkg.com/recharts@2.13.3/umd/Recharts.js',
+        'https://unpkg.com/framer-motion@11.11.17/dist/framer-motion.js',
+        'https://unpkg.com/dayjs@1.11.13/dayjs.min.js'
+      ];
+
+      function renderLive() {
         var s = screens[current];
         if (!s) return;
+        var designing = !previewMode;
+        var theme = currentTheme();
+        var names = screens.map(function (sc) { return sc.name; });
+        var hasNav = /<Sidebar\b|<aside\b|className=["']sidebar/.test(String(sourceEl.value || ''));
+        var shellNav = hasNav ? '' :
+          '<aside class="sidebar app-nav" data-appnav="1">' +
+          names.map(function (n) {
+            var esc = navLabel(n).replace(/[&<>"]/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; });
+            return '<button type="button" data-nav="' + n + '"' + (n === s.name ? ' class="on"' : '') + '>' + esc + '</button>';
+          }).join('') + '</aside>';
+        var alignMatch = String(sourceEl.value || '').match(/\bdata-align=["'](left|center|right|top|middle|bottom|spread-y|spread-x)["']/);
+        var align = liveAlign || (alignMatch && alignMatch[1]) || '';
+        var alignCss = alignRules(align);
+        var designCss = designing
+          ? '#root a,#root button,#root input,#root select,#root textarea,#root label{pointer-events:none}#root *{cursor:default}#root *:hover{outline:2px solid var(--color-accent);outline-offset:2px}'
+          : '';
         frame.srcdoc =
-          '<!doctype html><meta charset="utf-8">' +
+          '<!doctype html><html data-theme="' + theme + '"><meta charset="utf-8">' +
           '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>' +
           '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>' +
+          '<script>window.react=window.React;<\/script>' +
+          UI_LIBS.map(function (src) { return '<script src="' + src + '"><\/script>'; }).join('') +
           '<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>' +
-          '<style>body{margin:0}' +
-            (direct ? '[data-edit]:hover{outline:2px dashed #c2603f;outline-offset:2px;cursor:text}' +
-                      '[data-edit]:focus{outline:2px solid #c2603f;outline-offset:2px}' : '') +
+          '<style>' +
+            ':root,[data-theme="midnight"]{--color-bg:#0b0c0e;--color-sidebar:#101114;--color-surface:#16171b;--color-text:#f3f3f1;--color-muted:#9a9ba1;--color-accent:#f2761f;--color-line:rgba(255,255,255,0.08);--space-md:16px;--font-sans:Ubuntu,Liberation Sans,system-ui,sans-serif}' +
+            '[data-theme="aurora"]{--color-bg:#071422;--color-sidebar:#0b1c30;--color-surface:#10263c;--color-text:#e7f6ff;--color-muted:#7fa4bc;--color-accent:#3ee0c5;--color-line:rgba(62,224,197,0.18)}' +
+            '[data-theme="paper"]{--color-bg:#faf9f5;--color-sidebar:#f2efe5;--color-surface:#ffffff;--color-text:#262117;--color-muted:#6b6355;--color-accent:#bf6a4d;--color-line:rgba(38,33,23,0.12)}' +
+            '[data-theme="grove"]{--color-bg:#102117;--color-sidebar:#163024;--color-surface:#1c3a2c;--color-text:#e8f6e4;--color-muted:#8fb89a;--color-accent:#c5e86a;--color-line:rgba(197,232,106,0.16)}' +
+            '[data-theme="coral"]{--color-bg:#1a1214;--color-sidebar:#24181b;--color-surface:#2c1e22;--color-text:#fdecee;--color-muted:#c49aa0;--color-accent:#ff6b6b;--color-line:rgba(255,107,107,0.18)}' +
+            '[data-theme="ink"]{--color-bg:#111008;--color-sidebar:#1a1810;--color-surface:#221f14;--color-text:#f4ead0;--color-muted:#b3a57a;--color-accent:#e0b84e;--color-line:rgba(224,184,78,0.18)}' +
+            '[data-theme="glacier"]{--color-bg:#eef3f8;--color-sidebar:#e2ebf3;--color-surface:#ffffff;--color-text:#142033;--color-muted:#5b6d82;--color-accent:#1d4e89;--color-line:rgba(20,32,51,0.1)}' +
+            '[data-theme="sand"]{--color-bg:#f6efe4;--color-sidebar:#efe4d2;--color-surface:#fffaf2;--color-text:#2a1c12;--color-muted:#7a6352;--color-accent:#c45c26;--color-line:rgba(42,28,18,0.12)}' +
+            '*{box-sizing:border-box}html,body,#root{height:100%;margin:0}body{background:var(--color-bg);color:var(--color-text);font-family:var(--font-sans)}' +
+            '@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
+            '.page{display:flex;min-height:100%;width:100%;max-width:none;padding:0;animation:rise .45s ease both}' +
+            '.sidebar{width:240px;flex-shrink:0;background:var(--color-sidebar);border-right:1px solid var(--color-line);padding:1.25rem .9rem;display:flex;flex-direction:column;gap:.35rem}' +
+            '.sidebar>p:first-child{padding:.2rem .7rem 1rem;margin:0;font-weight:600}' +
+            '.page>:not(.sidebar){flex:1;min-width:0;padding:clamp(1.4rem,3vw,2.6rem)}' +
+            'h1{margin:0 0 .4rem;font-size:clamp(1.55rem,2.4vw,2.2rem);font-weight:700}' +
+            'p{margin:0 0 1.2rem;max-width:42em;line-height:1.55;color:var(--color-muted)}' +
+            'label{display:flex;flex-direction:column;gap:8px;width:min(100%,28rem);margin:0 0 1rem;font-size:.78rem;font-weight:500;color:var(--color-muted)}' +
+            'input,select,textarea{font:inherit;font-size:.95rem;height:42px;border:1px solid var(--color-line);border-radius:8px;padding:0 12px;background:var(--color-surface);width:100%;color:var(--color-text)}' +
+            'button{appearance:none;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer;background:var(--color-accent);color:var(--color-bg);padding:.7rem 1.1rem;transition:transform .16s ease,filter .16s ease}' +
+            'button:hover{transform:translateY(-1px);filter:brightness(1.06)}' +
+            '.sidebar button{background:transparent;color:var(--color-muted);padding:.5rem .75rem;text-align:left;width:100%;font-weight:500}' +
+            '.sidebar button:hover,.sidebar button.on{background:var(--color-accent);color:var(--color-bg)}' +
+            '.ue-shell{display:flex;height:100%}.ue-shell>#root{flex:1;min-width:0;overflow:auto}' +
+            '@media (max-width:720px){.page,.ue-shell{flex-direction:column}.sidebar{width:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--color-line)}.sidebar button{width:auto;white-space:nowrap}}' +
+            'table{width:100%;border-collapse:collapse;background:var(--color-surface);border:1px solid var(--color-line);border-radius:10px;overflow:hidden;margin-top:1.2rem}' +
+            'th,td{text-align:left;padding:.8rem 1rem;border-bottom:1px solid var(--color-line)}' +
+            'th{font-size:.7rem;letter-spacing:.04em;text-transform:uppercase;color:var(--color-muted);font-weight:600}' +
+            alignCss + designCss +
           '</style>' +
-          '<body><div id="root"></div><pre id="err" style="color:#a33;font:12px ui-monospace,monospace;' +
-             'white-space:pre-wrap;padding:1rem"></pre>' +
-          '<script>(function(){try{' +
+          '<body>' + (shellNav ? '<div class="ue-shell">' + shellNav + '<div id="root"></div></div>' : '<div id="root"></div>') +
+          '<script>window.NAMES=' + JSON.stringify(names).replace(/</g, '\\u003c') + ';' + NAV_JS + '<\/script>' +
+          '<pre id="err" style="display:none;position:fixed;left:0;right:0;bottom:0;margin:0;background:#2a0a06;color:#ff9c8c;font:12px/1.45 ui-monospace,monospace;white-space:pre-wrap;padding:0.8rem 1rem;max-height:40%;overflow:auto"></pre>' +
+          '<script>(function(){var React=window.React,ReactDOM=window.ReactDOM,useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef,useCallback=React.useCallback,useContext=React.useContext;function showErr(m){var el=document.getElementById("err");el.style.display="block";el.textContent=m;}try{' +
             'var code=Babel.transform(' + JSON.stringify(sourceEl.value) +
               ',{presets:[["react",{runtime:"classic"}]]}).code;' +
-            'eval(code+"\\n;window.__C=typeof ' + s.name + '!==\'undefined\'?' + s.name + ':null;");' +
-            'if(!window.__C){document.getElementById("err").textContent="No component called ' + s.name + '";return;}' +
+            'eval(code+"\\n;try{if(typeof ' + s.name + '===\'function\'){window.' + s.name + '=' + s.name + ';window.__C=' + s.name + ';}}catch(_e){}" );' +
+            'if(!window.__C){var ks=Object.keys(window);for(var ki=0;ki<ks.length;ki++){var fn=window[ks[ki]];if(typeof fn==="function"&&/^[A-Z]/.test(ks[ki])&&["Page","Sidebar","Button","Field","Table","React","ReactDOM","Babel"].indexOf(ks[ki])<0){window.__C=fn;break;}}}' +
+            'if(!window.__C){showErr("No component called ' + s.name + '");return;}' +
             'ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__C));' +
-            (direct ? 'setTimeout(function(){' +
-              // Leaf elements holding a single text node only: editing a node
-              // with children would rewrite markup rather than a string.
-              'document.querySelectorAll("#root *").forEach(function(el){' +
-                'if(el.children.length===0&&el.textContent.trim()){' +
-                  'el.setAttribute("data-edit","1");el.contentEditable="true";' +
-                  'el.dataset.before=el.textContent;' +
-                  'el.addEventListener("blur",function(){' +
-                    'if(el.textContent!==el.dataset.before){' +
-                      'parent.postMessage({t:"edit",from:el.dataset.before,to:el.textContent},"*");' +
-                      'el.dataset.before=el.textContent;}});}});' +
-              '},250);' : '') +
-          '}catch(e){document.getElementById("err").textContent=String(e&&e.message||e);}})();<\/script>';
+          '}catch(e){showErr(String(e&&e.message||e));}})();<\/script></html>';
       }
 
-      // A click-edit rewrites the string literal it came from — but only when
-      // that text appears exactly once. Replacing an ambiguous match would
-      // change a line nobody touched, so it says so instead of guessing.
-      function onDirectEdit(from, to) {
-        var src = sourceEl.value;
-        var count = src.split(from).length - 1;
-        if (count === 0) return status('That text is not a literal in the source — use the Source pane', true);
-        if (count > 1) return status('"' + from.slice(0, 20) + '" appears ' + count + ' times — use the Source pane', true);
-        sourceEl.value = src.replace(from, to);
-        status('Edited — not saved yet');
+      function setPreview(on) {
+        previewMode = on;
+        if (modeBtn) modeBtn.classList.toggle('on', !on);
+        board.style.display = 'none';
+        frame.classList.add('show');
+        if (palette) palette.style.display = on ? 'none' : '';
+        if (ins) ins.style.display = on ? 'none' : '';
+        var wrap = host.querySelector('.uied-board-wrap');
+        if (wrap) {
+          wrap.style.padding = '0';
+          wrap.style.overflow = 'hidden';
+        }
+        renderLive();
+        if (on) {
+          status('Live preview. Design keeps this theme.');
+          return;
+        }
+        if (ins) {
+          ins.innerHTML = '<h4>Inspector</h4><p class="uied-ins-empty">You are on the live themed screen. Insert from the left. Align restacks the main column. Ask rewrites copy or layout.</p>';
+        }
+        status('Design: same theme as preview. Insert adds a control. Align restacks.');
       }
 
-      function onMessage(e) { if (e.data && e.data.t === 'edit') onDirectEdit(e.data.from, e.data.to); }
-      window.addEventListener('message', onMessage);
+      function showScreen() {
+        liveAlign = '';
+        renderLive();
+      }
+
+      function matchPair(src, openIdx, openCh, closeCh) {
+        var depth = 0;
+        var inS = null;
+        for (var i = openIdx; i < src.length; i++) {
+          var c = src[i];
+          if (inS) {
+            if (c === '\\') { i += 1; continue; }
+            if (c === inS) inS = null;
+            continue;
+          }
+          if (c === '"' || c === "'" || c === '`') { inS = c; continue; }
+          if (c === openCh) depth += 1;
+          else if (c === closeCh) {
+            depth -= 1;
+            if (depth === 0) return i;
+          }
+        }
+        return -1;
+      }
+
+      function screenBodyRange(src, name) {
+        if (!src || !name) return null;
+        var esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var re = new RegExp('function\\s+' + esc + '\\s*\\(');
+        var m = re.exec(src);
+        var arrow = false;
+        if (!m) {
+          re = new RegExp('(?:const|let|var)\\s+' + esc + '\\s*=');
+          m = re.exec(src);
+          arrow = true;
+        }
+        if (!m) return null;
+        if (!arrow) {
+          var brace = src.indexOf('{', m.index);
+          if (brace < 0) return null;
+          var end = matchPair(src, brace, '{', '}');
+          if (end < 0) return null;
+          return { start: brace + 1, end: end };
+        }
+        var ar = src.indexOf('=>', m.index);
+        if (ar < 0) return null;
+        var k = ar + 2;
+        while (k < src.length && /\s/.test(src[k])) k += 1;
+        if (src[k] === '{') {
+          var aend = matchPair(src, k, '{', '}');
+          if (aend < 0) return null;
+          return { start: k + 1, end: aend };
+        }
+        if (src[k] === '(') {
+          var pend = matchPair(src, k, '(', ')');
+          if (pend < 0) return null;
+          return { start: k + 1, end: pend };
+        }
+        if (src[k] === '<') {
+          var semi = src.indexOf(';', k);
+          return { start: k, end: semi < 0 ? src.length : semi };
+        }
+        return null;
+      }
+
+      function returnJsxRange(body) {
+        var m = /return\s*\(/.exec(body);
+        if (m) {
+          var open = m.index + m[0].length - 1;
+          var close = matchPair(body, open, '(', ')');
+          if (close < 0) return null;
+          var i = open + 1;
+          while (i < close && /\s/.test(body[i])) i += 1;
+          if (body[i] !== '<') return { start: open + 1, end: close };
+          return { start: i, end: close };
+        }
+        m = /return\s*</.exec(body);
+        if (m) {
+          var start = body.indexOf('<', m.index);
+          var semi = body.indexOf(';', start);
+          return { start: start, end: semi < 0 ? body.length : semi };
+        }
+        var i0 = 0;
+        while (i0 < body.length && /\s/.test(body[i0])) i0 += 1;
+        if (body[i0] === '<') return { start: i0, end: body.length };
+        return null;
+      }
+
+      function liveSnippet(kind, src) {
+        var has = function (n) { return new RegExp('function\\s+' + n + '\\b').test(src || ''); };
+        if (kind === 'h1') return '<h1>Heading</h1>';
+        if (kind === 'p') return '<p>New text</p>';
+        if (kind === 'Button') {
+          return has('Button') ? '<Button>Button</Button>' : '<button type="button">Button</button>';
+        }
+        if (kind === 'Field') {
+          return has('Field')
+            ? '<Field name="field" label="Label" />'
+            : '<label>Label<input name="field" /></label>';
+        }
+        if (kind === 'Table') {
+          return has('Table')
+            ? '<Table heading="Rows"><tr><td>Row 1</td></tr></Table>'
+            : '<table><thead><tr><th>Rows</th></tr></thead><tbody><tr><td>Row 1</td></tr></tbody></table>';
+        }
+        return '<p>New text</p>';
+      }
+
+      function injectSnippet(src, name, snippet) {
+        var range = screenBodyRange(src, name);
+        var from = range ? range.start : 0;
+        var body = range ? src.slice(range.start, range.end) : src;
+        var jsx = returnJsxRange(body);
+        var target = jsx ? body.slice(jsx.start, jsx.end) : body;
+        var base = from + (jsx ? jsx.start : 0);
+        var chunk = '\n      ' + snippet + '\n      ';
+        var self = target.match(/^\s*<([A-Za-z][A-Za-z0-9]*)(\s[^>]*)?\s*\/>\s*$/);
+        if (self) {
+          var expanded = '<' + self[1] + (self[2] || '').replace(/\s*$/, '') + '>' + chunk + '</' + self[1] + '>';
+          return src.slice(0, base) + expanded + src.slice(base + target.length);
+        }
+        var tokens = ['</form>', '</main>', '</section>', '</Page>', '</div>'];
+        var best = -1;
+        for (var t = 0; t < tokens.length; t++) {
+          var idx = target.lastIndexOf(tokens[t]);
+          if (idx >= 0) { best = idx; break; }
+        }
+        if (best >= 0) {
+          var abs = base + best;
+          return src.slice(0, abs) + chunk + src.slice(abs);
+        }
+        if (jsx) return src.slice(0, base + target.length) + chunk + src.slice(base + target.length);
+        if (range) return src.slice(0, range.end) + chunk + src.slice(range.end);
+        return src + '\n' + snippet + '\n';
+      }
+
+      function stampAlign(src, name, kind) {
+        var range = screenBodyRange(src, name);
+        if (!range) return src;
+        var body = src.slice(range.start, range.end);
+        var jsx = returnJsxRange(body);
+        if (!jsx) return src;
+        var slice = body.slice(jsx.start, jsx.end);
+        var hit = slice.match(/<form(\s[^>]*?)?>/)
+          || slice.match(/<(div|main|section)(\s[^>]*?)?>/)
+          || slice.match(/<Page(\s[^>]*?)?>/);
+        if (!hit) return src;
+        var abs = range.start + jsx.start + slice.indexOf(hit[0]);
+        var open = hit[0].replace(/\sdata-align="[^"]*"/, '');
+        if (kind) {
+          open = open.replace(/>$/, ' data-align="' + kind + '">');
+        }
+        return src.slice(0, abs) + open + src.slice(abs + hit[0].length);
+      }
+
+      function alignRules(kind) {
+        if (!kind) return '';
+        var col = '#root form,#root > form,#root > div,#root > main,#root .page > div,#root .page > form,#root .page > main,#root [data-align]:not(.sidebar)';
+        if (kind === 'left') return col + '{display:flex!important;flex-direction:column!important;align-items:flex-start!important;width:100%}';
+        if (kind === 'center') {
+          return col + '{display:flex!important;flex-direction:column!important;align-items:center!important;width:100%}' +
+            '#root form > *,#root > div > *,#root .page > div > *{margin-left:auto!important;margin-right:auto!important}';
+        }
+        if (kind === 'right') {
+          return col + '{display:flex!important;flex-direction:column!important;align-items:flex-end!important;width:100%}' +
+            '#root form > *,#root > div > *,#root .page > div > *{margin-left:auto!important;margin-right:0!important}';
+        }
+        if (kind === 'top') return col + '{display:flex!important;flex-direction:column!important;justify-content:flex-start!important;min-height:100%}';
+        if (kind === 'middle') return col + '{display:flex!important;flex-direction:column!important;justify-content:center!important;min-height:100%}';
+        if (kind === 'bottom') return col + '{display:flex!important;flex-direction:column!important;justify-content:flex-end!important;min-height:100%}';
+        if (kind === 'spread-y') return col + '{display:flex!important;flex-direction:column!important;gap:var(--space-md)!important;min-height:100%}';
+        if (kind === 'spread-x') return col + '{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-items:flex-start!important;gap:var(--space-md)!important}';
+        return '';
+      }
+
+      function addBlock(kind, x, y) {
+        var s = screens[current];
+        if (!s) return;
+        var src = sourceEl.value || s.source || '';
+        var snippet = liveSnippet(kind, src);
+        var next = injectSnippet(src, s.name, snippet);
+        if (next === src) {
+          status('Could not insert into this screen', true);
+          return;
+        }
+        sourceEl.value = next;
+        s.source = next;
+        renderLive();
+        status('Added ' + (kind === 'h1' ? 'heading' : kind === 'p' ? 'text' : kind) + ' — not saved yet');
+      }
+
+      function removeBlock(id) {
+        var b = blockById(id);
+        if (!b) return;
+        if (b.kind === 'h1' && blocks.filter(function (x) { return x.kind === 'h1'; }).length < 2) {
+          return status('Keep one heading — the gate requires an h1', true);
+        }
+        blocks = blocks.filter(function (x) { return x.id !== id; });
+        selectedId = blocks[0] ? blocks[0].id : '';
+        paintBoard();
+        syncSource();
+        status('Removed — not saved yet');
+      }
+
+      board.addEventListener('pointerdown', function (e) {
+        if (!canEditUi || previewMode) return;
+        var resize = e.target.closest('[data-resize]');
+        var node = e.target.closest('.uied-block');
+        if (!node) {
+          if (placing) {
+            var rect = board.getBoundingClientRect();
+            addBlock(placing, e.clientX - rect.left - 20, e.clientY - rect.top - 12);
+            placing = null;
+            Array.prototype.forEach.call(host.querySelectorAll('.uied-pal-item'), function (el) { el.classList.remove('on'); });
+            return;
+          }
+          selectedId = '';
+          paintBoard();
+          return;
+        }
+        var b = blockById(node.getAttribute('data-id'));
+        if (!b) return;
+        selectedId = b.id;
+        Array.prototype.forEach.call(board.querySelectorAll('.uied-block'), function (el) {
+          el.classList.toggle('sel', el.getAttribute('data-id') === b.id);
+        });
+        renderInspector();
+        var rect = board.getBoundingClientRect();
+        drag = {
+          id: b.id,
+          resize: !!resize,
+          dx: e.clientX - rect.left - b.x,
+          dy: e.clientY - rect.top - b.y,
+          startW: b.w || node.offsetWidth,
+        };
+        try { node.setPointerCapture(e.pointerId); } catch (ignore) {}
+        e.preventDefault();
+      });
+      board.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        var b = blockById(drag.id);
+        if (!b) return;
+        var rect = board.getBoundingClientRect();
+        if (drag.resize) {
+          b.w = Math.max(80, snap(e.clientX - rect.left - b.x));
+        } else {
+          b.x = snap(Math.max(0, e.clientX - rect.left - drag.dx));
+          b.y = snap(Math.max(0, e.clientY - rect.top - drag.dy));
+        }
+        var el = board.querySelector('[data-id="' + b.id + '"]');
+        if (el) {
+          el.style.left = b.x + 'px';
+          el.style.top = b.y + 'px';
+          if (b.w) el.style.width = b.w + 'px';
+        }
+      });
+      board.addEventListener('pointerup', function () {
+        if (!drag) return;
+        drag = null;
+        syncSource();
+        renderInspector();
+        status('Moved — not saved yet');
+      });
+
+      function onKey(e) {
+        if (!host.classList.contains('open') || !canEditUi || previewMode) return;
+        if (e.key === 'Escape') { placing = null; return; }
+        if (!selectedId) return;
+        if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+        var b = blockById(selectedId);
+        if (!b) return;
+        var step = e.shiftKey ? 16 : 8;
+        if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeBlock(b.id); return; }
+        if (e.key === 'ArrowLeft') { b.x = Math.max(0, b.x - step); }
+        else if (e.key === 'ArrowRight') { b.x += step; }
+        else if (e.key === 'ArrowUp') { b.y = Math.max(0, b.y - step); }
+        else if (e.key === 'ArrowDown') { b.y += step; }
+        else return;
+        e.preventDefault();
+        paintBoard();
+        syncSource();
+        status('Moved — not saved yet');
+      }
+      window.addEventListener('keydown', onKey);
+
+      function onFrameNav(e) {
+        if (!e.data || e.data.type !== 'ue-nav' || e.source !== frame.contentWindow) return;
+        var idx = screens.map(function (sc) { return sc.name; }).indexOf(String(e.data.name));
+        if (idx < 0 || idx === current) return;
+        selectEl.value = String(idx);
+        selectEl.dispatchEvent(new Event('change'));
+      }
+      window.addEventListener('message', onFrameNav);
 
       function close() {
-        window.removeEventListener('message', onMessage);
+        window.removeEventListener('keydown', onKey);
+        window.removeEventListener('message', onFrameNav);
         host.classList.remove('open');
         host.innerHTML = '';
         loadArtifacts();
       }
 
       function save() {
+        if (!previewMode) syncSource();
         screens[current].source = sourceEl.value;
         status('Saving…');
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen', {
@@ -3327,63 +4584,143 @@
           body: JSON.stringify({
             name: screens[current].name,
             source: sourceEl.value,
-            instruction: lastInstruction,
+            instruction: lastInstruction || 'visual editor',
           }),
         })
           .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
           .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || 'Save failed');
+            if (!r.ok) throw new Error(r.body.detail || r.body.error || 'Save failed');
             lastInstruction = '';
             status('Saved — Gate 3 approval withdrawn, and the agent is reviewing what changed');
           })
           .catch(function (e) { status(e.message, true); });
       }
 
+      function alignBlocks(kind) {
+        liveAlign = kind || '';
+        var s = screens[current];
+        if (s) {
+          var src = sourceEl.value || s.source || '';
+          var next = stampAlign(src, s.name, kind);
+          sourceEl.value = next;
+          s.source = next;
+        }
+        renderLive();
+        var labels = {
+          left: 'left', center: 'centre', right: 'right',
+          top: 'top', middle: 'middle', bottom: 'bottom',
+          'spread-y': 'stack', 'spread-x': 'row'
+        };
+        status('Aligned ' + (labels[kind] || kind) + ' — not saved yet');
+      }
+
       function ask() {
         var input = host.querySelector('#ue-prompt');
-        if (!input.value.trim()) return;
+        var text = (input && input.value || '').trim();
+        if (!text) {
+          var row = host.querySelector('#ue-askrow');
+          if (row) {
+            row.classList.add('open');
+            if (input) input.focus();
+          }
+          return;
+        }
+        var go = host.querySelector('#ue-ask-go');
+        if (go && go.disabled) return;
         status('Asking the UI agent…');
+        if (go) go.disabled = true;
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen/agent', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: screens[current].name, instruction: input.value }),
+          body: JSON.stringify({
+            name: screens[current].name,
+            instruction: text,
+            source: sourceEl.value,
+            theme: currentTheme(),
+          }),
         })
           .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
           .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || 'The agent could not apply that');
-            // Loaded, not saved: the reviewer looks before committing to it.
+            if (!r.ok) {
+              var err = r.body.detail || r.body.error || 'The agent could not apply that';
+              if (err && typeof err !== 'string') err = err.message || JSON.stringify(err);
+              throw new Error(err);
+            }
+            if (!r.body.source) throw new Error('The agent returned no JSX');
             sourceEl.value = r.body.source;
-            render();
-            lastInstruction = input.value;
-            status(r.body.summary + ' — review it, then Save');
+            screens[current].source = r.body.source;
+            parts = null;
+            blocks = [];
+            lastInstruction = text;
+            showScreen();
+            status((r.body.summary || 'Rewrote the screen') + ' — review it, then Save');
             input.value = '';
           })
-          .catch(function (e) { status(e.message, true); });
+          .catch(function (e) { status(e.message, true); })
+          .then(function () { if (go) go.disabled = false; });
       }
 
       host.querySelector('#ue-close').addEventListener('click', close);
       var saveBtn = host.querySelector('#ue-save');
       if (saveBtn) saveBtn.addEventListener('click', save);
       var askBtn = host.querySelector('#ue-ask');
-      if (askBtn) askBtn.addEventListener('click', ask);
+      if (askBtn) askBtn.addEventListener('click', function () {
+        var row = host.querySelector('#ue-askrow');
+        if (!row) return;
+        var open = row.classList.toggle('open');
+        askBtn.classList.toggle('on', open);
+        if (open) {
+          var input = host.querySelector('#ue-prompt');
+          if (input) input.focus();
+        }
+      });
+      var askGo = host.querySelector('#ue-ask-go');
+      if (askGo) askGo.addEventListener('click', ask);
       var promptEl = host.querySelector('#ue-prompt');
       if (promptEl) promptEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') ask(); });
-      host.querySelector('#ue-src').addEventListener('click', function () {
-        host.querySelector('#ue-srcpane').classList.toggle('open');
+      var srcBtn = host.querySelector('#ue-src');
+      if (srcBtn) srcBtn.addEventListener('click', function () {
+        var pane = host.querySelector('#ue-srcpane');
+        var open = pane.classList.toggle('open');
+        if (open) syncSource();
+        else showScreen();
       });
-      if (directBtn) directBtn.addEventListener('click', function () {
-        direct = !direct;
-        directBtn.classList.toggle('on', direct);
-        directBtn.textContent = 'Click to edit: ' + (direct ? 'on' : 'off');
-        render();
-      });
+      if (modeBtn) modeBtn.addEventListener('click', function () { setPreview(!previewMode); });
+      if (palette) {
+        palette.addEventListener('click', function (e) {
+          var align = e.target.closest('[data-align]');
+          if (align) {
+            e.preventDefault();
+            Array.prototype.forEach.call(palette.querySelectorAll('[data-align]'), function (el) {
+              el.classList.toggle('on', el === align);
+            });
+            alignBlocks(align.getAttribute('data-align'));
+            return;
+          }
+          var item = e.target.closest('[data-kind]');
+          if (!item) return;
+          e.preventDefault();
+          placing = null;
+          Array.prototype.forEach.call(palette.querySelectorAll('.uied-pal-item'), function (el) {
+            el.classList.toggle('on', el === item);
+          });
+          addBlock(item.getAttribute('data-kind'));
+        }, true);
+      }
       selectEl.addEventListener('change', function () {
-        screens[current].source = sourceEl.value;   // keep unsaved edits when switching
+        if (!previewMode) syncSource();
+        screens[current].source = sourceEl.value;
         current = Number(selectEl.value);
         sourceEl.value = screens[current].source || '';
-        render();
+        showScreen();
       });
-      sourceEl.addEventListener('input', function () { status('Unsaved changes'); });
+      var srcTimer = null;
+      sourceEl.addEventListener('input', function () {
+        status('Unsaved changes');
+        if (screens[current]) screens[current].source = sourceEl.value;
+        clearTimeout(srcTimer);
+        srcTimer = setTimeout(renderLive, 600);
+      });
 
       status('Loading…');
       fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screens', { credentials: 'include' })
@@ -3398,8 +4735,10 @@
             selectEl.appendChild(o);
           });
           sourceEl.value = screens[0].source || '';
-          render();
-          status(canEditUi ? 'Click any text on the page to edit it' : 'Read-only preview — switch screens in the dropdown');
+          showScreen();
+          status(canEditUi
+            ? 'Live themed preview. Design keeps this look — insert and align on the real screen.'
+            : 'Read-only — switch screens in the dropdown');
         })
         .catch(function (e) { status('Could not load screens: ' + e.message, true); });
     }
@@ -3523,12 +4862,16 @@
     // commits the approval, returns a jobId, and generates in the background —
     // so the estimate below only drives the bar until the first poll replaces
     // the label with the phase the job actually reports.
+    // UI regeneration runs one accurate screen at a time and may take several
+    // minutes — the bar follows designProgress from the server, not this guess.
     var SLOW_ACTIONS = {
-      approve: { ms: 60000, label: 'AI is working — generating the detailed report or team split…' },
+      approve: { ms: 300000, label: 'AI is working — generating screens or the next artefact…', trackDesign: true },
       giveFinalFsdApproval: { ms: 45000, label: 'AI is working — generating the team split…' },
       regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report…' },
       regenerateTeamSplit: { ms: 60000, label: 'Generating work packages for Team Leads…' },
       approveUi: { ms: 60000, label: 'UI approved — generating work packages…' },
+      requestRevision: { ms: 420000, label: 'Regenerating accurate screens from the approved BRD…', trackDesign: true },
+      requestUiChanges: { ms: 420000, label: 'Regenerating accurate screens from the approved BRD…', trackDesign: true },
     };
 
     // Blocks the periodic/focus auto-refresh (see setInterval below) while
@@ -3552,12 +4895,37 @@
       // "Generating the interface" rather than guessing.
       var liveLabel = slowSpec ? slowSpec.label : 'Working…';
       var tick = null;
+      var progressPoll = null;
       var barShown = false;
       var blockingRefresh = false;
 
       function setLiveLabel(label) {
         liveLabel = label;
         if (progressText) progressText.textContent = label;
+      }
+
+      function applyDesignProgress(progress) {
+        if (!progress || !progress.label) return;
+        setLiveLabel(progress.label);
+        if (!progressFill || progress.pct == null) return;
+        progressFill.classList.remove('indeterminate');
+        var pct = Math.max(1, Math.min(99, Number(progress.pct) || 0));
+        progressFill.style.width = pct + '%';
+        if (progressPct) progressPct.textContent = pct + '%';
+      }
+
+      function followDesignProgress() {
+        if (!slowSpec || !slowSpec.trackDesign || progressPoll) return;
+        progressPoll = setInterval(function () {
+          fetch(window.API_BASE + '/api/artifacts/' + id, { credentials: 'include' })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (data) {
+              var artifact = data && data.artifact;
+              if (!artifact) return;
+              applyDesignProgress(artifact.designProgress);
+            })
+            .catch(function () { /* keep waiting on the action response */ });
+        }, 2000);
       }
 
       // `estimate` drives the filling animation when we have a duration to
@@ -3568,6 +4936,7 @@
         if (!blockingRefresh) { blockingRefresh = true; activeSlowActionCount++; }
         progressText.textContent = liveLabel;
         progressWrap.classList.add('visible');
+        followDesignProgress();
 
         if (!estimate) {
           progressFill.classList.add('indeterminate');
@@ -3579,9 +4948,10 @@
           var elapsed = new Date().getTime() - startedAt;
           if (elapsed >= estimate) {
             progressFill.classList.add('indeterminate');
-            progressText.textContent = liveLabel + ' Still working…';
+            progressText.textContent = liveLabel + ' Still working — accuracy takes priority…';
             progressPct.textContent = '';
-          } else {
+          } else if (!progressFill.classList.contains('indeterminate')) {
+            // Only animate the guess while the server has not reported a real pct.
             var pct = Math.round((elapsed / estimate) * 90);
             progressFill.style.width = pct + '%';
             progressPct.textContent = pct + '%';
@@ -3599,11 +4969,13 @@
         if (settled) return;
         settled = true;
         if (tick) clearInterval(tick);
+        if (progressPoll) clearInterval(progressPoll);
         if (progressFill) {
           progressFill.classList.remove('indeterminate');
           progressFill.style.width = '100%';
           if (progressPct) progressPct.textContent = '100%';
         }
+        if (progressText) progressText.textContent = 'Screens ready';
         if (blockingRefresh) activeSlowActionCount--;
       }
 
@@ -3839,12 +5211,20 @@
         document.getElementById('tab-usage').style.display = '';
       }
 
+      if (canStartRequirement(me)) {
+        document.getElementById('tab-requirement').style.display = '';
+        switchTab('requirement');
+      } else {
+        document.getElementById('tab-requirement').style.display = 'none';
+        switchTab('approvals');
+      }
+
       document.getElementById('loading-note').style.display = 'none';
       document.getElementById('shell').style.display = '';
       loadArtifacts();
     }
 
-    fetch(window.API_BASE + '/api/auth/me', { credentials: 'include' }).then(function (res) {
+    fetch('/api/auth/me', { credentials: 'same-origin' }).then(function (res) {
       if (!res.ok) { window.location.href = '/login.html'; throw new Error('redirecting'); }
       return res.json();
     }).then(function (data) {
@@ -3899,7 +5279,16 @@
 
     document.getElementById('start-intake-btn').addEventListener('click', function () {
       document.getElementById('intake-error').classList.remove('visible');
-      fetch(window.API_BASE + '/api/artifacts/chat/start', { method: 'POST', credentials: 'include' })
+      if (!canStartRequirement(me)) {
+        showIntakeError('Only the requester can start a requirement.');
+        return;
+      }
+      fetch(window.API_BASE + '/api/artifacts/chat/start', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.body.error || 'Could not start intake');

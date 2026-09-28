@@ -6,7 +6,8 @@
 <title>Client sign-in - Stark Digital</title>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/theme-client.css">
-<script src="/config.js"></script>
+<script src="/config.js?v=20260922"></script>
+<script>window.API_BASE = '';</script>
 <style>
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
   .wrap {
@@ -42,7 +43,7 @@
   .hero .kicker { color: #a8543a; display: flex; align-items: center; gap: 0.5rem; position: relative; z-index: 1; }
   .hero .kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: #a8543a; box-shadow: 0 0 0 4px rgba(168, 84, 58, 0.2); }
   .hero h1 {
-    font-family: 'Fraunces Client', Georgia, serif;
+    font-family: Georgia, 'Times New Roman', serif;
     font-style: italic;
     font-weight: 600;
     font-size: 2.7rem;
@@ -102,10 +103,10 @@
 
       <div class="error-banner" id="error-banner"></div>
 
-      <form id="signin-form">
+      <form id="signin-form" novalidate>
         <div class="field">
           <label for="si-email">Email</label>
-          <input type="email" id="si-email" autocomplete="username" required />
+          <input type="text" inputmode="email" id="si-email" autocomplete="username" required />
         </div>
         <div class="field">
           <label for="si-password">Password</label>
@@ -114,14 +115,14 @@
         <button type="submit" class="btn" id="signin-btn">Sign in</button>
       </form>
 
-      <form id="register-form" class="hidden">
+      <form id="register-form" class="hidden" novalidate>
         <div class="field">
           <label for="reg-name">Name</label>
           <input type="text" id="reg-name" autocomplete="name" required />
         </div>
         <div class="field">
           <label for="reg-email">Email</label>
-          <input type="email" id="reg-email" autocomplete="username" required />
+          <input type="text" inputmode="email" id="reg-email" autocomplete="username" required />
         </div>
         <div class="field">
           <label for="reg-password">Password</label>
@@ -135,6 +136,9 @@
   </div>
 
   <script>
+    if (location.hostname === 'localhost') {
+      location.replace('http://127.0.0.1:' + (location.port || '5173') + location.pathname + location.search);
+    }
     var tabSignin = document.getElementById('tab-signin');
     var tabRegister = document.getElementById('tab-register');
     var signinForm = document.getElementById('signin-form');

@@ -81,3 +81,27 @@ class Store:
                 (requirement_id, kind, json.dumps(body, sort_keys=True), at),
             )
             self._conn.commit()
+
+    def events(self, requirement_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            if requirement_id:
+                rows = self._conn.execute(
+                    "SELECT requirement_id, kind, body, at FROM events "
+                    "WHERE requirement_id = ? ORDER BY seq",
+                    (requirement_id,),
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT requirement_id, kind, body, at FROM events ORDER BY seq"
+                ).fetchall()
+        out = []
+        for rid, kind, body, at in rows:
+            payload = json.loads(body) if isinstance(body, str) else dict(body or {})
+            out.append({"requirement_id": rid, "kind": kind, "body": payload, "at": at})
+        return out
+
+    def delete_all(self) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM events")
+            self._conn.execute("DELETE FROM runs")
+            self._conn.commit()

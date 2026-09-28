@@ -1,16 +1,45 @@
 model_list:
   - model_name: factory-default
     litellm_params:
-      model: openai/gpt-4o-mini
-      api_base: https://openrouter.ai/api/v1
+      model: openrouter/openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
-  # Any OpenRouter id the settings picker sends (openai/..., anthropic/..., etc.).
-  - model_name: "*"
+  # Settings stores OpenRouter ids (openai/..., anthropic/..., qwen/...).
+  # LiteLLM 1.100 rejects unknown names unless these wildcards exist.
+  - model_name: openai/*
     litellm_params:
-      model: "*"
-      custom_llm_provider: openai
-      api_base: https://openrouter.ai/api/v1
+      model: openrouter/openai/*
       api_key: os.environ/OPENAI_API_KEY
+  - model_name: anthropic/*
+    litellm_params:
+      model: openrouter/anthropic/*
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: qwen/*
+    litellm_params:
+      model: openrouter/qwen/*
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: google/*
+    litellm_params:
+      model: openrouter/google/*
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: meta-llama/*
+    litellm_params:
+      model: openrouter/meta-llama/*
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: deepseek/*
+    litellm_params:
+      model: openrouter/deepseek/*
+      api_key: os.environ/OPENAI_API_KEY
+  - model_name: mistralai/*
+    litellm_params:
+      model: openrouter/mistralai/*
+      api_key: os.environ/OPENAI_API_KEY
+  # FreeLLMAPI (MIT, self-hosted on the host at :3001). Testing only.
+  # Settings id `freellm/auto` sends model `auto` to its router.
+  - model_name: freellm/*
+    litellm_params:
+      model: openai/*
+      api_base: os.environ/FREELLMAPI_BASE_URL
+      api_key: os.environ/FREELLMAPI_KEY
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL

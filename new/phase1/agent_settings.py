@@ -70,7 +70,7 @@ CYCLE_USAGE: dict[str, dict[str, int]] = {
     "qa": {"calls": 1, "prompt": 2500, "completion": 800},
     "devops": {"calls": 1, "prompt": 2000, "completion": 600},
     "overview": {"calls": 1, "prompt": 2500, "completion": 800},
-    "build": {"calls": 0, "prompt": 0, "completion": 0},
+    "build": {"calls": 1, "prompt": 2000, "completion": 400},
     "review": {"calls": 1, "prompt": 3000, "completion": 800},
     "adversary": {"calls": 1, "prompt": 2500, "completion": 600},
     "monitor": {"calls": 1, "prompt": 1500, "completion": 400},
@@ -78,8 +78,24 @@ CYCLE_USAGE: dict[str, dict[str, int]] = {
 
 _FALLBACK_MINI = {"prompt_per_million": 0.15, "completion_per_million": 0.60}
 
-# Best quality we can get while a full cycle stays well under $1 (list prices).
+# Fallback when an agent has no row in agent-models.json.
 CHEAP_DEFAULT = "openai/gpt-4o-mini"
+
+# Best quality-per-role pack that still keeps one full cycle well under $1.
+QUALITY_DEFAULTS: dict[str, str] = {
+    "intake": "anthropic/claude-haiku-4.5",
+    "brd": "deepseek/deepseek-v3.2",
+    "architect": "openai/gpt-4.1-mini",
+    "ui": "qwen/qwen3-coder",
+    "decomposer": "openai/gpt-4.1-mini",
+    "qa": "qwen/qwen3-coder",
+    "devops": "openai/gpt-4.1-mini",
+    "overview": "openai/gpt-4o-mini",
+    "build": "openai/gpt-4o-mini",
+    "review": "anthropic/claude-haiku-4.5",
+    "adversary": "anthropic/claude-haiku-4.5",
+    "monitor": "openai/gpt-4o-mini",
+}
 
 
 def default_model() -> str:
@@ -87,40 +103,72 @@ def default_model() -> str:
 
 
 def ensure_cheap_defaults(root: Path) -> dict[str, str]:
-    """Pin every agent to gpt-4o-mini unless the operator already chose models."""
+    """Write the quality pack on a blank runtime. Does not clobber a saved set."""
     if stored(root):
         return stored(root)
-    return set_models(root, {name: CHEAP_DEFAULT for name in AGENT_ROLES}, "platform")
+    return set_models(root, QUALITY_DEFAULTS, "platform")
+
+
+def preset_defaults(root: Path) -> dict[str, str]:
+    """Overwrite every agent with the quality pack."""
+    return set_models(root, QUALITY_DEFAULTS, "platform")
 
 
 def _path(root: Path) -> Path:
     return Path(root) / "agent-models.json"
 
 
-def stored(root: Path) -> dict[str, str]:
+def _load(root: Path) -> dict[str, Any]:
     path = _path(root)
     if not path.exists():
-        return {}
+        return {"models": {}}
     try:
         data = json.loads(path.read_text())
     except json.JSONDecodeError:
-        return {}
-    return {key: value for key, value in (data.get("models") or {}).items() if value}
+        return {"models": {}}
+    if not isinstance(data, dict):
+        return {"models": {}}
+    data.setdefault("models", {})
+    return data
+
+
+def _write(root: Path, data: dict[str, Any]) -> None:
+    _path(root).write_text(json.dumps(data, indent=2) + "\n")
+
+
+def stored(root: Path) -> dict[str, str]:
+    return {key: value for key, value in (_load(root).get("models") or {}).items() if value}
+
+
+def ui_context(root: Path) -> str:
+    """`fetch` = one screen + local skill tools. `bundle` = dump every UI skill."""
+    raw = str(_load(root).get("uiContext") or "fetch").strip().lower()
+    return "bundle" if raw == "bundle" else "fetch"
+
+
+def set_ui_context(root: Path, mode: str, actor_id: str) -> str:
+    chosen = "bundle" if str(mode or "").strip().lower() == "bundle" else "fetch"
+    data = _load(root)
+    data["uiContext"] = chosen
+    data["updatedBy"] = actor_id
+    _write(root, data)
+    return chosen
 
 
 def set_models(root: Path, models: dict[str, str], actor_id: str) -> dict[str, str]:
     unknown = [name for name in models if name not in AGENT_ROLES]
     if unknown:
         raise ValueError("unknown agent(s): " + ", ".join(unknown))
-    current = stored(root)
+    data = _load(root)
+    current = {key: value for key, value in (data.get("models") or {}).items() if value}
     for role, model in models.items():
         if str(model).strip():
             current[role] = str(model).strip()
         else:
             current.pop(role, None)
-    _path(root).write_text(
-        json.dumps({"models": current, "updatedBy": actor_id}, indent=2) + "\n"
-    )
+    data["models"] = current
+    data["updatedBy"] = actor_id
+    _write(root, data)
     return current
 
 
@@ -158,6 +206,8 @@ def cycle_cost(root: Path) -> dict[str, Any]:
         completion_m = float(
             rates.get("completion_per_million") or _FALLBACK_MINI["completion_per_million"]
         )
+        if model_catalogue.is_free(model_id):
+            prompt_m = completion_m = 0.0
         calls = usage["calls"]
         cost = (
             calls
@@ -172,6 +222,8 @@ def cycle_cost(root: Path) -> dict[str, Any]:
                 "role": agent,
                 "model": model_id,
                 "calls": calls,
+                "prompt": usage["prompt"],
+                "completion": usage["completion"],
                 "usd": round(cost, 6),
             }
         )

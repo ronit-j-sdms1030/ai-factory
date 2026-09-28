@@ -32,6 +32,8 @@ def estimate_tokens(messages: list[dict[str, str]], skill: str, text: str) -> tu
 
 
 def _rates(model: str) -> tuple[float, float]:
+    if model_catalogue.is_free(model):
+        return 0.0, 0.0
     priced = {row["model"]: row for row in model_catalogue.choices()}
     row = priced.get(model) or {}
     return (
@@ -71,11 +73,13 @@ def record(
     skill: str,
     *,
     agent: str = "",
+    requirement_id: str = "",
 ) -> dict[str, Any]:
     prompt, comp, total = tokens_of(completion, messages, skill)
     row = {
         "at": _now(),
         "agent": agent or "intake",
+        "requirement_id": requirement_id or "",
         "model": completion.model,
         "prompt_tokens": prompt,
         "completion_tokens": comp,
@@ -108,9 +112,87 @@ def _rows(root: Path) -> list[dict[str, Any]]:
     return out
 
 
-def dashboard(root: Path) -> dict[str, Any]:
+def _bucket(store: dict[str, dict[str, Any]], key: str, label: str) -> dict[str, Any]:
+    return store.setdefault(
+        key,
+        {
+            label: key,
+            "calls": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "usd": 0.0,
+        },
+    )
+
+
+def _add(bucket: dict[str, Any], row: dict[str, Any]) -> None:
+    bucket["calls"] += 1
+    bucket["prompt_tokens"] += int(row.get("prompt_tokens") or 0)
+    bucket["completion_tokens"] += int(row.get("completion_tokens") or 0)
+    bucket["total_tokens"] += int(row.get("total_tokens") or 0)
+    bucket["usd"] += float(row.get("usd") or 0)
+
+
+def _governance(root: Path, store: Any = None) -> dict[str, Any]:
+    runs = []
+    events = []
+    if store is not None:
+        runs = list(store.all() or [])
+        events = list(store.events() if hasattr(store, "events") else [])
+    decisions = [row for row in events if row.get("kind") == "decision"]
+    approved = [
+        row
+        for row in decisions
+        if (row.get("body") or {}).get("outcome") == "approve"
+        and (row.get("body") or {}).get("satisfied")
+    ]
+    revise = [row for row in decisions if (row.get("body") or {}).get("outcome") == "revise"]
+    complete = [
+        row
+        for row in runs
+        if ((row.get("requirement") or {}).get("phase") == "complete")
+    ]
+    by_req = _rows(root)
+    spend: dict[str, float] = {}
+    for row in by_req:
+        rid = str(row.get("requirement_id") or "").strip()
+        if not rid:
+            continue
+        spend[rid] = spend.get(rid, 0.0) + float(row.get("usd") or 0)
+    merged_cost = [spend[rid] for rid in spend if any(
+        ((item.get("requirement") or {}).get("id") == rid)
+        and ((item.get("requirement") or {}).get("phase") == "complete")
+        for item in runs
+    )]
+    densities = []
+    for item in runs:
+        board = (item.get("build") or {}).get("findings") or {}
+        if board.get("density_per_kloc") is not None:
+            densities.append(float(board["density_per_kloc"]))
+    return {
+        "source": "usage_ledger",
+        "status": "substitute",
+        "note": "Langfuse viewer is not live; metrics are local JSONL + the run store",
+        "gateAcceptRate": (
+            round(len(approved) / len(decisions), 3) if decisions else None
+        ),
+        "reworkRate": round(len(revise) / max(len(decisions), 1), 3) if decisions else None,
+        "costPerMergedChange": (
+            round(sum(merged_cost) / len(merged_cost), 6) if merged_cost else None
+        ),
+        "findingDensity": (
+            round(sum(densities) / len(densities), 2) if densities else None
+        ),
+        "completed": len(complete),
+    }
+
+
+def dashboard(root: Path, store: Any = None) -> dict[str, Any]:
     rows = _rows(root)
     by_model: dict[str, dict[str, Any]] = {}
+    by_agent: dict[str, dict[str, Any]] = {}
+    by_requirement: dict[str, dict[str, Any]] = {}
     prompt = completion = total = calls = 0
     usd = 0.0
     for row in rows:
@@ -119,18 +201,12 @@ def dashboard(root: Path) -> dict[str, Any]:
         completion += int(row.get("completion_tokens") or 0)
         total += int(row.get("total_tokens") or 0)
         usd += float(row.get("usd") or 0)
-        model = str(row.get("model") or "unknown")
-        bucket = by_model.setdefault(
-            model,
-            {"model": model, "calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "usd": 0.0},
-        )
-        bucket["calls"] += 1
-        bucket["prompt_tokens"] += int(row.get("prompt_tokens") or 0)
-        bucket["completion_tokens"] += int(row.get("completion_tokens") or 0)
-        bucket["total_tokens"] += int(row.get("total_tokens") or 0)
-        bucket["usd"] += float(row.get("usd") or 0)
+        _add(_bucket(by_model, str(row.get("model") or "unknown"), "model"), row)
+        _add(_bucket(by_agent, str(row.get("agent") or "unknown"), "agent"), row)
+        rid = str(row.get("requirement_id") or "").strip() or "(no requirement)"
+        _add(_bucket(by_requirement, rid, "requirementId"), row)
     cycle = agent_settings.cycle_cost(root)
-    recent = list(reversed(rows[-25:]))
+    history = list(reversed(rows[-200:]))
     return {
         "recorded": {
             "calls": calls,
@@ -144,6 +220,16 @@ def dashboard(root: Path) -> dict[str, Any]:
             {**bucket, "usd": round(bucket["usd"], 6)}
             for bucket in sorted(by_model.values(), key=lambda item: item["usd"], reverse=True)
         ],
-        "recent": recent,
+        "byAgent": [
+            {**bucket, "usd": round(bucket["usd"], 6)}
+            for bucket in sorted(by_agent.values(), key=lambda item: item["usd"], reverse=True)
+        ],
+        "byRequirement": [
+            {**bucket, "usd": round(bucket["usd"], 6)}
+            for bucket in sorted(by_requirement.values(), key=lambda item: item["usd"], reverse=True)
+        ],
+        "recent": history[:25],
+        "history": history,
         "cycleEstimate": cycle,
+        "governance": _governance(root, store),
     }

@@ -11,7 +11,7 @@ from temporalio.common import RetryPolicy
 
 from phase1.temporal_state import WorkflowState
 
-ACTIVITY_TIMEOUT = timedelta(minutes=2)
+ACTIVITY_TIMEOUT = timedelta(minutes=20)
 NO_DUPLICATE_RETRY = RetryPolicy(maximum_attempts=1)
 
 

@@ -6,12 +6,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import re
+
+import connectors
 import intake_skill
 import requirement as R
 import skill_registry
 import workflow_templates
 from attestation import ContextInputs
-from phase1 import agent_settings, brd, catalog, rails, reconcile, webhook
+from phase1 import agent_runs, agent_settings, brd, catalog, rails, reconcile, webhook
 from phase1.adapters import ModelCompletion, RuntimeAdapters
 from phase1.adapters.signer import LocalHMACSigner
 from phase2 import design as design_agent
@@ -117,7 +120,7 @@ class Phase1:
         body = {
             "requirement": req.dump(),
             "messages": [],
-            "budget": {"asked": 0, "minimum": 4, "maximum": 10},
+            "budget": {"asked": 0, "minimum": 4, "maximum": 10, "calls": 0},
             "named_approvers": self.adapters.identity.freeze_chain(
                 template, originator_id=originator.get("id")
             ),
@@ -126,6 +129,9 @@ class Phase1:
             "precedent_enabled": bool(precedents),
             "skill_version": skill.version,
             "skill_versions": skill_registry.versions(intake_bundle),
+            "connectors": connectors.resolve_all(
+                str(originator.get("team") or "demo")
+            ),
             "sla_due": None,
             "sla_gate": None,
             "escalated": False,
@@ -168,6 +174,11 @@ class Phase1:
     def list_runs(self) -> list[dict[str, Any]]:
         return [self.get(row["requirement"]["id"]) for row in self.store.all()]
 
+    def clear_runs(self) -> dict[str, Any]:
+        ids = [row["requirement"]["id"] for row in self.store.all() if row.get("requirement")]
+        self.store.delete_all()
+        return {"deleted": ids, "count": len(ids)}
+
     # ── intake conversation ──────────────────────────────────────────────────
 
     def turn(
@@ -191,10 +202,12 @@ class Phase1:
             minimum=int(body["budget"]["minimum"]),
             maximum=int(body["budget"]["maximum"]),
             asked=int(body["budget"]["asked"]),
+            calls=int(body["budget"].get("calls") or 0),
         )
         skill = self.git.skill()
         bundle = self.git.bundle("intake")
         skill_registry.require(bundle.content, "intake")
+        intake_call = self._skill_call("intake", bundle.content)
         prompt = [
             {
                 "role": "system",
@@ -218,9 +231,18 @@ class Phase1:
 
         completion = self.llm.complete(
             prompt + body["messages"],
-            skill=bundle.content,
+            skill=intake_call["skill"],
             model=agent_settings.model_for(self.root, "intake"),
+            agent="intake",
+            requirement_id=requirement_id,
+            max_tokens=2048,
+            **(
+                {"tools": intake_call["tools"], "execute_tool": intake_call["execute_tool"]}
+                if intake_call.get("tools")
+                else {}
+            ),
         )
+        budget.record_call()
         if isinstance(completion, ModelCompletion):
             raw = completion.text
             provenance = {
@@ -232,7 +254,63 @@ class Phase1:
         else:
             raw = completion
             provenance = PROVENANCE_INTAKE
-        parsed = rails.parse_agent_output(raw)
+        try:
+            parsed = rails.parse_agent_output(raw)
+        except (TypeError, rails.OutputRefused):
+            if budget.at_call_cap() or budget.must_close():
+                parsed = rails.scope_from_conversation(
+                    body["messages"],
+                    request_text=str(body.get("request_text") or ""),
+                )
+            else:
+                retry_kwargs: dict[str, Any] = {
+                    "skill": intake_call["skill"],
+                    "model": agent_settings.model_for(self.root, "intake"),
+                    "agent": "intake",
+                    "requirement_id": requirement_id,
+                    "max_tokens": 1024,
+                }
+                if intake_call.get("tools"):
+                    retry_kwargs["tools"] = intake_call["tools"]
+                    retry_kwargs["execute_tool"] = intake_call["execute_tool"]
+                try:
+                    retry = self.llm.complete(
+                        prompt
+                        + body["messages"]
+                        + [
+                            {
+                                "role": "system",
+                                "content": 'JSON only. {"type":"question","text":"..."} or a scope_report.',
+                            }
+                        ],
+                        **retry_kwargs,
+                    )
+                except TypeError:
+                    retry_kwargs.pop("max_tokens", None)
+                    retry_kwargs.pop("agent", None)
+                    retry_kwargs.pop("requirement_id", None)
+                    retry = self.llm.complete(
+                        prompt + body["messages"],
+                        **retry_kwargs,
+                    )
+                budget.record_call()
+                raw = retry.text if isinstance(retry, ModelCompletion) else retry
+                try:
+                    parsed = rails.parse_agent_output(raw)
+                except rails.OutputRefused:
+                    parsed = {
+                        "type": "question",
+                        "text": "Say that in one short answer: who uses this, and what happens today without the system?",
+                    }
+        body["budget"]["calls"] = budget.calls
+        if parsed.get("type") == "question" and budget.must_close():
+            parsed = rails.scope_from_conversation(
+                body["messages"],
+                request_text=str(body.get("request_text") or ""),
+            )
+            extras = list(parsed.get("open_questions") or [])
+            extras.append("Intake hit the 10-call cap; remaining gaps stay as open questions.")
+            parsed["open_questions"] = extras[:6]
         if parsed["type"] == "scope_report":
             parsed = rails.shape_scope_report(
                 parsed, request_text=str(body.get("request_text") or "")
@@ -252,7 +330,7 @@ class Phase1:
                 if not parsed.get("non_functional"):
                     parsed["non_functional"] = overlay.get("non_functional") or []
 
-        if parsed["type"] != "question" and not budget.may_close():
+        if parsed["type"] != "question" and not budget.may_close() and not budget.at_call_cap():
             parsed = {
                 "type": "question",
                 "text": "What else must be true for this to succeed in production?",
@@ -261,6 +339,7 @@ class Phase1:
         if parsed["type"] == "question":
             budget.record_question()
             body["budget"]["asked"] = budget.asked
+            body["budget"]["calls"] = budget.calls
             body["messages"].append(
                 {"role": "assistant", "content": json_question(parsed["text"])}
             )
@@ -269,8 +348,10 @@ class Phase1:
             result["question"] = parsed["text"]
             return result
 
-        budget.require_closeable()
+        if budget.may_close():
+            budget.require_closeable()
         body["budget"]["asked"] = budget.asked
+        body["budget"]["calls"] = budget.calls
         body["display_title"] = str(parsed.get("title") or "").strip()
         if rails.is_bootstrap(body["display_title"]):
             body["display_title"] = rails.title_from_request(str(body.get("request_text") or ""))
@@ -339,6 +420,7 @@ class Phase1:
         gate: int | None = None,
         channel: str = "workspace",
         reason: str = "",
+        revise_side: str = "",
     ) -> dict[str, Any]:
         body = self._load(requirement_id)
         req = R.Requirement.load(body["requirement"])
@@ -441,14 +523,18 @@ class Phase1:
             if gate == 1:
                 body["messages"] = []
                 body["budget"]["asked"] = 0
+                body["budget"]["calls"] = 0
                 req.artefacts.pop("scope", None)
                 body["requirement"] = req.dump()
             elif gate == 2:
                 self._write_brd_from_main(req, body, revision=True)
             elif gate == 3:
+                body["architecture_text"] = body.get("architecture_text") or self._artefact_text(
+                    req, "design"
+                )
                 req.artefacts.pop("design", None)
                 body["requirement"] = req.dump()
-                self._write_design(req, body)
+                self._write_design(req, body, refresh=_revise_side(actor, reason, revise_side))
             elif gate == 4:
                 req.artefacts.pop("plan", None)
                 body["requirement"] = req.dump()
@@ -742,6 +828,437 @@ class Phase1:
             email=str(editor.get("email") or f"{editor.get('id')}@entra.local"),
         )
 
+    def _invoke_llm(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        skill: str,
+        agent: str,
+        requirement_id: str,
+        max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        execute_tool: Any = None,
+    ) -> str:
+        if tools is None:
+            packed = self._skill_call(agent, skill)
+            if packed.get("tools"):
+                skill = packed["skill"]
+                tools = packed["tools"]
+                execute_tool = packed["execute_tool"]
+        kwargs: dict[str, Any] = {
+            "skill": skill,
+            "model": agent_settings.model_for(self.root, agent),
+            "agent": agent,
+            "requirement_id": requirement_id,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["execute_tool"] = execute_tool
+        try:
+            completion = self.llm.complete(messages, **kwargs)
+        except TypeError:
+            kwargs.pop("max_tokens", None)
+            try:
+                completion = self.llm.complete(messages, **kwargs)
+            except TypeError:
+                kwargs.pop("agent", None)
+                kwargs.pop("requirement_id", None)
+                try:
+                    completion = self.llm.complete(messages, **kwargs)
+                except Exception:
+                    return ""
+        except Exception:
+            return ""
+        if isinstance(completion, ModelCompletion):
+            return str(completion.text or "")
+        return str(completion or "")
+
+    def _llm_json(self, text: str) -> dict[str, Any]:
+        import json
+        import re
+
+        blob = (text or "").strip()
+        if blob.startswith("```"):
+            blob = re.sub(r"^```(?:json)?\s*", "", blob)
+            blob = re.sub(r"\s*```$", "", blob)
+        try:
+            data = json.loads(blob)
+            return data if isinstance(data, dict) else {}
+        except json.JSONDecodeError:
+            start, end = blob.find("{"), blob.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    data = json.loads(blob[start : end + 1])
+                    return data if isinstance(data, dict) else {}
+                except json.JSONDecodeError:
+                    return {}
+        return {}
+
+    def _llm_prose(self, text: str) -> str:
+        raw = (text or "").strip()
+        if not raw or (raw.startswith("{") and '"type"' in raw):
+            return ""
+        return raw
+
+    def _refine_brd(self, requirement_id: str, drafted: str, skill: str) -> str:
+        raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return the full BRD markdown only. Keep a '## Page behaviour' "
+                        "section with '- **Name**: description' lines and '###' requirement headings."
+                    ),
+                },
+                {"role": "user", "content": drafted[:14000]},
+            ],
+            skill=skill,
+            agent="brd",
+            requirement_id=requirement_id,
+            max_tokens=3500,
+        )
+        import re
+
+        if raw and re.search(r"Page behaviour", raw, re.I) and "### " in raw:
+            return raw
+        return drafted
+
+    def _critique_brd(self, requirement_id: str, drafted: str, skill: str) -> list[str]:
+        raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": 'Reply with one JSON object: {"findings":["..."]}.',
+                },
+                {"role": "user", "content": drafted[:12000]},
+            ],
+            skill=skill,
+            agent="brd",
+            requirement_id=requirement_id,
+            max_tokens=800,
+        )
+        data = self._llm_json(raw)
+        findings = [str(item) for item in (data.get("findings") or []) if str(item).strip()]
+        return findings or brd.critique(drafted, skill=skill)
+
+    def _architect_note(self, requirement_id: str, brd_text: str, skill: str) -> str:
+        raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Write a short architecture note (risks, modules, NFRs). Markdown, no code fence.",
+                },
+                {"role": "user", "content": brd_text[:10000]},
+            ],
+            skill=skill,
+            agent="architect",
+            requirement_id=requirement_id,
+            max_tokens=1500,
+        )
+        return self._llm_prose(raw)[:4000]
+
+    def _bundle_skill(self, agent: str, fallback: str = "") -> str:
+        try:
+            return self.git.bundle(agent).content
+        except Exception:
+            return fallback
+
+    def _skill_call(self, agent: str, fallback: str = "") -> dict[str, Any]:
+        if agent_settings.ui_context(self.root) == "fetch" and skill_registry.can_fetch(agent):
+            return {
+                "skill": skill_registry.fetch_prompt(agent, root=self.git.root),
+                "tools": skill_registry.fetch_tools(agent),
+                "execute_tool": lambda name, args: skill_registry.execute_fetch_tool(
+                    agent, name, args, root=self.git.root
+                ),
+            }
+        return {
+            "skill": fallback or self._bundle_skill(agent, fallback),
+            "tools": None,
+            "execute_tool": None,
+        }
+
+    def _ui_model(
+        self,
+        requirement_id: str,
+        brd_text: str,
+        skill: str,
+        *,
+        on_progress: Any | None = None,
+    ) -> dict[str, Any]:
+        from phase2 import coverage
+
+        sources: dict[str, str] = {}
+        used: set[str] = set()
+        pages = coverage.pages_from_brd(brd_text)
+        total = len(pages)
+        fetch = agent_settings.ui_context(self.root) == "fetch"
+        if fetch:
+            skill = skill_registry.ui_prompt(root=self.git.root)
+            tools = skill_registry.ui_tools()
+            execute_tool = skill_registry.execute_ui_tool
+        else:
+            tools = None
+            execute_tool = None
+
+        def report(index: int, name: str, *, done: bool = False) -> None:
+            if on_progress is None:
+                return
+            finished = index if done else max(0, index - 1)
+            on_progress(
+                {
+                    "status": "running",
+                    "label": (
+                        f"Generated {name} ({index} of {total})"
+                        if done
+                        else f"Generating screen {index} of {total}: {name}"
+                    ),
+                    "current": index,
+                    "total": total,
+                    "screen": name,
+                    "pct": int((finished / max(total, 1)) * 100),
+                }
+            )
+
+        planned: set[str] = set()
+        roster = [coverage.component_name(page, planned) for page in pages]
+        product_theme = ui_agent.pick_theme(brd_text)
+        for index, page in enumerate(pages, start=1):
+            name = coverage.component_name(page, used)
+            report(index, name)
+            raw = self._invoke_llm(
+                [
+                    {
+                        "role": "system",
+                        "content": (
+                            "JSX only. No markdown fence. Balanced braces. No raw hex colours. "
+                            + _HOST_HELPERS_RULE
+                            + "Write only function "
+                            + name
+                            + ". "
+                            + name
+                            + " returns ( <Page><Sidebar>brand + one nav Button per roster "
+                            "screen</Sidebar><div>h1, fields, table, one accent Button</div>"
+                            "</Page> ). Screens are one connected app: each nav Button is "
+                            "<Button onClick={() => navigate(\"ScreenName\")}>Short label</Button> "
+                            "(navigate is a host global), the current screen is marked with "
+                            "var(--color-accent), and in-page actions that open another screen "
+                            "call navigate too. Only roster screens in the sidebar. "
+                            "Use only "
+                            + jsx_gate.TOKEN_HINT
+                            + ". "
+                            "Look: a distinct named theme for this product ("
+                            + jsx_gate.THEME_HINT
+                            + "); this product uses data-theme=\""
+                            + product_theme
+                            + "\" on every screen, left sidebar + full canvas, surface cards, CSS "
+                            "transitions. Do not clone Stark Factory chrome onto every "
+                            "app. React JSX only — no Figma. Follow the UI skill: real "
+                            "fields/actions from the BRD, concrete table headers, product "
+                            "microcopy, no lorem or emoji icons."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"{name}: {page.get('description') or page.get('id')}\n"
+                            "Roster (every screen, in sidebar order): "
+                            + ", ".join(roster)
+                            + ".\n\n"
+                            + brd_text[:4000]
+                        ),
+                    },
+                ],
+                skill=skill,
+                agent="ui",
+                requirement_id=requirement_id,
+                max_tokens=2500,
+                tools=tools,
+                execute_tool=execute_tool,
+            )
+            source = _jsx_from_model(name, raw)
+            if source:
+                sources[name] = source
+            report(index, name, done=True)
+        if on_progress is not None:
+            on_progress(
+                {
+                    "status": "running",
+                    "label": "Assembling the design preview…",
+                    "current": total,
+                    "total": total,
+                    "pct": 96,
+                }
+            )
+        return {"pages": [], "sources": sources}
+
+    def _plan_from_models(
+        self,
+        requirement_id: str,
+        brd_text: str,
+        screens: list[dict[str, Any]],
+        profile: dict[str, Any],
+        architecture_text: str = "",
+    ) -> dict[str, Any]:
+        from stack_profiles import get as get_profile
+
+        locked = get_profile(str((profile or {}).get("id") or "node"))
+        fallback_tickets = None
+        fallback_tests = None
+        decomp_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        'JSON only: {"tickets":[{"id","title","depends_on":[],"trace":[],"paths":[]}]} '
+                        "At least 5 tickets from THIS BRD and these screens. "
+                        "Do not invent booking or availability work the BRD does not name. "
+                        "Paths like src/api/** or src/ui/**."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        brd_text[:8000]
+                        + "\n\nScreens: "
+                        + ", ".join(str(s.get("name") or "") for s in screens)
+                    ),
+                },
+            ],
+            skill=self._bundle_skill("decomposer"),
+            agent="decomposer",
+            requirement_id=requirement_id,
+            max_tokens=1600,
+        )
+        from phase3 import decomposer, qa
+
+        fallback_tickets = decomposer.tickets(
+            requirement_id,
+            brd_text,
+            screens,
+            locked,
+            architecture_text=architecture_text,
+        )
+        tickets = agent_runs.tickets_from_model(
+            self._llm_json(decomp_raw), requirement_id, locked, fallback_tickets
+        )
+        qa_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        'JSON only: {"tests":[{"id","name","criterion","critical":false}]} '
+                        "Exactly 8 tests from THIS BRD and these screens. One must be critical. "
+                        "Do not invent booking cases the BRD does not name."
+                    ),
+                },
+                {"role": "user", "content": brd_text[:10000]},
+            ],
+            skill=self._bundle_skill("qa"),
+            agent="qa",
+            requirement_id=requirement_id,
+            max_tokens=1200,
+        )
+        fallback_tests = qa.cases(brd_text, screens, locked)
+        tests = agent_runs.tests_from_model(self._llm_json(qa_raw), fallback_tests, locked.tests)
+        overview_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Write a short stakeholder overview in markdown. Start with '# Product overview'.",
+                },
+                {"role": "user", "content": brd_text[:8000]},
+            ],
+            skill=self._bundle_skill("overview"),
+            agent="overview",
+            requirement_id=requirement_id,
+            max_tokens=1200,
+        )
+        overview_md = self._llm_prose(overview_raw)
+        if overview_md and not overview_md.lstrip().startswith("#"):
+            overview_md = f"# Product overview — {requirement_id}\n\n" + overview_md
+        devops_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Write Sprint 0 notes: CI, allow-list, UAT URL. Markdown. No secrets.",
+                },
+                {"role": "user", "content": brd_text[:6000]},
+            ],
+            skill=self._bundle_skill("devops"),
+            agent="devops",
+            requirement_id=requirement_id,
+            max_tokens=800,
+        )
+        return {
+            "tickets": tickets,
+            "tests": tests,
+            "overview_md": overview_md or None,
+            "devops_note": self._llm_prose(devops_raw),
+        }
+
+    def _build_from_models(self, requirement_id: str, tickets: list[dict[str, Any]], extra: dict[str, str]) -> dict[str, str]:
+        listing = "\n".join(f"- {t.get('id')}: {t.get('title')}" for t in tickets[:20])
+        build_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Choose local/agentless vs OpenHands vs SWE-agent per ticket. Markdown.",
+                },
+                {"role": "user", "content": listing or requirement_id},
+            ],
+            skill=self._bundle_skill("build"),
+            agent="build",
+            requirement_id=requirement_id,
+            max_tokens=800,
+        )
+        review_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": 'JSON only: {"findings":["..."]}. Correctness, security, architecture, quality.',
+                },
+                {"role": "user", "content": listing or requirement_id},
+            ],
+            skill=self._bundle_skill("review"),
+            agent="review",
+            requirement_id=requirement_id,
+            max_tokens=800,
+        )
+        adv_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": 'JSON only: {"defects":["..."]}. Assume the build is wrong and try to prove it.',
+                },
+                {"role": "user", "content": listing or requirement_id},
+            ],
+            skill=self._bundle_skill("adversary"),
+            agent="adversary",
+            requirement_id=requirement_id,
+            max_tokens=800,
+        )
+        extra[f"requirements/{requirement_id}/build/ROUTER.md"] = (
+            self._llm_prose(build_raw) or "local/agentless"
+        ) + "\n"
+        findings = self._llm_json(review_raw).get("findings") or []
+        extra[f"requirements/{requirement_id}/build/REVIEW.md"] = (
+            "\n".join(f"- {item}" for item in findings) or "- no model findings\n"
+        )
+        extra[f"requirements/{requirement_id}/build/REVIEW.md"] = extra[
+            f"requirements/{requirement_id}/build/REVIEW.md"
+        ].rstrip() + "\n"
+        defects = self._llm_json(adv_raw).get("defects") or []
+        extra[f"requirements/{requirement_id}/build/ADVERSARY.md"] = (
+            "\n".join(f"- {item}" for item in defects) or "- no model defects\n"
+        )
+        extra[f"requirements/{requirement_id}/build/ADVERSARY.md"] = extra[
+            f"requirements/{requirement_id}/build/ADVERSARY.md"
+        ].rstrip() + "\n"
+        return extra
+
     def _write_brd_from_main(
         self,
         req: R.Requirement,
@@ -764,7 +1281,8 @@ class Phase1:
         bundle = self.git.bundle("brd")
         skill_registry.require(bundle.content, "brd")
         drafted = brd.draft_brd(rid, scope_md, self.git.brd_template(), ids, skill=bundle.content)
-        drafted = brd.append_findings(drafted, brd.critique(drafted, skill=bundle.content))
+        drafted = self._refine_brd(rid, drafted, bundle.content)
+        drafted = brd.append_findings(drafted, self._critique_brd(rid, drafted, bundle.content))
         sha = self._commit_brd(
             req,
             drafted,
@@ -775,15 +1293,59 @@ class Phase1:
         body["requirement"] = req.dump()
         self._arm_sla(body, req, 2)
 
-    def _write_design(self, req: R.Requirement, body: dict[str, Any]) -> None:
+    def _write_design(self, req: R.Requirement, body: dict[str, Any], *, refresh: str = "both") -> None:
         rid = req.id
         brd_text = body.get("brd_text") or self._artefact_text(req, "brd")
         skill_text = self.git.design_system()
-        built = design_agent.build(rid, brd_text, skill_text, root=self.git.root)
+        ui_skill = self._bundle_skill("ui", skill_text)
+
+        def on_progress(progress: dict[str, Any]) -> None:
+            body["design_progress"] = progress
+            self._save(body, event="design_progress", at=self.clock(), extra=dict(progress))
+
+        body["design_progress"] = {
+            "status": "running",
+            "label": "Preparing accurate screens from the approved BRD…",
+            "current": 0,
+            "total": 0,
+            "pct": 0,
+        }
+        self._save(body, event="design_progress", at=self.clock(), extra=dict(body["design_progress"]))
+        prior_screens = list(body.get("screens") or [])
+        if refresh == "architecture":
+            ui_model = {
+                "pages": [],
+                "sources": {
+                    str(screen.get("name") or ""): str(screen.get("source") or "")
+                    for screen in prior_screens
+                    if screen.get("name") and screen.get("source")
+                },
+            }
+            note = ""
+        else:
+            ui_model = self._ui_model(rid, brd_text, ui_skill, on_progress=on_progress)
+            note = "" if refresh == "ui" else self._architect_note(
+                rid, brd_text, self._bundle_skill("architect", skill_text)
+            )
+        built = design_agent.build(
+            rid,
+            brd_text,
+            skill_text,
+            root=self.git.root,
+            extra_pages=ui_model["pages"],
+            architect_note=note,
+            screen_sources=ui_model["sources"],
+            refresh=refresh,
+            prior_architecture="" if refresh != "ui" else (
+                body.get("architecture_text") or self._artefact_text(req, "design")
+            ),
+            prior_decision=body.get("architecture_decision") if refresh == "ui" else None,
+        )
         if built.get("clarification"):
             body["design_question"] = built["clarification"]
             body["screens"] = []
             body["stack_profile"] = None
+            body["design_progress"] = None
             return
         sha = self.git.commit_files(
             f"design/{rid}",
@@ -795,11 +1357,15 @@ class Phase1:
         req.record_artefact("design", sha, **PROVENANCE_DESIGN)
         body["requirement"] = req.dump()
         body["stack_profile"] = built["profile"]
+        body["architecture_text"] = built.get("architecture") or body.get("architecture_text")
+        body["architecture_decision"] = built.get("decision") or body.get("architecture_decision")
+        body["preview_host"] = built.get("preview_host") or preview_agent.host()
         body["screens"] = built["screens"]
         body["coverage"] = built["coverage"]
         body["design_report"] = built["report"]
         body["design_question"] = None
         body["preview_url"] = built.get("preview_url") or preview_agent.url(rid)
+        body["design_progress"] = None
         self._arm_sla(body, req, 3)
 
     def _write_plan(self, req: R.Requirement, body: dict[str, Any]) -> None:
@@ -813,15 +1379,29 @@ class Phase1:
                 if ident and ident not in seen:
                     seen.add(ident)
                     reviewers.append(ident)
+        brd_text = body.get("brd_text") or self._artefact_text(req, "brd")
+        screens = list(body.get("screens") or [])
+        stack_profile = body.get("stack_profile") or {"id": "node"}
+        planned = self._plan_from_models(
+            rid,
+            brd_text,
+            screens,
+            stack_profile,
+            architecture_text=body.get("architecture_text") or self._artefact_text(req, "design"),
+        )
         built = plan_agent.build(
             rid,
             template=req.template,
-            brd_text=body.get("brd_text") or self._artefact_text(req, "brd"),
+            brd_text=brd_text,
             architecture_text=body.get("architecture_text") or self._artefact_text(req, "design"),
-            screens=list(body.get("screens") or []),
-            stack_profile=body.get("stack_profile") or {"id": "node"},
+            screens=screens,
+            stack_profile=stack_profile,
             reviewers=reviewers,
             root=self.git.root,
+            tickets=planned["tickets"],
+            tests=planned["tests"],
+            overview_md=planned["overview_md"],
+            devops_note=planned["devops_note"],
         )
         sha = self.git.commit_files(
             f"plan/{rid}",
@@ -843,9 +1423,15 @@ class Phase1:
     def _write_build(self, req: R.Requirement, body: dict[str, Any]) -> None:
         rid = req.id
         built = build_agent.materialise(
-            rid, list(body.get("tickets") or []), tests=list(body.get("tests") or [])
+            rid,
+            list(body.get("tickets") or []),
+            tests=list(body.get("tests") or []),
+            screens=list(body.get("screens") or []),
+            brd_text=body.get("brd_text") or self._artefact_text(req, "brd"),
+            profile=body.get("stack_profile") or {"id": "node"},
         )
         files: dict[str, str] = dict(built.get("extra") or {})
+        self._build_from_models(rid, list(body.get("tickets") or []), files)
         for ticket_files in built["branches"].values():
             files.update(ticket_files)
         sha = self.git.commit_files(
@@ -873,6 +1459,8 @@ class Phase1:
             "ok": built.get("ok", True),
             "blocking": built.get("blocking") or [],
             "branches": list(built["branches"]),
+            "context": built.get("context") or {},
+            "findings": built.get("findings") or {},
         }
         self._arm_sla(body, req, 5)
 
@@ -902,7 +1490,23 @@ class Phase1:
 
     def _write_release(self, req: R.Requirement, body: dict[str, Any]) -> None:
         rid = req.id
-        packed = pack_release(rid)
+        watch_raw = self._invoke_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Report errors, latency, spend, and whether a change request is needed. Short markdown.",
+                },
+                {
+                    "role": "user",
+                    "content": f"{rid} build={body.get('build')} uat={body.get('uat')}",
+                },
+            ],
+            skill=self._bundle_skill("monitor"),
+            agent="monitor",
+            requirement_id=rid,
+            max_tokens=600,
+        )
+        packed = pack_release(rid, monitor_note=self._llm_prose(watch_raw))
         sha = self.git.commit_files(
             f"release/{rid}",
             packed["files"],
@@ -933,10 +1537,7 @@ class Phase1:
         roles = set(editor.get("roles") or [])
         if not roles & {"architect", "ui_ux"}:
             raise PermissionError("screen edits require the architect or UI/UX role")
-        jsx_gate.compile_jsx(name, source)
-        failures = jsx_gate.conform(source, self.git.design_system())
-        if failures:
-            raise jsx_gate.CompileFailed(failures[0])
+        source = ui_agent.gated_source(name, source, self.git.design_system())
         screens = list(body.get("screens") or [])
         found = False
         for screen in screens:
@@ -965,16 +1566,143 @@ class Phase1:
         editor: dict[str, Any],
         name: str,
         instruction: str,
+        source: str = "",
+        theme: str = "",
     ) -> dict[str, Any]:
         body = self._load(requirement_id)
+        req = R.Requirement.load(body["requirement"])
+        roles = set(editor.get("roles") or [])
+        if not roles & {"architect", "ui_ux"}:
+            raise PermissionError("screen edits require the architect or UI/UX role")
         screens = list(body.get("screens") or [])
+        roster = [str(s.get("name")) for s in screens if s.get("name")]
         current = next((s for s in screens if s.get("name") == name), None)
         if current is None:
             raise KeyError(name)
-        source = ui_agent.apply_instruction(
-            name, current["source"], instruction, self.git.design_system()
+        skill_text = self.git.design_system()
+        current_source = str(source or current.get("source") or "").strip()
+        if not instruction.strip():
+            raise ValueError("instruction is required")
+        if not current_source:
+            raise ValueError("screen has no source")
+        rewritten = self._rewrite_screen(
+            requirement_id,
+            name,
+            current_source,
+            instruction.strip(),
+            skill_text,
+            roster=roster,
+            theme=theme if theme in jsx_gate.ALLOWED_THEMES else "",
         )
-        return {"name": name, "source": source, "summary": "Applied locally — save to commit"}
+        return {
+            "name": name,
+            "source": rewritten,
+            "summary": "Rewrote the screen from your instruction — review it, then Save",
+        }
+
+    def _rewrite_screen(
+        self,
+        requirement_id: str,
+        name: str,
+        current_source: str,
+        instruction: str,
+        skill_text: str,
+        *,
+        roster: list[str] | None = None,
+        theme: str = "",
+    ) -> str:
+        packed = self._skill_call("ui", skill_text)
+        roster = roster or [name]
+        theme_rule = (
+            f'Current theme is data-theme="{theme}". Keep it exactly unless the '
+            "instruction asks to reimagine, redesign, restyle or change the theme. "
+            if theme
+            else f"Pick a named theme ({jsx_gate.THEME_HINT}). "
+        )
+        messages: list[dict[str, str]] = [
+            {
+                "role": "system",
+                "content": (
+                    "Rewrite this one React screen. JSX only. No markdown fence. "
+                    + _HOST_HELPERS_RULE
+                    + f"Return function {name} plus any small sub-components it calls. "
+                    f"{name} returns ( <Page data-theme=\"…\"><Sidebar>…</Sidebar><div>…</div></Page> ). "
+                    "One h1. Balanced braces. No raw hex colours. "
+                    f"Use only {jsx_gate.TOKEN_HINT}. "
+                    + theme_rule
+                    + "Keep the design polished on light and dark themes: buttons use "
+                    "var(--color-accent) with var(--color-bg) text, inputs sit on "
+                    "var(--color-surface) with a 1px var(--color-line) border. "
+                    "Screens are one connected app: the Sidebar has one nav Button per "
+                    "roster screen, <Button onClick={() => navigate(\"ScreenName\")}>Short "
+                    "label</Button> (navigate is a host global), current screen marked with "
+                    "var(--color-accent). In-page actions that open another screen call "
+                    "navigate. Only roster screens in the sidebar. "
+                    "If the instruction says reimagine, redesign, restyle, change the scene, "
+                    "or change the theme: pick a DIFFERENT data-theme than the current source, "
+                    "change the layout (hero, split, cards — not the same stacked form), "
+                    "and rewrite the copy. A lookalike of the current screen is a failure. "
+                    "CSS transitions allowed. React JSX only, no Figma. "
+                    f"The screen function MUST be named {name}."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Instruction: {instruction}\n\nRoster: {', '.join(roster)}\n\n"
+                    f"Current source:\n{current_source[:12000]}"
+                ),
+            },
+        ]
+        last_error = "UI model returned nothing"
+        last_raw = ""
+        for _ in range(3):
+            raw = self._invoke_llm(
+                messages,
+                skill=packed["skill"],
+                agent="ui",
+                requirement_id=requirement_id,
+                max_tokens=4000,
+                tools=packed.get("tools"),
+                execute_tool=packed.get("execute_tool"),
+            )
+            last_raw = raw or last_raw
+            extracted = _jsx_from_model(name, raw)
+            if not extracted.strip() or not re.search(r"<[A-Za-z]", extracted):
+                last_error = (
+                    "UI model returned no JSX, screen unchanged. "
+                    "Check MODEL_ADAPTER=litellm and Settings."
+                )
+                break
+            candidate = ui_agent._adopt_model_source(name, extracted)
+            try:
+                return ui_agent.apply_model_rewrite(
+                    name,
+                    candidate,
+                    skill_text,
+                    roster=roster,
+                    theme=theme,
+                    instruction=instruction,
+                )
+            except jsx_gate.CompileFailed as exc:
+                last_error = exc.reason
+                if "skill file" in exc.reason:
+                    break
+                cut_off = any(
+                    word in exc.reason.lower() for word in ("unbalanced", "unterminated", "unexpected end")
+                )
+                fix = (
+                    f"Your answer was cut off. Return a shorter function {name} only, "
+                    "under 120 lines, no helper components, no style tags."
+                    if cut_off
+                    else f"Fix this. Parser: {exc.reason}. JSX only for function {name}. "
+                    "No hex. Design-system tokens only."
+                )
+                messages = messages[:2] + [
+                    {"role": "assistant", "content": (raw or "")[:1500]},
+                    {"role": "user", "content": fix},
+                ]
+        raise jsx_gate.CompileFailed(last_error)
 
     def answer_design(
         self, requirement_id: str, actor: dict[str, Any], message: str
@@ -998,6 +1726,34 @@ class Phase1:
         return self.get(requirement_id)
 
 
+_HOST_HELPERS_RULE = (
+    "The host already defines Page (accepts data-theme), Sidebar, Button (accepts "
+    "onClick), Field and Table, plus every theme's CSS variables. Do not define "
+    "them, do not write <style> tags, CSS strings or theme maps; style with inline "
+    "style={{...}} using var(--color-*) tokens. Keep it under 120 lines: long answers "
+    "get cut off and replaced by a template. "
+    "Loaded libraries (globals, or import them normally): LucideReact icons, "
+    "Recharts charts, Motion (framer-motion: motion, AnimatePresence), dayjs. "
+    "No other packages. "
+)
+
+
+def _revise_side(actor: dict[str, Any], reason: str, explicit: str = "") -> str:
+    if explicit in {"ui", "architecture", "both"}:
+        return explicit
+    blob = (reason or "").lower()
+    if any(token in blob for token in ("screen", "ui", "preview", "usable")):
+        return "ui"
+    if any(token in blob for token in ("architect", "adr", "stack", "buildable", "module")):
+        return "architecture"
+    roles = set(actor.get("roles") or [])
+    if "ui_ux" in roles and "architect" not in roles:
+        return "ui"
+    if "architect" in roles and "ui_ux" not in roles:
+        return "architecture"
+    return "both"
+
+
 def gate_roles(gate: int) -> list[str]:
     import gate_engine
 
@@ -1008,6 +1764,37 @@ def json_dumps(data: Any) -> str:
     import json
 
     return json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+
+
+def _jsx_from_model(name: str, raw: str) -> str:
+    """Pull a screen function out of a model reply.
+
+    The reply is often JSX, sometimes a JSON object whose source string is not
+    valid JSON because of quotes inside the markup.
+    """
+    import re
+
+    text = (raw or "").strip()
+    fenced = re.search(r"```(?:jsx|javascript|js)?\s*([\s\S]*?)```", text, re.I)
+    if fenced:
+        text = fenced.group(1).strip()
+    hits = []
+    fn = text.find("function ")
+    if fn >= 0:
+        hits.append(fn)
+    const_hit = re.search(r"(?:const|let|var|export\s+default\s+function)\s+", text)
+    if const_hit:
+        hits.append(const_hit.start())
+    if not hits:
+        return ""
+    body = text[min(hits) :]
+    if (
+        f"function {name}" not in body
+        and "function Page" not in body
+        and name not in body
+    ):
+        return ""
+    return body
 
 
 def json_question(text: str) -> str:

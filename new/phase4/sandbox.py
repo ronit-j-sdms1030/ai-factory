@@ -50,6 +50,9 @@ class E2BSandbox(LocalSandbox):
 
 def from_env(env: dict[str, str] | None = None) -> tuple[LocalSandbox, dict[str, Any]]:
     values = env if env is not None else os.environ
+    import connectors
+
+    egress = connectors.sni_policy(str(values.get("CLIENT_ID") or "demo"))
     if values.get("E2B_API_KEY"):
-        return E2BSandbox(), {"sandbox": "e2b", "status": "keyed"}
-    return LocalSandbox(), {"sandbox": "local", "status": "substitute"}
+        return E2BSandbox(), {"sandbox": "e2b", "status": "keyed", "egress": egress}
+    return LocalSandbox(), {"sandbox": "local", "status": "substitute", "egress": egress}

@@ -44,6 +44,7 @@ class RequirementActivities:
             gate=int(command["gate"]),
             channel=str(command.get("channel") or "workspace"),
             reason=str(command.get("reason") or ""),
+            revise_side=str(command.get("revise_side") or ""),
         )
 
     @activity.defn(name="edit_brd")
@@ -61,6 +62,19 @@ class RequirementActivities:
             dict(command["editor"]),
             str(command.get("title") or ""),
             dict(command["report"]),
+        )
+
+    @activity.defn(name="connector_call")
+    def connector_call(self, command: dict[str, Any]) -> dict[str, Any]:
+        import connectors
+
+        return connectors.call(
+            str(command["role"]),
+            str(command["action"]),
+            dict(command.get("payload") or {}),
+            client_id=str(command["client_id"]),
+            actor=dict(command.get("actor") or {}),
+            write=bool(command.get("write")),
         )
 
     @activity.defn(name="escalate_sla")

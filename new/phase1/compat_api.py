@@ -6,10 +6,13 @@ its runs and identity model into the legacy frontend's wire format.
 
 from __future__ import annotations
 
+import json
+import os
 import secrets
 import threading
 from datetime import datetime, timezone
 from http.cookies import SimpleCookie
+from pathlib import Path
 from typing import Any
 
 from phase1 import brd, directory, rails
@@ -54,6 +57,8 @@ _TIER_BY_ID = {
     "u-arch": "architect",
     "u-ux": "ux",
     "u-tl": "tech",
+    "u-sl-dev": "sl",
+    "u-sl-ai": "sl",
     "u-sl-qa": "sl",
     "u-se": "se",
     "u-rm": "rm",
@@ -94,6 +99,29 @@ class CompatibilityAPI:
         self._lock = threading.RLock()
         self._sessions: dict[str, dict[str, Any]] = {}
         self._clients: dict[str, dict[str, Any]] = {}
+        root = os.getenv("RUNTIME_ROOT")
+        self._session_file = Path(root) / "dev-sessions.json" if dev_mode and root else None
+        self._load_sessions()
+
+    def _load_sessions(self) -> None:
+        if self._session_file is None or not self._session_file.exists():
+            return
+        try:
+            saved = json.loads(self._session_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        self._sessions.update(saved.get("sessions") or {})
+        self._clients.update(saved.get("clients") or {})
+
+    def _save_sessions(self) -> None:
+        if self._session_file is None:
+            return
+        with self._lock:
+            payload = json.dumps({"sessions": self._sessions, "clients": self._clients})
+        try:
+            self._session_file.write_text(payload, encoding="utf-8")
+        except OSError:
+            pass
 
     def login(self, email: str, password: str, *, client: bool = False) -> tuple[str, dict]:
         if not self.dev_mode:
@@ -112,6 +140,7 @@ class CompatibilityAPI:
         token = secrets.token_urlsafe(32)
         with self._lock:
             self._sessions[token] = dict(actor)
+        self._save_sessions()
         return token, self.user_payload(actor)
 
     def register_client(self, name: str, email: str, password: str) -> tuple[str, dict]:
@@ -164,6 +193,7 @@ class CompatibilityAPI:
         if token:
             with self._lock:
                 self._sessions.pop(token, None)
+            self._save_sessions()
 
     def user_payload(self, actor: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -330,6 +360,7 @@ class CompatibilityAPI:
             "chatHistory": list(row.get("messages") or []),
             "detailedReport": report,
             "brdText": brd_text,
+            "architectureText": architecture,
             "phase1": True,
             "phase2": governed >= 2,
             "governedPhase": governed,
@@ -354,6 +385,7 @@ class CompatibilityAPI:
             "tickets": list(row.get("tickets") or []),
             "planText": row.get("plan_text") or "",
             "awaitingGate": awaiting,
+            "designProgress": row.get("design_progress"),
             "build": row.get("build") or {},
             "uat": row.get("uat") or {},
             "release": row.get("release") or {},
@@ -394,6 +426,16 @@ class CompatibilityAPI:
         originator = (row.get("requirement") or {}).get("originator") or {}
         if originator.get("id") != actor.get("id"):
             raise PermissionError("only the requirement originator can continue intake")
+
+    @staticmethod
+    def ensure_can_start_intake(actor: dict[str, Any]) -> None:
+        if actor.get("isClient"):
+            return
+        if actor.get("tierId") in {"requester", "stakeholder", "pm"}:
+            return
+        if "business_stakeholder" in set(actor.get("roles") or []):
+            return
+        raise PermissionError("only the requester can start a requirement")
 
     @staticmethod
     def ensure_brd_editor(row: dict[str, Any], actor: dict[str, Any]) -> None:

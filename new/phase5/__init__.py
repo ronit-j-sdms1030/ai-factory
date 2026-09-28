@@ -50,10 +50,13 @@ def pack_release(
     *,
     image_tag: str = "previous",
     attested: bool = True,
+    monitor_note: str = "",
 ) -> dict[str, Any]:
     canary = flags.canary(requirement_id)
     rb = rollback.plan(requirement_id, image_tag)
     watch = monitor.snapshot(requirement_id)
+    if monitor_note:
+        watch = {**watch, "note": monitor_note[:800]}
     admission = kyverno.admit(attested=attested, cluster=False)
     files = {
         f"requirements/{requirement_id}/release/STATUS.md": _release_status(
@@ -115,4 +118,5 @@ def _release_status(
         f"- kyverno: {admission['status']} allowed={admission['allowed']}\n"
         f"- rollback: {', '.join(rb['mechanisms'])}\n"
         f"- monitor errors: {watch['errors']}\n"
+        + (f"- monitor note: {watch.get('note')}\n" if watch.get("note") else "")
     )

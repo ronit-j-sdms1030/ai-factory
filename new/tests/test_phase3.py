@@ -9,7 +9,25 @@ import pytest
 import department_routing as routing
 from phase1 import directory
 from phase1.platform import Phase1
+from phase3 import decomposer, qa
+from stack_profiles import NODE
 from tests.test_phase2 import reach_design
+
+ATTENDANCE_BRD = """
+## 8. Functional requirements
+
+### REQ-9-R01 — Clock in at the gate
+### REQ-9-R02 — Export this week's timesheet
+
+## 11. Page behaviour
+
+- **Timesheet**: export this week's hours
+
+## 12. Data model
+
+- **Employee:** id, name
+- **AttendanceEvent:** id, employee_id, recorded_at
+"""
 
 
 def reach_plan(p1: Phase1) -> str:
@@ -37,6 +55,25 @@ def test_gate_3_writes_plan_tickets_and_tests(tmp_path: Path):
     assert p1.git.exists(f"requirements/{rid}/plan/sprint0/allowlist.txt", f"plan/{rid}")
     assert run["overview"]
     assert run["team_reports"]
+    teams = {row["team"] for row in run["team_reports"]}
+    assert "development" in teams
+    assert "ai" in teams
+    assert all(row.get("integratesInto") for row in run["team_reports"])
+    assert any(t.get("id", "").endswith("-AI1") for t in run["tickets"])
+    ai = next(t for t in run["tickets"] if t.get("id", "").endswith("-AI1"))
+    assert ai["department"] == "ai"
+    assert any(path.startswith("src/ai") or path.startswith("app/ai") for path in ai["paths"])
+    titles = " ".join(ticket["title"] for ticket in run["tickets"])
+    assert any(ticket.get("screen") for ticket in run["tickets"])
+    assert any(case.get("criterion") == "ui" and "reachable" in case["name"] for case in run["tests"])
+
+
+def sign_gate_4(p1: Phase1, rid: str):
+    """Tech lead + Development, AI, and QA stream leads."""
+    p1.decide(rid, directory.actor("u-tl"), "approve")
+    p1.decide(rid, directory.actor("u-sl-dev"), "approve")
+    p1.decide(rid, directory.actor("u-sl-ai"), "approve")
+    return p1.decide(rid, directory.actor("u-sl-qa"), "approve")
 
 
 def test_gate_4_needs_every_named_stream_signer(tmp_path: Path):
@@ -44,6 +81,8 @@ def test_gate_4_needs_every_named_stream_signer(tmp_path: Path):
     rid = reach_plan(p1)
     first = p1.decide(rid, directory.actor("u-tl"), "approve")
     assert first["decision"]["satisfied"] is False
+    p1.decide(rid, directory.actor("u-sl-dev"), "approve")
+    p1.decide(rid, directory.actor("u-sl-ai"), "approve")
     last = p1.decide(rid, directory.actor("u-sl-qa"), "approve")
     assert last["phase"] == "awaiting_gate_5"
     assert last["awaiting"] == 5
@@ -74,6 +113,43 @@ def test_brownfield_skips_sprint_0(tmp_path: Path):
     planned = p1.get(rid)
     assert planned["sprint0"]["status"] == "skipped"
     assert not p1.git.exists(f"requirements/{rid}/plan/sprint0/ci.yml", f"plan/{rid}")
+
+
+def test_decomposer_follows_this_brd_not_booking():
+    screens = [{"name": "Timesheet"}]
+    tickets = decomposer.tickets("REQ-9", ATTENDANCE_BRD, screens, NODE)
+    titles = " ".join(ticket["title"] for ticket in tickets).lower()
+    assert "availability" not in titles
+    assert "booking" not in titles
+    assert any("Employee API" in ticket["title"] for ticket in tickets)
+    assert any(ticket.get("screen") == "Timesheet" for ticket in tickets)
+    assert tickets[-1]["id"].endswith("-AI1")
+
+
+def test_qa_uses_approved_screens_and_this_brd():
+    screens = [{"name": "Timesheet"}]
+    cases = qa.cases(ATTENDANCE_BRD, screens, NODE)
+    assert len(cases) == 8
+    assert any(case.get("critical") for case in cases)
+    assert "Timesheet" in cases[6]["name"]
+    assert not any("book a room" in case["name"] for case in cases)
+    assert not any("overlapping bookings" in case["name"] for case in cases)
+
+
+def test_booking_brd_keeps_exclusion_and_overlap_critical():
+    brd = ATTENDANCE_BRD + "\nStop double-booking rooms.\n## 12. Data model\n- **Room:** id, name\n- **Booking:** id, room_id, starts_at, ends_at\n"
+    tickets = decomposer.tickets("REQ-9", brd, [{"name": "BookRoom"}], NODE)
+    assert any("exclusion" in ticket["title"] for ticket in tickets)
+    cases = qa.cases(brd, [{"name": "BookRoom"}], NODE)
+    critical = next(case for case in cases if case.get("critical"))
+    assert "overlap" in critical["criterion"]
+
+
+def test_ai_adapter_ticket_routes_to_ai():
+    assert (
+        routing.department_for("prompt + inference adapter for screen suggestions")
+        == "ai"
+    )
 
 
 def test_entity_spelling_is_repaired():

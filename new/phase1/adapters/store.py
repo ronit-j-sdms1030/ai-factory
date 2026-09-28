@@ -71,5 +71,28 @@ class PostgresStore:
             )
         self._conn.commit()
 
+    def events(self, requirement_id: str | None = None) -> list[dict[str, Any]]:
+        with self._conn.cursor() as cur:
+            if requirement_id:
+                cur.execute(
+                    "SELECT requirement_id, kind, body, at FROM events "
+                    "WHERE requirement_id = %s ORDER BY seq",
+                    (requirement_id,),
+                )
+            else:
+                cur.execute("SELECT requirement_id, kind, body, at FROM events ORDER BY seq")
+            rows = cur.fetchall()
+        out = []
+        for rid, kind, body, at in rows:
+            payload = dict(body) if isinstance(body, dict) else json.loads(body)
+            out.append({"requirement_id": rid, "kind": kind, "body": payload, "at": at})
+        return out
+
+    def delete_all(self) -> None:
+        with self._conn.cursor() as cur:
+            cur.execute("DELETE FROM events")
+            cur.execute("DELETE FROM runs")
+        self._conn.commit()
+
 
 __all__ = ["PostgresStore", "SQLiteStore"]

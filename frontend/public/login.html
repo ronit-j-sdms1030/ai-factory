@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in - Stark Digital</title>
-<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/theme.css?v=20260924-fonts">
 <link rel="stylesheet" href="/theme-client.css">
-<script src="/config.js"></script>
+<script src="/config.js?v=20260922"></script>
+<script>window.API_BASE = '';</script>
 <style>
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
   .card {
@@ -67,10 +68,10 @@
 
     <div class="error-banner" id="error-banner"></div>
 
-    <form id="login-form">
+    <form id="login-form" novalidate>
       <div class="field">
         <label for="email">Work email</label>
-        <input type="email" id="email" name="email" autocomplete="username" required />
+        <input type="text" inputmode="email" id="email" name="email" autocomplete="username" required />
       </div>
       <div class="field">
         <label for="password">Password</label>
@@ -90,6 +91,9 @@
   </div>
 
   <script>
+    if (location.hostname === 'localhost') {
+      location.replace('http://127.0.0.1:' + (location.port || '5173') + location.pathname + location.search);
+    }
     var form = document.getElementById('login-form');
     var errorBanner = document.getElementById('error-banner');
     var submitBtn = document.getElementById('submit-btn');
@@ -131,6 +135,8 @@
         label: 'Gate 4 · Plan (tech lead + every stream lead)',
         options: [
           { label: 'Tech Lead', email: 'techlead@client.example' },
+          { label: 'Development stream lead', email: 'dev-lead@client.example' },
+          { label: 'AI stream lead', email: 'ai-lead@client.example' },
           { label: 'QA stream lead', email: 'qa-lead@client.example' },
         ],
       },
@@ -184,25 +190,29 @@
       submitBtn.disabled = true;
       submitBtn.textContent = 'Signing in...';
 
-      fetch(window.API_BASE + '/api/auth/login', {
+      var ctrl = new AbortController();
+      var timer = setTimeout(function () { ctrl.abort(); }, 20000);
+      fetch('/api/auth/login', {
         method: 'POST',
-        credentials: 'include',
+        credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: document.getElementById('email').value,
           password: document.getElementById('password').value,
         }),
+        signal: ctrl.signal,
       })
         .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
         .then(function (result) {
           if (!result.ok) throw new Error(result.body.error || 'Sign-in failed');
-          window.location.href = '/app.html';
+          window.location.replace('/app.html');
         })
         .catch(function (err) {
-          showError(err.message);
+          showError(err.name === 'AbortError' ? 'Sign-in timed out. Use http://127.0.0.1:5173 and try again.' : err.message);
           submitBtn.disabled = false;
           submitBtn.textContent = 'Sign in';
-        });
+        })
+        .finally(function () { clearTimeout(timer); });
     });
   </script>
 </body>

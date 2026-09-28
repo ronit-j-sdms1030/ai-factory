@@ -77,7 +77,8 @@ class TestScopeBounding:
 
 class TestTheQuestionBudget:
     def test_the_bounds_are_stated(self):
-        assert "between **four and ten** questions" in flat(DEFAULT)
+        assert "between **four and ten** calls" in flat(DEFAULT)
+        assert "scope report" in flat(DEFAULT)
 
     def test_it_says_the_budget_is_enforced_in_code(self):
         """An instruction a model can talk itself out of is not a budget."""
@@ -157,10 +158,11 @@ class TestVersioningIsGitNotADatabase:
 
 
 class TestTheQuestionBudgetEnforcer:
-    def test_the_eleventh_question_is_refused(self):
+    def test_the_tenth_slot_is_the_report_not_a_question(self):
         b = intake_skill.QuestionBudget()
-        for _ in range(10):
+        for _ in range(9):
             b.record_question()
+        assert b.must_close() is True
         with pytest.raises(intake_skill.BudgetExhausted):
             b.record_question()
 

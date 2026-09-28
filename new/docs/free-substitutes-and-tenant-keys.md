@@ -25,6 +25,12 @@ Live inventory: `GET /api/tooling`.
 | OpenFeature + flagd | Python evaluator on `flagd.json` (default **off**) |
 | Kyverno | Local admission JSON: needs an attestation artefact |
 | Cosign + Rekor | Local Cosign key, `tlog-upload=false` |
+| Repomix · CodeGraph · Serena · ACP | Token-budget pack, local symbol graph, span edit, engine swap log |
+| DefectDojo | In-process de-dup + SLA days; critical/high still block Gate 5 |
+| MCP connectors + SNI proxy | Per-client manifest, role resolver, default block-all egress |
+| Prompt Registry | SHA of skill bundles + append-only approver history |
+| Langfuse | `usage_ledger` governance metrics on `GET /api/usage` |
+| Vitest / pytest / fast-check | Generated `app/{rid}/src/**/*.test.js` + property files |
 | Entra directory | Demo `directory.py` + `PHASE1_DEV_MODE` |
 | Backstage + Entra | `GET /api/catalog` + compose `--profile backstage` |
 | GitHub App | Personal `GITHUB_TOKEN` |

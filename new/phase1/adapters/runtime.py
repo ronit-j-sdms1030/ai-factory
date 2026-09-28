@@ -67,7 +67,7 @@ class RuntimeAdapters:
                 values["LITELLM_API_BASE"],
                 values["LITELLM_MASTER_KEY"],
                 values["LITELLM_MODEL"],
-            timeout=float(values.get("MODEL_TIMEOUT_SECONDS", "90")),
+        timeout=float(values.get("MODEL_TIMEOUT_SECONDS", "180")),
                 root=root,
             )
         else:
@@ -115,6 +115,8 @@ class RuntimeAdapters:
                 repo=values["GITHUB_REPO"],
                 token=token,
                 api_url=values.get("GITHUB_API_URL", "https://api.github.com"),
+                per_requirement=str(values.get("GITHUB_REPO_PER_REQUIREMENT", "")).lower()
+                in {"1", "true", "yes"},
             )
         else:
             repository = LocalGitRepository(root / "governance")

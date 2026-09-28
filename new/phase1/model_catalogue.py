@@ -21,7 +21,13 @@ NOTES: dict[str, str] = {
     "qwen/qwen3-coder": "code-specialised",
     "google/gemini-2.0-flash-001": "fast, cheap vision+text",
     "meta-llama/llama-3.3-70b-instruct": "open-weight, strong general",
+    "freellm/auto": "FreeLLMAPI router, free tiers (testing only, self-hosted on :3001)",
+    "freellm/auto:smart": "FreeLLMAPI, strongest free model available right now",
 }
+
+
+def is_free(model: str) -> bool:
+    return str(model).startswith("freellm/") or str(model).endswith(":free")
 
 
 def _price_row(pricing: dict[str, Any]) -> tuple[str, float, float]:

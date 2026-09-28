@@ -32,7 +32,9 @@ class TemporalPhase1:
             or os.getenv("GITHUB_WEBHOOK_SECRET")
             or "dev-webhook-secret"
         ).encode()
-        self.identity = RuntimeAdapters.from_env(self.root).identity
+        adapters = RuntimeAdapters.from_env(self.root)
+        self.identity = adapters.identity
+        self.store = adapters.store
 
     def _run(self, awaitable):
         return asyncio.run(awaitable)
@@ -100,6 +102,7 @@ class TemporalPhase1:
         gate: int | None = None,
         channel: str = "workspace",
         reason: str = "",
+        revise_side: str = "",
     ) -> dict[str, Any]:
         return self._update(
             requirement_id,
@@ -110,6 +113,7 @@ class TemporalPhase1:
                 "gate": gate,
                 "channel": channel,
                 "reason": reason,
+                "revise_side": revise_side,
             },
         )
 
@@ -194,6 +198,9 @@ class TemporalPhase1:
     def list_runs(self) -> list[dict[str, Any]]:
         return self._direct().list_runs()
 
+    def clear_runs(self) -> dict[str, Any]:
+        return self._direct().clear_runs()
+
     def inbox(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         return self._direct().inbox(actor)
 
@@ -202,6 +209,12 @@ class TemporalPhase1:
 
     def catalog(self) -> list[dict[str, Any]]:
         return self._direct().catalog()
+
+    def edit_screen(self, *args, **kwargs):
+        return self._direct().edit_screen(*args, **kwargs)
+
+    def apply_screen_instruction(self, *args, **kwargs):
+        return self._direct().apply_screen_instruction(*args, **kwargs)
 
     def list_change_requests(self) -> list[dict[str, Any]]:
         return self._direct().list_change_requests()

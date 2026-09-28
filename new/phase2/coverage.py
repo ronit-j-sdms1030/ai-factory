@@ -37,6 +37,10 @@ def pages_from_brd(brd_text: str) -> list[dict[str, str]]:
 
 
 def matches(page: dict[str, str], screen: dict[str, Any]) -> bool:
+    page_id = _fold(page.get("id") or "")
+    screen_name = _fold(str(screen.get("name") or ""))
+    if page_id and screen_name and (page_id == screen_name or page_id in screen_name or screen_name in page_id):
+        return True
     page_key = _fold(page["id"] + " " + page.get("description", ""))
     screen_key = _fold(str(screen.get("name") or "") + " " + str(screen.get("route") or ""))
     if not page_key or not screen_key:

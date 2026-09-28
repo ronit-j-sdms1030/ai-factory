@@ -71,6 +71,10 @@ services:
       AZURE_API_BASE: ${AZURE_API_BASE:-}
       AZURE_API_VERSION: ${AZURE_API_VERSION:-}
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-}
+      FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://host.docker.internal:3001/v1}
+      FREELLMAPI_KEY: ${FREELLMAPI_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     ports:
@@ -152,6 +156,7 @@ services:
       GITHUB_REPO: ${GITHUB_REPO:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      GITHUB_REPO_PER_REQUIREMENT: ${GITHUB_REPO_PER_REQUIREMENT:-true}
       SIGNER_ADAPTER: cosign
       TELEMETRY_ADAPTER: noop
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/factory
@@ -175,6 +180,7 @@ services:
     volumes:
       - app-data:/data
       - signing-data:/signing:ro
+      - ..:/app
     ports:
       - "127.0.0.1:8787:8787"
     restart: unless-stopped
@@ -215,6 +221,7 @@ services:
       GITHUB_REPO: ${GITHUB_REPO:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      GITHUB_REPO_PER_REQUIREMENT: ${GITHUB_REPO_PER_REQUIREMENT:-true}
       SIGNER_ADAPTER: cosign
       TELEMETRY_ADAPTER: noop
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local-postgres}@postgres:5432/factory
@@ -233,6 +240,7 @@ services:
     volumes:
       - app-data:/data
       - signing-data:/signing:ro
+      - ..:/app
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/worker-ready"]
       interval: 10s

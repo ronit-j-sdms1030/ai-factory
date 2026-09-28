@@ -28,6 +28,16 @@ def p1(tmp_path: Path) -> Phase1:
     return Phase1(tmp_path)
 
 
+def test_clear_runs_empties_the_store(tmp_path: Path):
+    p1 = Phase1(tmp_path)
+    p1.submit(directory.actor("u-requester"), "full_governance", "Book rooms.")
+    p1.submit(directory.actor("u-requester"), "full_governance", "Visitor desk.")
+    assert len(p1.list_runs()) == 2
+    cleared = p1.clear_runs()
+    assert cleared["count"] == 2
+    assert p1.list_runs() == []
+
+
 def finish_intake(p1: Phase1, rid: str) -> dict:
     result = None
     for answer in ANSWERS:
@@ -60,7 +70,7 @@ class TestSubmitAndIntake:
 
     def test_a_report_cannot_close_before_four_questions(self, p1):
         class Eager:
-            def complete(self, messages, *, skill, model=None):
+            def complete(self, messages, *, skill, model=None, **_kwargs):
                 return json.dumps(
                     {
                         "type": "scope_report",
@@ -76,6 +86,26 @@ class TestSubmitAndIntake:
         assert run["phase"] == "intake"
         assert run["question"]
         assert "scope" not in run["requirement"]["artefacts"]
+
+    def test_ten_calls_force_the_scope_report(self, p1):
+        class NeverDone:
+            def complete(self, messages, *, skill, model=None, **_kwargs):
+                return json.dumps({"type": "question", "text": "What else?"})
+
+        factory = Phase1(p1.root / "cap", llm=NeverDone())
+        run = factory.submit(
+            directory.actor("u-requester"), "full_governance", "Book meeting rooms."
+        )
+        rid = run["requirement"]["id"]
+        last = run
+        for _ in range(12):
+            if last.get("phase") != "intake":
+                break
+            last = factory.turn(rid, "Facilities still book in a spreadsheet.")
+        assert last["phase"] == "awaiting_gate_1"
+        assert last["budget"]["calls"] <= 10
+        assert last["budget"]["asked"] <= 9
+        assert "scope" in last["requirement"]["artefacts"]
 
     def test_off_rails_input_never_reaches_the_model(self, p1):
         run = p1.submit(directory.actor("u-requester"), "full_governance", "Book rooms.")
@@ -230,6 +260,14 @@ def test_loose_model_json_is_coerced_to_a_question():
     parsed = parse_agent_output('{"question":"Who books the rooms?"}')
     assert parsed["type"] == "question"
     assert parsed["text"] == "Who books the rooms?"
+
+
+def test_prose_and_fenced_json_still_parse():
+    fenced = parse_agent_output('```json\n{"type":"question","text":"Who hosts the guest?"}\n```')
+    assert fenced["text"] == "Who hosts the guest?"
+    prose = parse_agent_output("Who will check the guest in at the desk?")
+    assert prose["type"] == "question"
+    assert "desk" in prose["text"]
 
 
 def test_github_review_on_a_ticket_branch_names_the_requirement():

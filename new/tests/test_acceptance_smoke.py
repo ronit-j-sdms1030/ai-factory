@@ -109,6 +109,8 @@ def test_canonical_frontend_has_desktop_and_mobile_static_contracts():
         "ux@client.example",
         "ba@client.example",
         "techlead@client.example",
+        "dev-lead@client.example",
+        "ai-lead@client.example",
         "qa-lead@client.example",
         "senior@client.example",
         "release@client.example",

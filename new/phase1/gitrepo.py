@@ -132,10 +132,15 @@ class GovernanceRepo:
         return shipped.read_text(encoding="utf-8")
 
     def design_system(self) -> str:
+        shipped = Path(__file__).resolve().parent.parent / "skills/design-system.skill.md"
         path = self.root / "skills/design-system.skill.md"
         if path.exists():
-            return path.read_text(encoding="utf-8")
-        shipped = Path(__file__).resolve().parent.parent / "skills/design-system.skill.md"
+            text = path.read_text(encoding="utf-8")
+            required = (
+                "Page", "Sidebar", "Button", "Field", "Table", "--color-sidebar", "navigate(", "LucideReact",
+            )
+            if all(marker in text for marker in required):
+                return text
         return shipped.read_text(encoding="utf-8") if shipped.exists() else ""
 
     def bundle(self, agent: str) -> skill_registry.SkillBundle:

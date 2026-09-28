@@ -35,6 +35,21 @@ def test_vendor_manifest_checksums_match_disk():
         "bmad-product-brief",
         "bmad-prfaq",
         "deployment-pipeline-design",
+        "interview-me",
+        "documentation-and-adrs",
+        "api-and-interface-design",
+        "planning-and-task-breakdown",
+        "test-driven-development",
+        "ci-cd-and-automation",
+        "code-review-and-quality",
+        "security-and-hardening",
+        "incremental-implementation",
+        "observability-and-instrumentation",
+        "frontend-ui-engineering",
+        "secrets-management",
+        "e2e-testing-patterns",
+        "avoid-ai-writing",
+        "bmad-code-review",
     }
     for item in payload["skills"]:
         data = (root / "skills/vendor" / item["target"]).read_bytes()
@@ -43,6 +58,32 @@ def test_vendor_manifest_checksums_match_disk():
         bundle = skill_registry.load_bundle(agent)
         assert bundle.files
         assert "SKILL" in bundle.content
+
+
+def test_ui_fetch_prompt_is_smaller_than_full_bundle():
+    full = skill_registry.load_bundle("ui").content
+    slim = skill_registry.ui_prompt()
+    assert len(slim) < len(full) * 0.35
+    assert "read_skill" in slim
+    assert "typography" in slim
+    text = skill_registry.execute_ui_tool("read_skill", {"name": "typography"})
+    assert "font" in text.lower() or "type" in text.lower()
+    assert "unknown" in skill_registry.execute_ui_tool("read_skill", {"name": "nope"})
+
+
+def test_fetch_covers_fat_agents_and_skips_thin_ones():
+    assert skill_registry.can_fetch("intake")
+    assert skill_registry.can_fetch("architect")
+    assert skill_registry.can_fetch("qa")
+    assert not skill_registry.can_fetch("brd")
+    assert not skill_registry.can_fetch("review")
+    for agent in skill_registry.FETCH_CORE_COUNT:
+        full = skill_registry.load_bundle(agent).content
+        slim = skill_registry.fetch_prompt(agent)
+        assert len(slim) < len(full)
+        assert "read_skill" in slim
+    text = skill_registry.execute_fetch_tool("intake", "read_skill", {"name": "interview-me"})
+    assert len(text) > 80
 
 
 def test_intake_and_brd_snapshot_skill_files(tmp_path: Path):

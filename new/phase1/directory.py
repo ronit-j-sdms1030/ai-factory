@@ -73,10 +73,26 @@ DIRECTORY: dict[str, dict[str, Any]] = {
     "u-tl": {
         "id": "u-tl",
         "name": "Tech Lead",
-        "roles": ["tech_lead", "stream_lead"],
+        "roles": ["tech_lead"],
         "team": "development",
         "email": "techlead@client.example",
         "github_login": "u-tl",
+    },
+    "u-sl-dev": {
+        "id": "u-sl-dev",
+        "name": "Development Stream Lead",
+        "roles": ["stream_lead"],
+        "team": "development",
+        "email": "dev-lead@client.example",
+        "github_login": "u-sl-dev",
+    },
+    "u-sl-ai": {
+        "id": "u-sl-ai",
+        "name": "AI Stream Lead",
+        "roles": ["stream_lead"],
+        "team": "ai",
+        "email": "ai-lead@client.example",
+        "github_login": "u-sl-ai",
     },
     "u-sl-qa": {
         "id": "u-sl-qa",

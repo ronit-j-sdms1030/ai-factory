@@ -31,8 +31,8 @@ def compat_server(tmp_path):
         thread.join(timeout=2)
 
 
-def request(server, method, path, body=None, *, cookie=None, token=None, origin=None):
-    connection = HTTPConnection(*server.server_address, timeout=3)
+def request(server, method, path, body=None, *, cookie=None, token=None, origin=None, timeout=30):
+    connection = HTTPConnection(*server.server_address, timeout=timeout)
     headers = {}
     encoded = None
     if body is not None:
@@ -217,8 +217,23 @@ def test_intake_gate1_gate2_and_brd_edit_flow(compat_server):
     assert gate2["artifact"]["currentApprovalIndex"] == 2
     assert gate2["artifact"]["phase2"] is True
     assert gate2["artifact"]["ui"]["screens"]
+    assert gate2["artifact"].get("architectureText") or (
+        (gate2["artifact"].get("detailedReport") or {}).get("architecture")
+    )
 
     architect = login(compat_server, "architect@client.example")
+    status, arch_view, _ = request(
+        compat_server,
+        "GET",
+        f"/api/artifacts/{rid}",
+        cookie=architect,
+    )
+    assert status == 200
+    assert arch_view["artifact"]["architectureText"] or (
+        (arch_view["artifact"].get("detailedReport") or {}).get("architecture")
+    )
+    assert arch_view["artifact"]["awaitingGate"] == 3
+
     status, screens, _ = request(
         compat_server,
         "GET",
@@ -277,15 +292,20 @@ def test_intake_gate1_gate2_and_brd_edit_flow(compat_server):
         cookie=tech,
     )
     assert status == 200
-    qa_lead = login(compat_server, "qa-lead@client.example")
-    status, g4, _ = request(
-        compat_server,
-        "POST",
-        f"/api/artifacts/{rid}/approvePlan",
-        {},
-        cookie=qa_lead,
-    )
-    assert status == 200
+    for email in (
+        "dev-lead@client.example",
+        "ai-lead@client.example",
+        "qa-lead@client.example",
+    ):
+        lead = login(compat_server, email)
+        status, g4, _ = request(
+            compat_server,
+            "POST",
+            f"/api/artifacts/{rid}/approvePlan",
+            {},
+            cookie=lead,
+        )
+        assert status == 200
     assert g4["artifact"]["currentStage"] == "pending_approval"
     assert g4["artifact"]["governedPhase"] == 4
     assert g4["artifact"]["currentApprovalIndex"] == 4
@@ -349,6 +369,9 @@ def test_settings_readable_for_requester(compat_server):
     assert status == 200
     assert "recorded" in usage
     assert "cycleEstimate" in usage
+    assert "byAgent" in usage
+    assert "byRequirement" in usage
+    assert "history" in usage
     status, denied, _ = request(
         compat_server,
         "PUT",
@@ -428,3 +451,27 @@ def test_compatibility_routes_use_bearer_outside_dev(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_only_requester_can_start_intake(compat_server):
+    product_owner = login(compat_server, "po@client.example")
+    status, payload, _ = request(
+        compat_server,
+        "POST",
+        "/api/artifacts/chat/start",
+        {},
+        cookie=product_owner,
+    )
+    assert status == 403
+    assert "requester" in (payload or {}).get("error", "").lower()
+
+    requester = login(compat_server, "requester@client.example")
+    status, started, _ = request(
+        compat_server,
+        "POST",
+        "/api/artifacts/chat/start",
+        {},
+        cookie=requester,
+    )
+    assert status == 201
+    assert started["artifactId"].startswith("REQ-")

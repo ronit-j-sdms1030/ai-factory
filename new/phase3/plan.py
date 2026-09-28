@@ -22,6 +22,10 @@ def build(
     stack_profile: dict[str, Any] | StackProfile,
     reviewers: list[str] | None = None,
     root: Path | None = None,
+    tickets: list[dict[str, Any]] | None = None,
+    tests: list[dict[str, Any]] | None = None,
+    overview_md: str | None = None,
+    devops_note: str = "",
 ) -> dict[str, Any]:
     profile = (
         stack_profile
@@ -37,16 +41,23 @@ def build(
     skill_registry.require(decomp.content, "decomposer")
     skill_registry.require(qa_bundle.content, "qa")
     skill_registry.require(overview_bundle.content, "overview")
-    tickets = decomposer.tickets(
-        requirement_id, brd_text, screens, profile, skill=decomp.content
+    tickets = tickets or decomposer.tickets(
+        requirement_id,
+        brd_text,
+        screens,
+        profile,
+        skill=decomp.content,
+        architecture_text=architecture_text,
     )
-    entities, collisions = routing.repair_entities(
-        routing.entities_from_text(architecture_text, brd_text)
-        or ["Room", "Booking", "User", "AuditEntry"]
+    names = decomposer._entity_names(brd_text, architecture_text) or routing.entities_from_text(
+        architecture_text, brd_text
     )
+    entities, collisions = routing.repair_entities(names)
     owners = routing.assign_owners(entities, tickets)
-    tests = qa.cases(brd_text, screens, profile, skill=qa_bundle.content)
-    overview_md = overview.write(requirement_id, brd_text, skill=overview_bundle.content)
+    tests = tests or qa.cases(brd_text, screens, profile, skill=qa_bundle.content)
+    overview_md = overview_md or overview.write(
+        requirement_id, brd_text, skill=overview_bundle.content
+    )
     files: dict[str, str] = {}
     scan = None
     if not skipped:
@@ -55,6 +66,9 @@ def build(
             {path: content for path, content in files.items() if "/sprint0/" in path}
         )
     sprint = sprint0.summary(profile, skipped, scan=scan)
+    if devops_note:
+        files[f"requirements/{requirement_id}/plan/sprint0/NOTES.md"] = devops_note.rstrip() + "\n"
+        sprint = {**sprint, "note": devops_note[:400]}
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", devops))
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", decomp))
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", qa_bundle))
@@ -86,21 +100,42 @@ def build(
         "streams": streams,
         "profile": as_public(profile),
         "files": files,
-        "team_reports": _team_reports(tickets),
+        "team_reports": _team_reports(requirement_id, tickets, screens),
     }
 
 
-def _team_reports(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _team_reports(
+    requirement_id: str,
+    tickets: list[dict[str, Any]],
+    screens: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for ticket in tickets:
         grouped.setdefault(ticket["department"], []).append(ticket)
+    screen_names = [str(screen.get("name") or "Screen") for screen in screens]
     reports = []
     for team, items in grouped.items():
+        owned = [
+            str(item.get("screen") or item["title"][: -len(" screen")])
+            for item in items
+            if str(item.get("title") or "").lower().endswith(" screen")
+        ]
         reports.append(
             {
                 "team": team,
-                "summary": f"{len(items)} tickets for {team}",
+                "summary": (
+                    f"{len(items)} tickets in the single app at app/{requirement_id}/. "
+                    "Streams own folders; they do not ship as separate products."
+                ),
                 "tickets": [item["id"] for item in items],
+                "screens": owned if team == "development" else [],
+                "productScreens": screen_names,
+                "integratesInto": f"app/{requirement_id}",
+                "contract": (
+                    "One process, one SQLite/Postgres, one React shell. "
+                    "development writes src/ui + src/api. "
+                    "ai writes src/ai and is mounted at /api/ai on the same server."
+                ),
             }
         )
     return reports

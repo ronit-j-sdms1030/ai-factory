@@ -12,11 +12,11 @@ from typing import Any
 DEPARTMENTS = ("development", "qa", "devops", "ai", "sales")
 
 _RULES: tuple[tuple[str, str], ...] = (
+    (r"model|prompt|inference|eval", "ai"),
     (r"schema|migration|exclusion|prisma|alembic", "development"),
     (r"\bapi\b|endpoint|backend", "development"),
     (r"screen|form|ui|frontend|booking form|availability", "development"),
     (r"cancel|admin", "development"),
-    (r"model|prompt|inference|eval", "ai"),
     (r"pipeline|ci |iac|opentofu|secret|environment", "devops"),
     (r"test case|e2e|qa ", "qa"),
     (r"overview|sales|brief", "sales"),

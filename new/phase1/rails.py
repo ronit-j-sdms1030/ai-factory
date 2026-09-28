@@ -44,22 +44,19 @@ def parse_agent_output(raw: str) -> dict[str, Any]:
     text = (raw or "").strip()
     if not text:
         raise OutputRefused("agent output is empty")
-    if text.startswith("```"):
-        text = text.strip("`")
-        text = text.split("\n", 1)[-1]
-        if text.endswith("```"):
-            text = text[: -3]
-        text = text.strip()
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, re.I)
+    if fenced:
+        text = fenced.group(1).strip()
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
         start = text.find("{")
         if start < 0:
-            raise OutputRefused("agent output is not JSON")
+            return _question_from_prose(text)
         try:
             data, _ = json.JSONDecoder().raw_decode(text[start:])
-        except json.JSONDecodeError as exc:
-            raise OutputRefused("agent output is not JSON") from exc
+        except json.JSONDecodeError:
+            return _question_from_prose(text)
     data = _normalise_agent_json(data)
     kind = data.get("type")
     if kind == "question":
@@ -83,7 +80,18 @@ def parse_agent_output(raw: str) -> dict[str, Any]:
         if not data["in_scope"]:
             raise OutputRefused("in scope is empty")
         return data
-    raise OutputRefused(f"unknown agent output type {kind!r}")
+    if kind:
+        raise OutputRefused(f"unknown agent output type {kind!r}")
+    return _question_from_prose(text)
+
+
+def _question_from_prose(text: str) -> dict[str, str]:
+    clipped = " ".join((text or "").split())
+    if not clipped:
+        raise OutputRefused("agent output is not JSON")
+    if len(clipped) > 400:
+        clipped = clipped[:397].rsplit(" ", 1)[0] + "…"
+    return {"type": "question", "text": clipped}
 
 
 def _normalise_agent_json(data: Any) -> dict[str, Any]:

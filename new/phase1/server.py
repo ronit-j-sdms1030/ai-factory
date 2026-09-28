@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 from phase1 import directory, webhook
 from phase1.compat_api import CompatibilityAPI
 from phase1.service import service_from_env
+from phase4 import runtime_db
 
 STATIC = Path(__file__).resolve().parent / "workspace"
 
@@ -154,11 +155,44 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                         return self._json(403, {"error": "Not available"})
                     from phase1 import usage_ledger
 
-                    return self._json(200, usage_ledger.dashboard(platform.root))
+                    try:
+                        board = usage_ledger.dashboard(
+                            platform.root, store=getattr(platform, "store", None)
+                        )
+                    except Exception as exc:
+                        board = {
+                            "recorded": {
+                                "calls": 0,
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "total_tokens": 0,
+                                "usd": 0.0,
+                                "currency": "USD",
+                            },
+                            "byModel": [],
+                            "byAgent": [],
+                            "byRequirement": [],
+                            "recent": [],
+                            "history": [],
+                            "cycleEstimate": {
+                                "usd": 0,
+                                "agents": [],
+                                "assumption": "usage log failed: " + str(exc),
+                            },
+                            "governance": {},
+                        }
+                    return self._json(200, board)
                 if path == "/api/artifacts":
                     actor = compatibility.authenticate(self.headers)
                     return self._json(
                         200, {"artifacts": compatibility.list_artifacts(actor)}
+                    )
+                parts = path.strip("/").split("/")
+                if len(parts) == 3 and parts[0] == "api" and parts[1] == "artifacts":
+                    actor = compatibility.authenticate(self.headers)
+                    run = platform.get(parts[2])
+                    return self._json(
+                        200, {"artifact": compatibility.artifact(run, viewer=actor)}
                     )
                 if path.startswith("/api/artifacts/") and path.endswith("/brd"):
                     compatibility.authenticate(self.headers)
@@ -171,6 +205,8 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                             "content": run.get("brd_text") or "",
                         },
                     )
+                if path.startswith("/preview/") and "/api/" in path:
+                    return self._preview_api("GET", path)
                 if path.startswith("/preview/"):
                     rid = path[len("/preview/") :].strip("/")
                     html = platform.preview_document(rid).encode("utf-8")
@@ -227,6 +263,8 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                 return self._json(401, {"error": str(exc)})
             except KeyError:
                 return self._json(404, {"error": "not found"})
+            except Exception as exc:
+                return self._json(500, {"error": str(exc)})
             self._json(404, {"error": "not found"})
 
         def do_POST(self) -> None:
@@ -236,8 +274,12 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
             try:
                 data = json.loads(raw.decode("utf-8") or "{}")
             except json.JSONDecodeError:
-                return self._json(400, {"error": "invalid json"})
+                data = {}
+                if not (path.startswith("/preview/") and "/api/" in path):
+                    return self._json(400, {"error": "invalid json"})
             try:
+                if path.startswith("/preview/") and "/api/" in path:
+                    return self._preview_api("POST", path, data if isinstance(data, dict) else {})
                 if path == "/api/auth/login":
                     token, payload = compatibility.login(
                         data.get("email") or "", data.get("password") or ""
@@ -278,6 +320,7 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                     )
                 if path == "/api/artifacts/chat/start":
                     actor = compatibility.authenticate(self.headers)
+                    compatibility.ensure_can_start_intake(actor)
                     result = platform.submit(
                         actor,
                         data.get("template") or "full_governance",
@@ -317,6 +360,8 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                             actor,
                             str(data.get("name") or ""),
                             str(data.get("instruction") or ""),
+                            source=str(data.get("source") or ""),
+                            theme=str(data.get("theme") or ""),
                         )
                         return self._json(200, result)
                     if len(parts) == 5:
@@ -359,11 +404,17 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                                 outcome = "reject"
                             if current.get("awaiting") == 7 and outcome in {"discard", "revise"}:
                                 outcome = "hold"
+                            side = ""
+                            if action == "requestUiChanges":
+                                side = "ui"
+                            elif action == "requestFsdChanges":
+                                side = "architecture"
                             result = platform.decide(
                                 rid,
                                 actor,
                                 outcome,
                                 reason=data.get("comment") or data.get("reason") or "",
+                                revise_side=side,
                             )
                             hub.publish(public_run(result))
                             return self._json(
@@ -374,8 +425,13 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                                     )
                                 },
                             )
+                if path == "/api/runs/clear":
+                    self._actor(data=data, parsed=parsed)
+                    result = platform.clear_runs()
+                    return self._json(200, result)
                 if path == "/api/runs":
                     originator = self._actor(data=data, parsed=parsed, field="originator_id")
+                    compatibility.ensure_can_start_intake(originator)
                     result = platform.submit(
                         originator,
                         data.get("template") or "full_governance",
@@ -478,12 +534,20 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                         dict(data.get("models") or {}),
                         str(actor.get("id") or ""),
                     )
+                    ui_context = agent_settings.ui_context(platform.root)
+                    if "uiContext" in data:
+                        ui_context = agent_settings.set_ui_context(
+                            platform.root,
+                            str(data.get("uiContext") or ""),
+                            str(actor.get("id") or ""),
+                        )
                     return self._json(
                         200,
                         {
                             "models": stored,
                             "roles": agent_settings.roles_view(platform.root),
                             "cycleCost": agent_settings.cycle_cost(platform.root),
+                            "uiContext": ui_context,
                         },
                     )
                 if path == "/api/settings/design-system":
@@ -503,6 +567,29 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
             except Exception as exc:
                 return self._json(400, {"error": str(exc)})
             return self._json(404, {"error": "not found"})
+
+        def do_DELETE(self) -> None:
+            path = urlparse(self.path).path
+            if path.startswith("/preview/") and "/api/" in path:
+                return self._preview_api("DELETE", path)
+            return self._json(404, {"error": "not found"})
+
+        def _preview_api(self, method: str, path: str, body: dict[str, Any] | None = None):
+            parsed_api = runtime_db.parse_preview_api(path)
+            if parsed_api is None:
+                return self._json(404, {"error": "not found"})
+            rid, resource, item_id = parsed_api
+            run = platform.get(rid)
+            status, payload = runtime_db.handle(
+                platform.root,
+                rid,
+                run.get("brd_text") or "",
+                method,
+                resource,
+                item_id,
+                body=body,
+            )
+            return self._json(status, payload)
 
         def do_OPTIONS(self) -> None:
             self.send_response(204)
@@ -585,7 +672,7 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
         def _json(
             self,
             status: int,
-            payload: dict,
+            payload: Any,
             *,
             headers: dict[str, str] | None = None,
         ) -> None:
@@ -608,7 +695,7 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
             self.send_header(
                 "Access-Control-Allow-Headers", "Authorization, Content-Type, X-Hub-Signature-256"
             )
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 
         def _bytes(self, status: int, blob: bytes, content_type: str) -> None:
             self.send_response(status)
@@ -680,6 +767,7 @@ def public_run(row: dict) -> dict:
         "release": row.get("release") or {},
         "team_reports": list(row.get("team_reports") or []),
         "preview_url": row.get("preview_url") or "",
+        "design_progress": row.get("design_progress"),
     }
 
 

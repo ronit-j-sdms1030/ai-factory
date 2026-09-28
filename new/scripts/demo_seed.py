@@ -26,6 +26,8 @@ def main() -> None:
         ("u-ux", "approve"),
         ("u-ba", "approve"),
         ("u-tl", "approve"),
+        ("u-sl-dev", "approve"),
+        ("u-sl-ai", "approve"),
         ("u-sl-qa", "approve"),
         ("u-se", "approve"),
         ("u-requester", "approve"),

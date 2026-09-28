@@ -59,9 +59,10 @@ judgements — the platform has no path to deliver them at all.
 
 ## Question policy and budget
 
-Between **four and ten** questions for the whole conversation, enforced in code
-rather than by instruction. Cost grows quadratically with transcript length,
-because every turn resends what came before.
+Between **four and ten** calls for the whole conversation, enforced in code
+rather than by instruction. At most nine questions; the last call writes the
+scope report so the whole scope is recorded in ten calls. Cost grows
+quadratically with transcript length, because every turn resends what came before.
 
 - One question at a time. Never a wall of them.
 - Reflect back what you understood in a sentence, then ask.

@@ -1,0 +1,3 @@
+Vendored from nexu-io/open-design @ a8d94dfa6e2ea082feff2f89a4e7e5365130d973
+License: Apache-2.0
+Files are not executed; used as prompt context only.

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import sys
 import types
 from pathlib import Path
+from urllib import error
 
 import pytest
 
@@ -141,6 +143,53 @@ def test_cosign_sign_and_verify_use_local_key_pair(tmp_path, monkeypatch):
     assert verify_key == str(public_key)
 
 
+def test_model_gateway_fetches_skill_then_returns_jsx(monkeypatch):
+    replies = [
+        {
+            "id": "call-tool",
+            "model": "provider/model-v2",
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "t1",
+                                "function": {
+                                    "name": "read_skill",
+                                    "arguments": '{"name":"typography"}',
+                                },
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 20, "completion_tokens": 8, "total_tokens": 28},
+        },
+        {
+            "id": "call-jsx",
+            "model": "provider/model-v2",
+            "choices": [{"message": {"content": "function Page(){}"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 12, "total_tokens": 52},
+        },
+    ]
+
+    def fake_open(req, timeout):
+        return Response(replies.pop(0))
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    seen = []
+    result = LiteLLMModelGateway("http://litellm", "key", "alias").complete(
+        [{"role": "user", "content": "Login"}],
+        skill="core rules",
+        tools=[{"type": "function", "function": {"name": "read_skill"}}],
+        execute_tool=lambda name, args: seen.append((name, args)) or "type scale",
+    )
+    assert result.text == "function Page(){}"
+    assert result.metadata["tool_hops"] == 1
+    assert seen == [("read_skill", {"name": "typography"})]
+
+
 def test_model_gateway_captures_provenance(monkeypatch):
     payload = {
         "id": "call-1",
@@ -155,6 +204,30 @@ def test_model_gateway_captures_provenance(monkeypatch):
     assert result.model == "provider/model-v2"
     assert result.metadata["request_id"] == "call-1"
     assert result.metadata["usage"]["total_tokens"] == 7
+
+
+def test_model_gateway_surfaces_provider_http_error(monkeypatch):
+    def boom(req, timeout):
+        raise error.HTTPError(
+            req.full_url,
+            400,
+            "Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"Invalid model name"}'),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    try:
+        LiteLLMModelGateway("http://litellm", "key", "alias").complete(
+            [{"role": "user", "content": "hello"}],
+            skill="rules",
+            model="anthropic/claude-haiku-4.5",
+        )
+    except RuntimeError as exc:
+        assert "anthropic/claude-haiku-4.5" in str(exc)
+        assert "Invalid model name" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
 
 
 def test_presidio_contract_uses_anonymized_result(monkeypatch):
@@ -355,4 +428,65 @@ def test_github_targets_main_when_default_branch_cannot_be_patched(tmp_path, mon
     )
     repo._ensure_base()
     assert repo._base_branch() == "main"
+
+
+def _per_requirement_urlopen(calls, *, can_create=True):
+    def urlopen(req, timeout=15):
+        method, url = req.get_method(), req.full_url
+        calls.append((method, url))
+        if method == "GET" and url.endswith("/repos/acme/gov-req-0007"):
+            raise RuntimeError("GitHub API GET : 404 missing")
+        if method == "GET" and url.endswith("/user"):
+            return Response({"login": "acme"})
+        if method == "POST" and url.endswith("/user/repos"):
+            if not can_create:
+                raise RuntimeError("GitHub API POST /user/repos: 403 Resource not accessible")
+            return Response({"name": "gov-req-0007"})
+        if method == "GET" and url.endswith("/git/ref/heads/main"):
+            return Response({"object": {"sha": "abc"}})
+        if method == "GET" and "/contents/" in url:
+            raise RuntimeError("GitHub API GET /contents: 404 missing")
+        if method == "POST" and url.endswith("/git/refs"):
+            return Response({"ref": "refs/heads/brd/REQ-0007"})
+        return Response({"commit": {"sha": "def"}})
+
+    return urlopen
+
+
+def test_github_gives_each_requirement_its_own_private_repo(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    calls = []
+    monkeypatch.setattr(
+        "phase1.adapters.repository.request.urlopen", _per_requirement_urlopen(calls)
+    )
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.init()
+    repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
+    created = [c for c in calls if c == ("POST", "https://api.github.com/user/repos")]
+    assert created
+    puts = [url for method, url in calls if method == "PUT"]
+    assert puts and all("/repos/acme/gov-req-0007/" in url for url in puts)
+    assert repo.repo_for("skills/main") == "gov"
+
+
+def test_github_falls_back_to_governance_repo_when_create_is_refused(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    calls = []
+    monkeypatch.setattr(
+        "phase1.adapters.repository.request.urlopen",
+        _per_requirement_urlopen(calls, can_create=False),
+    )
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.init()
+    repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
+    puts = [url for method, url in calls if method == "PUT"]
+    assert puts and all("/repos/acme/gov/" in url for url in puts)
 

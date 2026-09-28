@@ -6,14 +6,13 @@ from pathlib import Path
 
 from phase1 import directory
 from phase1.platform import Phase1
-from tests.test_phase3 import reach_plan
+from tests.test_phase3 import reach_plan, sign_gate_4
 
 
 def test_gate_4_starts_an_allowlisted_build(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_plan(p1)
-    p1.decide(rid, directory.actor("u-tl"), "approve")
-    last = p1.decide(rid, directory.actor("u-sl-qa"), "approve")
+    last = sign_gate_4(p1, rid)
     assert last["phase"] == "awaiting_gate_5"
     assert last["awaiting"] == 5
     assert last["build"]["sandbox"]["sandbox"] == "local"
@@ -37,13 +36,19 @@ def test_gate_4_starts_an_allowlisted_build(tmp_path: Path):
         f"prisma/schema.prisma", branch
     )
     assert p1.git.exists(f"requirements/{rid}/build/ci.yml", f"build/{rid}")
+    assert p1.git.exists(f"app/{rid}/server.js", f"build/{rid}")
+    assert p1.git.exists(f"app/{rid}/prisma/schema.prisma", f"build/{rid}")
+    assert p1.git.exists(f"app/{rid}/public/index.html", f"build/{rid}")
+    schema = p1.git.read(f"app/{rid}/prisma/schema.prisma", f"build/{rid}")
+    assert "model " in schema
+    html = p1.git.read(f"app/{rid}/public/index.html", f"build/{rid}")
+    assert "function " in html
 
 
 def test_gate_5_merges_feature_branches(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_plan(p1)
-    p1.decide(rid, directory.actor("u-tl"), "approve")
-    p1.decide(rid, directory.actor("u-sl-qa"), "approve")
+    sign_gate_4(p1, rid)
     merged = p1.decide(rid, directory.actor("u-se"), "approve")
     assert merged["awaiting"] == 6
     assert merged["phase"] == "awaiting_gate_6"
@@ -58,8 +63,7 @@ def test_gate_5_merges_feature_branches(tmp_path: Path):
 def test_local_uat_and_release_gates_complete_the_run(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_plan(p1)
-    p1.decide(rid, directory.actor("u-tl"), "approve")
-    p1.decide(rid, directory.actor("u-sl-qa"), "approve")
+    sign_gate_4(p1, rid)
     p1.decide(rid, directory.actor("u-se"), "approve")
     uat = p1.decide(rid, directory.actor("u-requester"), "approve")
     assert uat["awaiting"] == 7

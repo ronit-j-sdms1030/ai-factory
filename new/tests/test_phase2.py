@@ -29,12 +29,23 @@ def test_gate_2_lock_writes_architecture_and_screens(tmp_path: Path):
     assert run["stack_profile"]["id"] == "node"
     assert run["stack_profile"]["tests"] == "Vitest"
     names = {s["name"] for s in run["screens"]}
-    assert "AdminCancel" in names
-    assert "AdminCancel" in run["coverage"]["repaired"]
+    assert names
+    architecture = p1.git.read(f"requirements/{rid}/design/architecture.md", f"design/{rid}")
+    assert "## Data model" in architecture
+    assert "## API contracts" in architecture
+    assert "Entra SSO" not in architecture
+    assert "/api/" in architecture
     assert "ADR-001" in p1.git.read(
         f"requirements/{rid}/design/adrs/ADR-001.md", f"design/{rid}"
     )
+    assert "ADR-002" in p1.git.read(
+        f"requirements/{rid}/design/adrs/ADR-002.md", f"design/{rid}"
+    )
+    assert "cookie" in p1.git.read(
+        f"requirements/{rid}/design/adrs/ADR-003.md", f"design/{rid}"
+    ).lower()
     assert run["preview_url"] == f"/preview/{rid}"
+    assert (run.get("preview_host") or {}).get("status") == "substitute"
 
 
 def test_originator_cannot_sign_gate_3(tmp_path: Path):
@@ -58,12 +69,23 @@ def test_gate_3_needs_all_three_roles(tmp_path: Path):
     assert p1.git.exists(f"requirements/{rid}/design/architecture.md", "main")
 
 
-def test_gate_3_revise_rewrites_design(tmp_path: Path):
+def test_gate_3_revise_screens_leaves_architecture(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_design(p1)
-    before = p1.get(rid)["requirement"]["artefacts"]["design"]["sha"]
+    before = p1.git.read(f"requirements/{rid}/design/architecture.md", f"design/{rid}")
     revised = p1.decide(
-        rid, directory.actor("u-arch"), "revise", reason="Send the screens back."
+        rid, directory.actor("u-ux"), "revise", reason="Send the screens back."
     )
     assert revised["phase"] == "awaiting_gate_3"
-    assert revised["requirement"]["artefacts"]["design"]["sha"] != before
+    after = p1.git.read(f"requirements/{rid}/design/architecture.md", f"design/{rid}")
+    assert after == before
+
+
+def test_gate_3_revise_architecture_keeps_screens(tmp_path: Path):
+    p1 = Phase1(tmp_path)
+    rid = reach_design(p1)
+    names = {s["name"] for s in p1.get(rid)["screens"]}
+    revised = p1.decide(
+        rid, directory.actor("u-arch"), "revise", reason="The stack lock needs a clearer ADR."
+    )
+    assert {s["name"] for s in revised["screens"]} == names

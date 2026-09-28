@@ -114,9 +114,10 @@ judgements — the platform has no path to deliver them at all.
 
 ## Question policy and budget
 
-Between **four and ten** questions for the whole conversation, enforced in code
-rather than by instruction. Cost grows quadratically with transcript length,
-because every turn resends what came before.
+Between **four and ten** calls for the whole conversation, enforced in code
+rather than by instruction. At most nine questions; the last call writes the
+scope report so the whole scope is recorded in ten calls. Cost grows
+quadratically with transcript length, because every turn resends what came before.
 
 - One question at a time. Never a wall of them.
 - Reflect back what you understood in a sentence, then ask.
@@ -268,27 +269,36 @@ class BudgetTooEarly(Exception):
 class QuestionBudget:
     """The 4-to-10 bound, enforced here rather than by the prompt.
 
-    Cost grows quadratically with transcript length. A model asked to stop at
-    ten will, under pressure, ask an eleventh. The counter lives outside it.
+    Ten is the last *call*, and that call writes the scope report. A model
+    asked to stop at ten will, under pressure, ask an eleventh. The counter
+    lives outside it.
     """
 
     minimum: int = 4
     maximum: int = 10
     asked: int = 0
+    calls: int = 0
 
     def record_question(self) -> None:
-        if self.asked >= self.maximum:
+        if self.asked >= self.maximum - 1:
             raise BudgetExhausted(
-                f"question budget is {self.minimum}–{self.maximum}; "
+                f"question budget is {self.minimum}–{self.maximum - 1} then the report; "
                 f"{self.asked} already asked"
             )
         self.asked += 1
+
+    def record_call(self) -> int:
+        self.calls += 1
+        return self.calls
 
     def may_close(self) -> bool:
         return self.asked >= self.minimum
 
     def must_close(self) -> bool:
-        return self.asked >= self.maximum
+        return self.asked >= self.maximum - 1 or self.calls >= self.maximum
+
+    def at_call_cap(self) -> bool:
+        return self.calls >= self.maximum
 
     def require_closeable(self) -> None:
         if not self.may_close():

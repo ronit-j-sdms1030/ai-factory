@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from urllib import request
+from urllib import error, request
 
 from phase1.llm import DeterministicIntakeLLM
 from phase1.adapters.protocols import ModelCompletion
@@ -18,12 +18,17 @@ class DeterministicModelGateway:
 
     def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         skill: str,
         model: str | None = None,
+        agent: str = "intake",
+        requirement_id: str = "",
+        max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        execute_tool: Any = None,
     ) -> ModelCompletion:
-        del model
+        del model, max_tokens, tools, execute_tool
         result = ModelCompletion(
             text=self._model.complete(messages, skill=skill),
             model="deterministic/intake",
@@ -32,7 +37,9 @@ class DeterministicModelGateway:
             metadata={"provider": "local", "deterministic": True},
         )
         if self.root is not None:
-            usage_ledger.record(self.root, result, messages, skill, agent="intake")
+            usage_ledger.record(
+                self.root, result, messages, skill, agent=agent, requirement_id=requirement_id
+            )
         return result
 
 
@@ -58,21 +65,98 @@ class LiteLLMModelGateway:
 
     def complete(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         *,
         skill: str,
         model: str | None = None,
+        agent: str = "intake",
+        requirement_id: str = "",
+        max_tokens: int | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        execute_tool: Any = None,
     ) -> ModelCompletion:
         chosen = model or self.model
-        payload = {
-            "model": chosen,
-            "temperature": 0,
-            "max_tokens": 1024,
-            "messages": (
-                [{"role": "system", "content": skill}] if skill.strip() else []
+        pending: list[dict[str, Any]] = (
+            [{"role": "system", "content": skill}] if skill.strip() else []
+        ) + list(messages)
+        last = self._chat(
+            chosen,
+            pending,
+            max_tokens=max_tokens,
+            tools=tools,
+        )
+        hops = 0
+        while tools and execute_tool and hops < 3:
+            message = ((last.get("choices") or [{}])[0].get("message") or {})
+            calls = message.get("tool_calls") or []
+            if not calls:
+                break
+            pending.append(message)
+            for call in calls:
+                fn = (call.get("function") or {})
+                raw = fn.get("arguments") or "{}"
+                try:
+                    args = json.loads(raw) if isinstance(raw, str) else dict(raw)
+                except json.JSONDecodeError:
+                    args = {}
+                pending.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(call.get("id") or f"call-{hops}"),
+                        "content": str(execute_tool(str(fn.get("name") or ""), args) or ""),
+                    }
+                )
+            hops += 1
+            last = self._chat(
+                chosen,
+                pending,
+                max_tokens=max_tokens,
+                tools=tools if hops < 3 else None,
             )
-            + list(messages),
+        choice = (last.get("choices") or [{}])[0]
+        text = str((choice.get("message") or {}).get("content") or "")
+        usage = last.get("usage") or {}
+        metadata = {
+            "provider": "litellm",
+            "request_id": last.get("id") or last.get("_response_id"),
+            "usage": {
+                key: usage[key]
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                if key in usage
+            },
+            "finish_reason": choice.get("finish_reason"),
+            "tool_hops": hops,
         }
+        result = ModelCompletion(
+            text=text,
+            model=str(last.get("model") or chosen),
+            model_version=str(last.get("model") or chosen),
+            prompt_version=self.prompt_version,
+            metadata=metadata,
+        )
+        if self.root is not None:
+            usage_ledger.record(
+                self.root, result, messages, skill, agent=agent, requirement_id=requirement_id
+            )
+        return result
+
+    def _chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int | None,
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": int(max_tokens or 1024),
+            "messages": messages,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -86,33 +170,11 @@ class LiteLLMModelGateway:
             headers=headers,
             method="POST",
         )
-        with request.urlopen(req, timeout=self.timeout) as response:
-            data: dict[str, Any] = json.load(response)
-            headers = response.headers
-        choice = (data.get("choices") or [{}])[0]
-        text = str((choice.get("message") or {}).get("content") or "")
-        usage = data.get("usage") or {}
-        metadata = {
-            "provider": "litellm",
-            "request_id": data.get("id") or headers.get("x-request-id"),
-            "usage": {
-                key: usage[key]
-                for key in ("prompt_tokens", "completion_tokens", "total_tokens")
-                if key in usage
-            },
-            "finish_reason": choice.get("finish_reason"),
-        }
-        result = ModelCompletion(
-            text=text,
-            model=str(data.get("model") or chosen),
-            model_version=str(
-                headers.get("x-litellm-model-id")
-                or data.get("model")
-                or chosen
-            ),
-            prompt_version=self.prompt_version,
-            metadata=metadata,
-        )
-        if self.root is not None:
-            usage_ledger.record(self.root, result, messages, skill, agent="intake")
-        return result
+        try:
+            with request.urlopen(req, timeout=self.timeout) as response:
+                data: dict[str, Any] = json.load(response)
+                data["_response_id"] = response.headers.get("x-request-id")
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:800]
+            raise RuntimeError(f"model {model} rejected ({exc.code}): {detail}") from exc
+        return data

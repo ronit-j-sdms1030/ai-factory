@@ -24,12 +24,20 @@ def apply(platform) -> list[str]:
         number = pr.get("number")
         if number is None:
             continue
+        repo = ((pr.get("base") or {}).get("repo") or {}).get("name")
+        other_repo = repo if repo and repo != getattr(git, "repo", repo) else None
         try:
-            reviews = list_reviews(int(number)) or []
+            reviews = (
+                list_reviews(int(number), repo=other_repo)
+                if other_repo
+                else list_reviews(int(number))
+            ) or []
         except Exception:
             continue
         for review in reviews:
             key = f"{number}:{review.get('id')}"
+            if other_repo:
+                key = f"{other_repo}#{key}"
             if key in seen:
                 continue
             payload = json.dumps({"review": review, "pull_request": pr}).encode()

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from phase4 import sandbox, scanners
+from phase4 import context, findings, sandbox, scanners
 from phase5 import dast, load
+import connectors
 
 TENANT_KEYS = [
     {
@@ -68,5 +69,14 @@ def report() -> dict[str, Any]:
         "scanners": scanners.inventory(),
         "dast": dast.scan("/preview/_"),
         "load": load.inventory(),
+        "context": {
+            "repomix": "substitute",
+            "codegraph": "substitute",
+            "serena": "substitute",
+            "acp": "substitute",
+            "budget": context.TOKEN_BUDGET,
+        },
+        "findings": findings.ingest([]),
+        "connectors": connectors.resolve_all("demo"),
         "tenant_keys": TENANT_KEYS,
     }
