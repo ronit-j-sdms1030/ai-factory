@@ -56,6 +56,19 @@ services:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
+  freellmapi:
+    profiles: ["litellm"]
+    image: ghcr.io/tashfeenahmed/freellmapi:latest
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      ENCRYPTION_KEY: ${FREELLMAPI_ENCRYPTION_KEY:?set FREELLMAPI_ENCRYPTION_KEY in .env}
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - freellmapi-data:/app/server/data
+    restart: unless-stopped
+
   litellm:
     profiles: ["litellm"]
     image: ghcr.io/berriai/litellm:1.100.0
@@ -71,7 +84,7 @@ services:
       AZURE_API_BASE: ${AZURE_API_BASE:-}
       AZURE_API_VERSION: ${AZURE_API_VERSION:-}
       OLLAMA_API_BASE: ${OLLAMA_API_BASE:-}
-      FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://host.docker.internal:3001/v1}
+      FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-http://freellmapi:3001/v1}
       FREELLMAPI_KEY: ${FREELLMAPI_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -393,6 +406,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  freellmapi-data:
   app-data:
   signing-data:
   postgres-data:
