@@ -87,6 +87,9 @@ def record(
         "usd": cost_usd(completion.model, prompt, comp),
         "estimated": not bool((completion.metadata or {}).get("usage")),
     }
+    served = (completion.metadata or {}).get("served_by")
+    if served:
+        row["served_by"] = str(served)
     path = _path(root)
     line = json.dumps(row, sort_keys=True) + "\n"
     with _LOCK:
@@ -201,7 +204,10 @@ def dashboard(root: Path, store: Any = None) -> dict[str, Any]:
         completion += int(row.get("completion_tokens") or 0)
         total += int(row.get("total_tokens") or 0)
         usd += float(row.get("usd") or 0)
-        _add(_bucket(by_model, str(row.get("model") or "unknown"), "model"), row)
+        _add(
+            _bucket(by_model, str(row.get("served_by") or row.get("model") or "unknown"), "model"),
+            row,
+        )
         _add(_bucket(by_agent, str(row.get("agent") or "unknown"), "agent"), row)
         rid = str(row.get("requirement_id") or "").strip() or "(no requirement)"
         _add(_bucket(by_requirement, rid, "requirementId"), row)

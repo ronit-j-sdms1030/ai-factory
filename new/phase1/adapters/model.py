@@ -127,6 +127,11 @@ class LiteLLMModelGateway:
             "finish_reason": choice.get("finish_reason"),
             "tool_hops": hops,
         }
+        served = last.get("_routed_via") or (
+            str(last.get("model") or "") if str(last.get("model") or "") not in {"", chosen} else ""
+        )
+        if served and served != chosen:
+            metadata["served_by"] = str(served)
         result = ModelCompletion(
             text=text,
             model=str(last.get("model") or chosen),
@@ -174,6 +179,9 @@ class LiteLLMModelGateway:
             with request.urlopen(req, timeout=self.timeout) as response:
                 data: dict[str, Any] = json.load(response)
                 data["_response_id"] = response.headers.get("x-request-id")
+                data["_routed_via"] = response.headers.get(
+                    "llm_provider-x-routed-via"
+                ) or response.headers.get("x-routed-via")
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:800]
             raise RuntimeError(f"model {model} rejected ({exc.code}): {detail}") from exc

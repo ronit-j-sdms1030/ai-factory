@@ -3474,7 +3474,9 @@
           return '<tr><td>' + escapeHtml(row.at || '') + '</td>' +
             '<td>' + escapeHtml(row.requirement_id || '—') + '</td>' +
             '<td>' + escapeHtml(row.agent || '') + '</td>' +
-            '<td>' + escapeHtml(row.model || '') + (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
+            '<td>' + escapeHtml(row.model || '') +
+              (row.served_by ? ' <span style="color:var(--text-faint)">→ ' + escapeHtml(row.served_by) + '</span>' : '') +
+              (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
             '<td class="num">' + fmtTokens(row.total_tokens) + '</td>' +
             '<td class="num">' + fmtUsd(row.usd) + '</td></tr>';
         }).join('') + '</tbody></table>';

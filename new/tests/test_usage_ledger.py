@@ -42,6 +42,24 @@ def test_usage_uses_provider_token_counts(tmp_path: Path):
     assert board["history"][0]["requirement_id"] == "REQ-0009"
 
 
+def test_free_router_records_the_model_that_served_it(tmp_path: Path):
+    completion = ModelCompletion(
+        text="ok",
+        model="freellm/auto",
+        model_version="freellm/auto",
+        prompt_version="intake.skill.md",
+        metadata={
+            "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+            "served_by": "google/gemini-3.7-flash",
+        },
+    )
+    row = usage_ledger.record(tmp_path, completion, [], "", agent="intake")
+    assert row["served_by"] == "google/gemini-3.7-flash"
+    assert row["usd"] == 0
+    board = usage_ledger.dashboard(tmp_path)
+    assert board["byModel"][0]["model"] == "google/gemini-3.7-flash"
+
+
 def test_gate_writes_record_brd_architect_and_ui_usage(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_design(p1)

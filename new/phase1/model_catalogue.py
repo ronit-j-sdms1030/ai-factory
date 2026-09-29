@@ -23,6 +23,11 @@ NOTES: dict[str, str] = {
     "meta-llama/llama-3.3-70b-instruct": "open-weight, strong general",
     "freellm/auto": "FreeLLMAPI router, free tiers (testing only, self-hosted on :3001)",
     "freellm/auto:smart": "FreeLLMAPI, strongest free model available right now",
+    "freellm/moonshotai/Kimi-K3": "free stand-in for Claude Sonnet 4.6 (Hugging Face key)",
+    "freellm/gemini-3.7-flash": "free stand-in for Claude Haiku 4.5 (Google AI Studio key)",
+    "freellm/deepseek-ai/DeepSeek-V4-Flash-0731": "free stand-in for GPT-4.1 mini (Hugging Face key)",
+    "freellm/Qwen/Qwen3-Coder-480B-A35B-Instruct": "free stand-in for Qwen3 Coder (Hugging Face key)",
+    "freellm/glm-4.7-flash": "free stand-in for GPT-4o mini (Zhipu key)",
 }
 
 
