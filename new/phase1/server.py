@@ -263,13 +263,15 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                     compatibility.authenticate(self.headers)
                     rid = path.split("/")[3]
                     run = platform.get(rid)
-                    from phase2.jsx_gate import neutralize_placeholder_tags
+                    from phase2.jsx_gate import dedupe_host_functions, neutralize_placeholder_tags
 
                     screens = []
                     for screen in list(run.get("screens") or []):
                         item = dict(screen)
                         if item.get("source"):
-                            item["source"] = neutralize_placeholder_tags(str(item["source"]))
+                            item["source"] = dedupe_host_functions(
+                                neutralize_placeholder_tags(str(item["source"]))
+                            )
                         screens.append(item)
                     return self._json(200, {"screens": screens})
                 if path == "/api/me":

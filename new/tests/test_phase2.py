@@ -102,12 +102,16 @@ def test_gate_3_revise_screens_leaves_architecture(tmp_path: Path):
     p1.decide(rid, directory.actor("u-ba"), "approve")
     before = p1.git.read(f"requirements/{rid}/design/architecture.md", f"design/{rid}")
     assert p1.get(rid)["screens"], "screens exist after BA for UI revise"
+    sha = p1.get(rid)["requirement"]["artefacts"]["design"]["sha"]
     revised = p1.decide(
-        rid, directory.actor("u-ux"), "revise", reason="Send the screens back."
+        rid, directory.actor("u-ux"), "revise", reason="Send the screens back.", revise_side="ui"
     )
     assert revised["phase"] == "awaiting_gate_3"
+    assert revised["requirement"]["artefacts"]["design"]["sha"] == sha
     after = p1.git.read(f"requirements/{rid}/design/architecture.md", f"design/{rid}")
     assert after == before
+    approved = p1.decide(rid, directory.actor("u-ux"), "approve")
+    assert approved["awaiting"] == 4
 
 
 def test_gate_3_revise_architecture_keeps_screens(tmp_path: Path):

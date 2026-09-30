@@ -5,6 +5,6 @@
   "main": "server.js",
   "scripts": {
     "dev": "node server.js",
-    "test": "node --test server.test.js"
+    "test": "node --test server.test.js ue-jsx.test.js"
   }
 }

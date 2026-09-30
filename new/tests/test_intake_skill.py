@@ -47,7 +47,14 @@ class TestTheBoundary:
 
     @pytest.mark.parametrize(
         "excluded",
-        ["native mobile", "desktop application", "firmware", "games", "safety-critical"],
+        [
+            "native mobile",
+            "desktop application",
+            "firmware",
+            "games",
+            "safety-critical",
+            "call bots and chatbots",
+        ],
     )
     def test_it_states_what_cannot_be_delivered_at_all(self, excluded):
         """Not difficulty judgements — the platform has no path to these."""

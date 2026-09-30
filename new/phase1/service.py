@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from phase1 import webhook
 from phase1.adapters import RuntimeAdapters
@@ -62,25 +63,55 @@ class TemporalPhase1:
         *,
         requirement_id: str | None = None,
     ) -> dict[str, Any]:
-        rid = requirement_id or RuntimeAdapters.from_env(self.root).store.next_id()
+        store = RuntimeAdapters.from_env(self.root).store
+        rid = requirement_id or store.next_id()
 
         async def start() -> dict[str, Any]:
             client = await self._client()
-            handle = await client.start_workflow(
-                "GovernedRequirement",
-                {
-                    "requirement_id": rid,
+            chosen = rid
+            for _ in range(8):
+                payload = {
+                    "requirement_id": chosen,
                     "originator": originator,
                     "template": template,
                     "request_text": request_text,
-                },
-                id=rid,
-                task_queue=self.task_queue,
-                # Failed first-question calls left a closed REQ-nnnn run that
-                # blocked "Start guided intake" with "Workflow execution already started".
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-            )
-            return await handle.execute_update("ready")
+                }
+                try:
+                    handle = await client.start_workflow(
+                        "GovernedRequirement",
+                        payload,
+                        id=chosen,
+                        task_queue=self.task_queue,
+                        # A failed first question must not block the next intake
+                        # on the same id.
+                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    )
+                except WorkflowAlreadyStartedError:
+                    # Deleting a requirement leaves its Temporal run. That id is
+                    # what next_id() would hand out, so "Start guided intake"
+                    # dies with "Workflow execution already started".
+                    if requirement_id is None and store.get(chosen) is None:
+                        try:
+                            await client.get_workflow_handle(chosen).terminate(
+                                "requirement was removed; freeing the id for a new intake"
+                            )
+                        except Exception:
+                            pass
+                        handle = await client.start_workflow(
+                            "GovernedRequirement",
+                            payload,
+                            id=chosen,
+                            task_queue=self.task_queue,
+                            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                        )
+                    elif requirement_id:
+                        raise
+                    else:
+                        number = int(chosen.rsplit("-", 1)[-1]) + 1
+                        chosen = f"REQ-{number:04d}"
+                        continue
+                return await handle.execute_update("ready")
+            raise RuntimeError("could not allocate a free requirement id")
 
         return self._run(start())
 

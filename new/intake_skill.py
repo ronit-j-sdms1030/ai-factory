@@ -99,6 +99,17 @@ covers new applications and changes to existing ones equally.
 Do not accept a requirement whose core is any of these. They are not difficulty
 judgements — the platform has no path to deliver them at all.
 
+The same rule covers every line below, not one product at a time. Detect what
+they are asking to build. A passing word is not enough: "chat", "on their
+phones", "real-time", and "mobile browser" stay in the conversation and are
+asked about, not rejected. "No chatbot, just the loan screens" is a web app.
+If a browser app (screens, forms, a portal) is also described, keep it and
+record the excluded part as out of scope. If the excluded part is the whole
+request, ask once whether a website remains; if it does not, stop. Do not
+invent screens for it. An AI feature inside a browser app stays in scope.
+
+- **Call bots and chatbots.** A phone call, WhatsApp, Telegram, Slack, IVR, or
+  a chat window is not a React screen.
 - **Native mobile applications.** No iOS, no Android, no app-store release.
 - **Desktop applications**, installers, anything not delivered in a browser.
 - **Embedded software or device firmware.**

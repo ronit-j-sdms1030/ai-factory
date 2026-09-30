@@ -13,6 +13,7 @@ import connectors
 import intake_skill
 import requirement as R
 import skill_registry
+import stack_profiles
 import workflow_templates
 from attestation import ContextInputs
 from phase1 import agent_runs, agent_settings, brd, catalog, rails, reconcile, webhook
@@ -199,6 +200,51 @@ class Phase1:
         if not as_originator and rails.is_bootstrap(str(body.get("request_text") or "")):
             body["request_text"] = text
 
+        transcript = "\n".join(
+            str(item.get("content") or "")
+            for item in body["messages"]
+            if item.get("role") == "user"
+        )
+        fit = stack_profiles.delivery_fit(transcript)
+        boundary_asked = any(
+            stack_profiles.BOUNDARY_MARK in str(item.get("content") or "")
+            for item in body["messages"]
+            if item.get("role") == "assistant"
+        )
+        if fit["core_outside"] and not boundary_asked:
+            parsed = {"type": "question", "text": stack_profiles.boundary_question(transcript)}
+            budget = intake_skill.QuestionBudget(
+                minimum=int(body["budget"]["minimum"]),
+                maximum=int(body["budget"]["maximum"]),
+                asked=int(body["budget"]["asked"]),
+                calls=int(body["budget"].get("calls") or 0),
+            )
+            budget.record_question()
+            body["budget"]["asked"] = budget.asked
+            body["budget"]["calls"] = budget.calls
+            body["messages"].append(
+                {"role": "assistant", "content": json_question(parsed["text"])}
+            )
+            self._save(body, event="intake_question", at=self.clock())
+            result = self.get(requirement_id)
+            result["question"] = parsed["text"]
+            return result
+        if fit["core_outside"] and boundary_asked:
+            # Confirmed: nothing here is a browser app. Do not invent React screens.
+            parsed = stack_profiles.outside_only_scope(transcript)
+            skill = self.git.skill()
+            scope_md = brd.render_scope(requirement_id, parsed)
+            sha = self._commit_scope(req, body, scope_md, skill)
+            req.record_artefact("scope", sha, **PROVENANCE_INTAKE)
+            body["requirement"] = req.dump()
+            body["display_title"] = str(parsed.get("title") or "").strip()
+            body["messages"].append({"role": "assistant", "content": json_dumps(parsed)})
+            self._arm_sla(body, req, 1)
+            self._save(body, event="scope_written", at=self.clock())
+            result = self.get(requirement_id)
+            result["scope_sha"] = sha
+            return result
+
         budget = intake_skill.QuestionBudget(
             minimum=int(body["budget"]["minimum"]),
             maximum=int(body["budget"]["maximum"]),
@@ -220,7 +266,10 @@ class Phase1:
                     "in_scope (6-10 testable capabilities drawn from the answers — "
                     "never the phrase about starting a guided intake conversation, "
                     "never paste the whole transcript as one bullet), "
-                    "out_of_scope (exclusions only; do not list the browser itself as out of scope), "
+                    "out_of_scope (exclusions only; do not list the browser itself as out of scope; "
+                    "if they asked for a product this stack cannot ship — a bot, a native or desktop app, "
+                    "firmware, a game, another runtime, an ML training platform, or safety-critical software — "
+                    "put that here and do not turn it into screens), "
                     "success (the afterwards picture, not a feature list), "
                     "non_functional (channel and constraints), assumptions, open_questions.\n\n"
                     + intake_skill.prompt_section(skill)
@@ -350,6 +399,10 @@ class Phase1:
                 if not parsed.get("non_functional"):
                     parsed["non_functional"] = overlay.get("non_functional") or []
 
+        if fit["outside"] and parsed.get("type") == "scope_report":
+            parsed["out_of_scope"] = stack_profiles.merge_exclusions(
+                list(parsed.get("out_of_scope") or []), transcript
+            )
         if parsed["type"] != "question" and not budget.may_close() and not budget.at_call_cap():
             parsed = {
                 "type": "question",
@@ -722,9 +775,15 @@ class Phase1:
                 body["architecture_text"] = body.get("architecture_text") or self._artefact_text(
                     req, "design"
                 )
-                req.artefacts.pop("design", None)
-                body["requirement"] = req.dump()
-                self._write_design(req, body, refresh=_revise_side(actor, reason, revise_side))
+                side = _revise_side(actor, reason, revise_side)
+                # Screen-only revise must not mint a new design SHA. A new SHA
+                # drops Architect and BA signatures, and UI/UX then has no Approve.
+                if side == "ui" and "design" in req.artefacts:
+                    self._write_screens_for_ui_review(req, body)
+                else:
+                    req.artefacts.pop("design", None)
+                    body["requirement"] = req.dump()
+                    self._write_design(req, body, refresh=side)
             elif gate == 4:
                 req.artefacts.pop("plan", None)
                 body["requirement"] = req.dump()

@@ -11,7 +11,7 @@ import re
 from typing import Any
 
 from phase1 import brd as brd_mod
-from phase2.jsx_gate import neutralize_placeholder_tags
+from phase2.jsx_gate import dedupe_host_functions, neutralize_placeholder_tags
 
 # BRD writes `- **Room:** id, name`. Also accept `- **Room**: id, name`
 # and compound owners like `- **User / Member / Staff:** id, name`.
@@ -215,8 +215,12 @@ def api_py(ticket: dict[str, Any], entities: list[tuple[str, list[str]]]) -> str
     return f"# ticket {tid}\nticket = {tid!r}\nresource = {resource!r}\n"
 
 
+def _screen_source(source: str) -> str:
+    return dedupe_host_functions(neutralize_placeholder_tags((source or "").strip()))
+
+
 def screen_jsx(name: str, source: str) -> str:
-    text = neutralize_placeholder_tags((source or "").strip())
+    text = _screen_source(source)
     if f"function {name}" not in text:
         text += f"\nexport default function {name}Bridge() {{ return <Page />; }}\n"
     else:
@@ -444,7 +448,7 @@ def frontend_html(
     scripts = []
     for screen in screens:
         name = str(screen.get("name") or "Screen")
-        source = neutralize_placeholder_tags(str(screen.get("source") or "").strip())
+        source = _screen_source(str(screen.get("source") or ""))
         scripts.append(
             f'<script type="text/babel" data-presets="react">\n'
             f"(function () {{\n"
@@ -1169,7 +1173,7 @@ def assemble(
         files[f"{prefix}/{rel}"] = content
     for screen in screens:
         name = str(screen.get("name") or "Screen")
-        source = neutralize_placeholder_tags(str(screen.get("source") or "").strip())
+        source = _screen_source(str(screen.get("source") or ""))
         if source:
             files[f"{prefix}/src/ui/{name}.jsx"] = screen_jsx(name, source)
     if profile_id == "python":

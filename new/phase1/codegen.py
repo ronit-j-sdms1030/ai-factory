@@ -104,7 +104,7 @@ def _plan_files(row: dict[str, Any], department: str) -> list[dict[str, Any]]:
     ):
         for screen in screens:
             name = str(screen.get("name") or "Screen")
-            source = product.neutralize_placeholder_tags(str(screen.get("source") or "").strip())
+            source = product._screen_source(str(screen.get("source") or ""))
             if not source:
                 continue
             planned.append(

@@ -394,7 +394,8 @@ class CompatibilityAPI:
             else None,
             "uiGate": {
                 "blocksSplit": awaiting == 3,
-                "canEdit": can_gate_2 or (can_gate_3 and bool(viewer_roles & {"architect", "ui_ux"})),
+                # Mirrors Phase1.edit_screen: only Gate 3 architect / UI-UX may save screens.
+                "canEdit": can_gate_3 and bool(viewer_roles & {"architect", "ui_ux"}),
                 "canApprove": can_gate_3 or can_gate_4 or can_gate_5 or can_gate_6 or can_gate_7,
             },
             "viewerHasSigned": signed,

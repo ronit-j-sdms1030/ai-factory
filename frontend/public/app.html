@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/theme.css?v=20260924-fonts4">
 <link rel="stylesheet" href="/theme-client.css?v=20260924-fonts4">
 <script src="/config.js?v=20260922"></script>
+<script src="/ue-jsx.js"></script>
 <script>window.API_BASE = '';</script>
 <script>
   (function () {
@@ -151,6 +152,17 @@
     font: inherit; font-size: 0.8rem; padding: 0.4rem 0.85rem; border-radius: 8px;
     border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); }
   .uied-bar button { cursor: pointer; }
+  .uied-bar button:disabled { opacity: 0.45; cursor: default; }
+  .uied-bar button.dirty::after { content: ''; display: inline-block; width: 7px; height: 7px;
+    margin-left: 0.4rem; border-radius: 50%; background: currentColor; vertical-align: middle; }
+  .uied-allscreens { display: flex; align-items: center; gap: 0.4rem; font-size: 0.74rem;
+    color: var(--text-soft); cursor: pointer; }
+  .uied-inspector .uied-act-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; margin-top: 0.55rem; }
+  .uied-inspector .uied-tagline { display: inline-block; margin-left: 0.35rem; padding: 0.05rem 0.4rem;
+    border-radius: 999px; font-size: 0.6rem; letter-spacing: 0.04em; border: 1px solid var(--line-strong); color: var(--text-soft); }
+  .uied-inspector .uied-keys { margin-top: 0.8rem; font-size: 0.66rem; line-height: 1.55; color: var(--text-faint); }
+  .uied-inspector .uied-keys kbd { font: inherit; font-size: 0.62rem; padding: 0 0.3rem; border-radius: 4px;
+    border: 1px solid var(--line-strong); background: var(--surface); }
   .uied-bar button.on, .uied-bar button.primary {
     background: var(--accent); border-color: transparent; color: var(--accent-ink); }
   .uied-toast { flex: none; padding: 0.35rem 0.9rem; font-size: 0.74rem; color: var(--text-soft);
@@ -4256,9 +4268,12 @@
         '<div class="uied-bar">' +
           '<select id="ue-screen" aria-label="Screen"></select>' +
           '<span class="uied-spacer"></span>' +
+          (canEditUi ? '<button id="ue-undo" type="button" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>' : '') +
+          (canEditUi ? '<button id="ue-redo" type="button" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>' : '') +
+          (canEditUi ? '<button id="ue-move-mode" type="button" title="Layout: drop into cards and columns. Free: pixel position. Hold Alt while dragging to switch once.">Drag: layout</button>' : '') +
           (canEditUi ? '<button id="ue-mode" type="button">Design</button>' : '') +
           (canEditUi ? '<button id="ue-ask" type="button">Ask</button>' : '') +
-          (canEditUi ? '<button id="ue-save" class="primary" type="button">Save</button>' : '') +
+          (canEditUi ? '<button id="ue-save" class="primary" type="button" title="Save every edited screen (Ctrl+S)">Save</button>' : '') +
           '<button id="ue-close" type="button">Close</button>' +
         '</div>' +
         '<div class="uied-toast" id="ue-status"></div>' +
@@ -4275,6 +4290,8 @@
                 '</div>' +
                 '<div class="uied-studio-body">' +
                   '<div class="uied-studio open" id="ue-studio">' +
+                    '<label class="uied-allscreens" title="Themes, colours, type and layout change every screen so the app stays consistent">' +
+                      '<input type="checkbox" id="ue-all"> Apply look to all screens</label>' +
                     '<h4>Themes</h4>' +
                     '<div class="uied-studio-row" id="ue-themes"></div>' +
                     '<h4>Colours</h4>' +
@@ -4361,43 +4378,116 @@
       var drag = null;
       var uid = 1;
       var picked = null; // { id, tag, text, width, height, fontSize, padding, paddingX, paddingY }
+      var J = window.UeJsx;
+      var baseline = [];
+      var undoStack = [];
+      var redoStack = [];
+      var lastCheckpoint = { key: '', at: 0 };
+      var saving = false;
+      var selectAfter = '';
+      var applyAll = true;
+      var moveMode = 'flow';
+      try {
+        applyAll = localStorage.getItem('ue-apply-all') !== '0';
+        moveMode = localStorage.getItem('ue-move-mode') === 'free' ? 'free' : 'flow';
+      } catch (_ls) {}
 
       function stampElementIds(src) {
-        var n = 0;
-        var existing = src.match(/data-ue="ue(\d+)"/g) || [];
-        existing.forEach(function (m) {
-          var num = Number(m.replace(/\D/g, ''));
-          if (num > n) n = num;
+        return J.stamp(src);
+      }
+
+      function setSrc(i, src) {
+        if (!screens[i]) return;
+        screens[i].source = src;
+        if (i === current) sourceEl.value = src;
+      }
+
+      function snapshot() {
+        return { current: current, sources: screens.map(function (sc) { return sc.source || ''; }) };
+      }
+
+      // Call before a change. Rapid edits with the same key (typing a width,
+      // dragging a colour picker) collapse into one undo step.
+      function checkpoint(key, preSource) {
+        var now = Date.now();
+        if (key && key === lastCheckpoint.key && now - lastCheckpoint.at < 900) {
+          lastCheckpoint.at = now;
+          return;
+        }
+        if (screens[current]) {
+          screens[current].source = preSource != null ? preSource : (sourceEl.value || screens[current].source || '');
+        }
+        undoStack.push(snapshot());
+        if (undoStack.length > 80) undoStack.shift();
+        redoStack = [];
+        lastCheckpoint = { key: key || '', at: now };
+        updateDirtyUi();
+      }
+
+      function restore(snap) {
+        snap.sources.forEach(function (src, i) { if (screens[i]) screens[i].source = src; });
+        if (snap.current !== current && screens[snap.current]) {
+          current = snap.current;
+          selectEl.value = String(current);
+        }
+        sourceEl.value = screens[current] ? screens[current].source : '';
+        picked = null;
+        lastCheckpoint = { key: '', at: 0 };
+        renderLive();
+        renderPickInspector();
+        paintStudio();
+      }
+
+      function undo() {
+        if (!undoStack.length) return status('Nothing to undo');
+        if (screens[current]) screens[current].source = sourceEl.value || screens[current].source || '';
+        redoStack.push(snapshot());
+        restore(undoStack.pop());
+        status('Undone — ' + undoStack.length + ' more step' + (undoStack.length === 1 ? '' : 's') + ' available');
+      }
+
+      function redo() {
+        if (!redoStack.length) return status('Nothing to redo');
+        undoStack.push(snapshot());
+        restore(redoStack.pop());
+        status('Redone');
+      }
+
+      function isDirty(i) {
+        var sc = screens[i];
+        if (!sc) return false;
+        var src = i === current ? (sourceEl.value || sc.source || '') : (sc.source || '');
+        return J.normalize(polishSource(src)) !== baseline[i];
+      }
+
+      function dirtyList() {
+        var out = [];
+        for (var i = 0; i < screens.length; i++) if (isDirty(i)) out.push(i);
+        return out;
+      }
+
+      function updateDirtyUi() {
+        var dirty = dirtyList();
+        var saveEl = host.querySelector('#ue-save');
+        if (saveEl) {
+          saveEl.textContent = saving ? 'Saving…' : dirty.length > 1 ? 'Save ' + dirty.length + ' screens' : 'Save';
+          saveEl.classList.toggle('dirty', dirty.length > 0 && !saving);
+          saveEl.disabled = saving;
+        }
+        var u = host.querySelector('#ue-undo');
+        var r = host.querySelector('#ue-redo');
+        if (u) u.disabled = !undoStack.length;
+        if (r) r.disabled = !redoStack.length;
+        Array.prototype.forEach.call(selectEl.options, function (o) {
+          var i = Number(o.value);
+          var sc = screens[i];
+          if (!sc) return;
+          o.textContent = (dirty.indexOf(i) >= 0 ? '● ' : '') + sc.name + '  ' + (sc.route || '');
         });
-        function stampChunk(chunk) {
-          return String(chunk || '').replace(
-            /<(Button|Field|Table|Card|Badge|Hero|Image|h1|h2|h3|p|label|section|figure|table|button)(\s[^>]*?)?(\/>|>)/g,
-            function (full, tag, attrs, end) {
-              attrs = attrs || '';
-              if (/\bdata-ue=/.test(attrs)) return full;
-              n += 1;
-              return '<' + tag + ' data-ue="ue' + n + '"' + attrs + end;
-            }
-          ).replace(
-            /<div(\s[^>]*ue-place[^>]*)>/g,
-            function (full, attrs) {
-              if (/\bdata-ue=/.test(attrs || '')) return full;
-              n += 1;
-              return '<div data-ue="ue' + n + '"' + attrs + '>';
-            }
-          );
-        }
-        // Only stamp the active screen component body — never helper factories
-        // (stamping helpers baked data-ue into every Button/Field render).
-        var s = screens[current];
-        var name = s && s.name;
-        if (name) {
-          var range = screenBodyRange(src, name);
-          if (range) {
-            return src.slice(0, range.start) + stampChunk(src.slice(range.start, range.end)) + src.slice(range.end);
-          }
-        }
-        return stampChunk(src);
+      }
+
+      function resetBaseline(i) {
+        baseline[i] = J.normalize(polishSource(screens[i] ? screens[i].source || '' : ''));
       }
 
       function parseJsxStyle(styleInner) {
@@ -4433,43 +4523,14 @@
         return s + 'px';
       }
 
+      // The tag scanner in ue-jsx.js understands onClick={() => …}; a plain
+      // indexOf('>') stopped at the arrow and corrupted the button's JSX.
       function mergeUeStyle(src, id, styles) {
-        var token = 'data-ue="' + id + '"';
-        var idx = src.indexOf(token);
-        if (idx < 0) return src;
-        var start = src.lastIndexOf('<', idx);
-        if (start < 0) return src;
-        var end = src.indexOf('>', idx);
-        if (end < 0) return src;
-        var open = src.slice(start, end + 1);
-        var self = /\/>$/.test(open);
-        var body = open.slice(1, self ? -2 : -1);
-        var styleMatch = body.match(/style=\{\{([\s\S]*?)\}\}/);
-        var current = styleMatch ? parseJsxStyle(styleMatch[1]) : {};
-        Object.keys(styles).forEach(function (k) {
-          if (styles[k] === '' || styles[k] == null) delete current[k];
-          else current[k] = styles[k];
-        });
-        var styled = styleToJsx(current);
-        if (styleMatch) {
-          body = body.replace(/style=\{\{([\s\S]*?)\}\}/, styled ? 'style={{' + styled + '}}' : '');
-        } else if (styled) {
-          body += ' style={{' + styled + '}}';
-        }
-        var nextOpen = '<' + body + (self ? ' />' : '>');
-        return src.slice(0, start) + nextOpen + src.slice(end + 1);
+        return J.setStyle(src, id, styles);
       }
 
       function readUeStyles(src, id) {
-        var token = 'data-ue="' + id + '"';
-        var idx = src.indexOf(token);
-        if (idx < 0) return {};
-        var start = src.lastIndexOf('<', idx);
-        var end = src.indexOf('>', idx);
-        if (start < 0 || end < 0) return {};
-        var open = src.slice(start, end + 1);
-        var styleMatch = open.match(/style=\{\{([\s\S]*?)\}\}/);
-        return styleMatch ? parseJsxStyle(styleMatch[1]) : {};
+        return J.readStyle(src, id);
       }
 
       function applyPickedDom(styles) {
@@ -4505,26 +4566,110 @@
           else if (k === 'fontSize' || k === 'width' || k === 'height' || k === 'minHeight' || k === 'borderRadius' || k === 'maxWidth' || k === 'left' || k === 'top') next[k] = px(v);
           else next[k] = v;
         });
+        var before = sourceEl.value || s.source || '';
+        if (!J.has(before, picked.id)) {
+          status('That element is drawn by a helper — select its parent to size it', true);
+          return;
+        }
+        checkpoint('style:' + picked.id + ':' + Object.keys(partial).sort().join(','));
         applyPickedDom(next);
-        var base = Object.assign({}, readUeStyles(sourceEl.value || s.source || '', picked.id));
-        Object.keys(next).forEach(function (k) {
-          if (next[k] === '') delete base[k];
-          else base[k] = next[k];
-        });
-        var wipe = {};
-        Object.keys(readUeStyles(sourceEl.value || s.source || '', picked.id)).forEach(function (k) { wipe[k] = ''; });
-        var src = mergeUeStyle(sourceEl.value || s.source || '', picked.id, wipe);
-        src = mergeUeStyle(src, picked.id, base);
-        sourceEl.value = src;
-        s.source = src;
+        var src = mergeUeStyle(before, picked.id, next);
+        setSrc(current, src);
+        var base = readUeStyles(src, picked.id);
         picked.styles = base;
+        updateDirtyUi();
         if (base.width) picked.width = parseInt(base.width, 10);
         if (base.height) picked.height = parseInt(base.height, 10);
         if (base.fontSize) picked.fontSize = parseInt(base.fontSize, 10);
         if (base.left) picked.left = parseInt(base.left, 10);
         if (base.top) picked.top = parseInt(base.top, 10);
         if (base.padding) picked.padding = base.padding;
-        status('Updated ' + picked.id + ' — Save when ready');
+        status('Updated ' + (picked.tag || picked.id) + ' — Save when ready');
+      }
+
+      function frameEl(id) {
+        try {
+          var doc = frame.contentDocument;
+          return doc ? doc.querySelector('[data-ue="' + id + '"]') : null;
+        } catch (_e) { return null; }
+      }
+
+      function knownInSource(id) {
+        return J.has(sourceEl.value || '', id);
+      }
+
+      // Nearest ancestor in the live DOM that is a real JSX container in source.
+      function parentContainerId(id) {
+        var el = frameEl(id);
+        var src = sourceEl.value || '';
+        for (var p = el && el.parentElement; p; p = p.parentElement) {
+          var pid = p.getAttribute && p.getAttribute('data-ue');
+          if (pid && J.isContainer(src, pid)) return pid;
+        }
+        return '';
+      }
+
+      function editSource(key, fn, okText) {
+        var s = screens[current];
+        if (!s) return false;
+        var before = sourceEl.value || s.source || '';
+        var result = fn(before);
+        if (result && result.refused) { status(result.refused, true); return false; }
+        var next = result && typeof result === 'object' ? result.src : result;
+        if (!next) { status('That change would break the screen JSX — nothing changed', true); return false; }
+        if (next === before) { status('Already there'); return false; }
+        checkpoint(key);
+        setSrc(current, next);
+        renderLive();
+        updateDirtyUi();
+        if (okText) status(okText);
+        return true;
+      }
+
+      function movePicked(dir) {
+        if (!picked || !knownInSource(picked.id)) return;
+        var el = frameEl(picked.id);
+        var into = parentContainerId(picked.id);
+        if (!el || !into) return status('Nothing to reorder here');
+        var sibs = [];
+        for (var k = el.parentElement.firstElementChild; k; k = k.nextElementSibling) {
+          var kid = k.getAttribute('data-ue');
+          if (kid && knownInSource(kid)) sibs.push(kid);
+        }
+        var at = sibs.indexOf(picked.id);
+        if (at < 0) return;
+        var before = dir < 0 ? sibs[at - 1] : sibs[at + 2] || '';
+        if (dir < 0 && !before) return status('Already first');
+        if (dir > 0 && at === sibs.length - 1) return status('Already last');
+        selectAfter = picked.id;
+        editSource('reorder', function (src) { return J.moveElement(src, picked.id, into, before); },
+          dir < 0 ? 'Moved up — Save when ready' : 'Moved down — Save when ready');
+      }
+
+      function deletePicked() {
+        if (!picked || !knownInSource(picked.id)) return;
+        var id = picked.id;
+        if (editSource('delete', function (src) { return J.removeElement(src, id); }, 'Deleted — Ctrl+Z brings it back')) {
+          picked = null;
+          renderPickInspector();
+        }
+      }
+
+      function duplicatePicked() {
+        if (!picked || !knownInSource(picked.id)) return;
+        var id = picked.id;
+        editSource('duplicate', function (src) { return J.duplicateElement(src, id); }, 'Duplicated — Save when ready');
+      }
+
+      function putBackPicked() {
+        if (!picked || !knownInSource(picked.id)) return;
+        var id = picked.id;
+        selectAfter = id;
+        if (editSource('putback', function (src) { return J.clearPosition(src, id); }, 'Back in the layout — Save when ready')) {
+          picked.styles = readUeStyles(sourceEl.value || '', id);
+          picked.left = picked.top = null;
+          renderPickInspector();
+        }
       }
 
       function renderPickInspector() {
@@ -4534,11 +4679,18 @@
           return;
         }
         ins.style.display = '';
+        var keysHelp = '<div class="uied-keys">' +
+          '<kbd>Ctrl</kbd>+<kbd>S</kbd> save all · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> redo<br>' +
+          '<kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>D</kbd> duplicate · <kbd>Alt</kbd>+<kbd>↑↓</kbd> reorder<br>' +
+          '<kbd>Arrows</kbd> nudge a free element · <kbd>Esc</kbd> deselect<br>' +
+          'Drag onto a card or column to move it inside. Hold <kbd>Alt</kbd> while dragging for free placement.</div>';
         if (!picked) {
-          ins.innerHTML = '<h4>Element size</h4>' +
-            '<p class="uied-ins-hint">Click any button, field, heading, card, table or photo in the preview. Then set width / height / font for that one element.</p>';
+          ins.innerHTML = '<h4>Element</h4>' +
+            '<p class="uied-ins-hint">Click any button, field, heading, card, table or photo in the preview. Drag it into another card or column, or set its size here.</p>' +
+            keysHelp;
           return;
         }
+        var free = (picked.styles || {}).position === 'absolute';
         var st = picked.styles || {};
         var w = st.width != null ? String(st.width).replace(/px$/, '') : (picked.width || '');
         var h = st.height != null ? String(st.height).replace(/px$/, '') : (picked.height || '');
@@ -4547,9 +4699,16 @@
         var pad = st.padding != null ? st.padding : (picked.padding || '');
         var left = st.left != null ? String(st.left).replace(/px$/, '') : (picked.left || '');
         var top = st.top != null ? String(st.top).replace(/px$/, '') : (picked.top || '');
-        var html = '<h4>' + escapeHtml(picked.tag || 'element') + '</h4>' +
-          '<p class="uied-ins-hint">' + escapeHtml((picked.text || picked.id || '').slice(0, 48)) +
-          ' — drag on canvas snaps to 8px grid.</p>' +
+        var html = '<h4>' + escapeHtml(picked.tag || 'element') +
+            '<span class="uied-tagline">' + (free ? 'free position' : 'in layout') + '</span></h4>' +
+          '<p class="uied-ins-hint">' + escapeHtml((picked.text || picked.id || '').slice(0, 48)) + '</p>' +
+          (free ? '<button type="button" id="ue-pick-putback" class="primary" style="margin-bottom:0.6rem">Put back in layout</button>' : '') +
+          '<div class="uied-act-grid" style="margin:0 0 0.7rem">' +
+            '<button type="button" data-pick-act="up">↑ Move up</button>' +
+            '<button type="button" data-pick-act="down">↓ Move down</button>' +
+            '<button type="button" data-pick-act="dup">Duplicate</button>' +
+            '<button type="button" data-pick-act="del">Delete</button>' +
+          '</div>' +
           '<div class="uied-size-grid">' +
             '<div class="uied-ins-row"><label>X (px)</label><input data-pick="left" type="number" step="8" value="' + escapeAttr(String(left || '')) + '"></div>' +
             '<div class="uied-ins-row"><label>Y (px)</label><input data-pick="top" type="number" step="8" value="' + escapeAttr(String(top || '')) + '"></div>' +
@@ -4564,8 +4723,20 @@
             '<button type="button" data-pick-preset="smaller">− Smaller</button>' +
             '<button type="button" data-pick-preset="bigger">+ Bigger</button>' +
           '</div>' +
-          '<button type="button" id="ue-pick-clear" style="margin-top:0.55rem">Clear size &amp; position</button>';
+          '<button type="button" id="ue-pick-clear" style="margin-top:0.55rem">Clear size &amp; position</button>' +
+          keysHelp;
         ins.innerHTML = html;
+        var putBack = ins.querySelector('#ue-pick-putback');
+        if (putBack) putBack.addEventListener('click', putBackPicked);
+        Array.prototype.forEach.call(ins.querySelectorAll('[data-pick-act]'), function (btn) {
+          btn.addEventListener('click', function () {
+            var act = btn.getAttribute('data-pick-act');
+            if (act === 'up') movePicked(-1);
+            else if (act === 'down') movePicked(1);
+            else if (act === 'dup') duplicatePicked();
+            else if (act === 'del') deletePicked();
+          });
+        });
         Array.prototype.forEach.call(ins.querySelectorAll('[data-pick]'), function (el) {
           function apply() {
             var key = el.getAttribute('data-pick');
@@ -4785,6 +4956,13 @@
           sourceEl.value = liveSrc;
           s.source = liveSrc;
         }
+        if (selectAfter && J.has(liveSrc, selectAfter)) {
+          if (!picked || picked.id !== selectAfter) picked = { id: selectAfter, tag: 'element', text: '' };
+          picked.styles = readUeStyles(liveSrc, selectAfter);
+        }
+        selectAfter = '';
+        if (picked && !J.has(liveSrc, picked.id)) picked = null;
+        updateDirtyUi();
         var hasNav = /<Sidebar\b|<aside\b|className=["']sidebar/.test(String(liveSrc));
         var shellNav = hasNav ? '' :
           '<aside class="sidebar app-nav" data-appnav="1">' +
@@ -4802,7 +4980,8 @@
             '[data-ue].ue-sel{outline:2px solid var(--color-accent)!important;outline-offset:3px}' +
             '#root [data-ue],#root .ue-drag{cursor:grab!important;touch-action:none;user-select:none;-webkit-user-select:none}' +
             '#root [data-ue].ue-dragging,#root .ue-drag.ue-dragging{cursor:grabbing!important;z-index:50!important;' +
-            'box-shadow:0 10px 28px rgba(0,0,0,.28)!important;opacity:.95}' +
+            'box-shadow:0 10px 28px rgba(0,0,0,.28)!important;transition:none!important}' +
+            '#root [data-ue-canvas]{cursor:default!important}' +
             '.sidebar [data-ue],aside [data-ue],.sidebar .ue-drag,aside .ue-drag{cursor:pointer!important}' +
             '#root a,#root button{pointer-events:auto}' +
             '#root input,#root textarea,#root select{pointer-events:none}'
@@ -4810,37 +4989,59 @@
         var pickJs = designing
           ? '(function(){' +
               'var GRID=8;function snap(n){return Math.round(Number(n)/GRID)*GRID;}' +
+              'var KNOWN={};(window.UE_KNOWN||[]).forEach(function(id){KNOWN[id]=1;});' +
+              'var MODE=window.UE_MODE==="free"?"free":"flow";' +
+              'var CONT=["DIV","SECTION","FORM","HEADER","FOOTER","ARTICLE","UL","OL","LI","FIGURE","MAIN"];' +
               'function mainCol(){var p=document.querySelector("main.page, .page, [data-theme]");' +
                 'if(!p)return document.querySelector("#root");' +
                 'var kids=p.children;for(var i=0;i<kids.length;i++){' +
                   'if(!kids[i].classList.contains("sidebar")&&kids[i].tagName!=="ASIDE"){' +
                     'kids[i].setAttribute("data-ue-canvas","1");return kids[i];}}' +
                 'p.setAttribute("data-ue-canvas","1");return p;}' +
-              'function ensureIds(){' +
-                'var col=mainCol();if(!col)return 0;' +
-                'var max=0;' +
+              'function idOf(el){return el&&el.getAttribute?el.getAttribute("data-ue")||"":"";}' +
+              'function known(el){return !!KNOWN[idOf(el)];}' +
+              'function inNav(el){return !!(el&&el.closest&&el.closest(".sidebar,aside,[data-appnav]"));}' +
+              'function editable(t){var col=mainCol();' +
+                'for(var el=t;el&&el!==document.body;el=el.parentElement){' +
+                  'if(el===col)return null;if(known(el)&&!inNav(el))return el;}return null;}' +
+              'function isCont(el){return !!el&&known(el)&&!inNav(el)&&CONT.indexOf(el.tagName)>=0;}' +
+              'function ensureIds(){var col=mainCol(),n=0;' +
                 'document.querySelectorAll("[data-ue]").forEach(function(el){' +
-                  'var m=/^ue(\\d+)$/.exec(el.getAttribute("data-ue")||"");if(m)max=Math.max(max,+m[1]);});' +
-                'var sel="h1,h2,h3,p,button,label,table,figure,section,img,.ds-card,.ds-hero,.ds-inset,.ue-place";' +
-                'var tagged=[];' +
-                'col.querySelectorAll(sel).forEach(function(el){' +
-                  'if(el.closest(".sidebar,aside,[data-appnav]"))return;' +
-                  'el.classList.add("ue-drag");' +
-                  'if(!el.getAttribute("data-ue")){max+=1;el.setAttribute("data-ue","ue"+max);}' +
-                  'tagged.push(el.getAttribute("data-ue"));' +
-                '});' +
-                'parent.postMessage({type:"ue-ready",count:tagged.length,ids:tagged},"*");' +
-                'return tagged.length;' +
-              '}' +
+                  'if(el!==col&&known(el)&&!inNav(el)){el.classList.add("ue-drag");n++;}});' +
+                'if(window.UE_SELECT){var s=document.querySelector("[data-ue=\\""+window.UE_SELECT+"\\"]");if(s)s.classList.add("ue-sel");}' +
+                'parent.postMessage({type:"ue-ready",count:n},"*");return n;}' +
               'function emitPick(el){' +
                 'document.querySelectorAll(".ue-sel").forEach(function(n){n.classList.remove("ue-sel");});' +
                 'el.classList.add("ue-sel");' +
                 'var cs=getComputedStyle(el),r=el.getBoundingClientRect();' +
-                'parent.postMessage({type:"ue-pick",id:el.getAttribute("data-ue"),tag:el.tagName.toLowerCase(),' +
+                'parent.postMessage({type:"ue-pick",id:idOf(el),tag:el.tagName.toLowerCase(),' +
                 'text:(el.innerText||el.getAttribute("alt")||"").replace(/\\s+/g," ").trim().slice(0,80),' +
                 'width:Math.round(r.width),height:Math.round(r.height),' +
                 'left:parseInt(el.style.left,10)||null,top:parseInt(el.style.top,10)||null,' +
                 'fontSize:parseInt(cs.fontSize,10)||16,padding:cs.padding,borderRadius:parseInt(cs.borderRadius,10)||0},"*");' +
+              '}' +
+              'var bar=document.createElement("div"),box=document.createElement("div");' +
+              'bar.style.cssText="position:fixed;z-index:9999;pointer-events:none;background:var(--color-accent);border-radius:3px;display:none;box-shadow:0 0 0 2px var(--color-bg)";' +
+              'box.style.cssText="position:fixed;z-index:9998;pointer-events:none;border:2px dashed var(--color-accent);border-radius:10px;display:none;background:rgba(127,127,127,.07)";' +
+              'document.body.appendChild(box);document.body.appendChild(bar);' +
+              'function hideDrop(){bar.style.display="none";box.style.display="none";}' +
+              'function place(el,x,y,w,h){el.style.left=x+"px";el.style.top=y+"px";el.style.width=w+"px";el.style.height=h+"px";el.style.display="block";}' +
+              'function dropAt(x,y,d){' +
+                'var c=document.elementFromPoint(x,y);' +
+                'while(c&&c!==document.body&&!(isCont(c)&&!d.contains(c)))c=c.parentElement;' +
+                'if(!c||c===document.body){var col=mainCol();if(!isCont(col))return null;c=col;}' +
+                'var kids=[];for(var k=c.firstElementChild;k;k=k.nextElementSibling){' +
+                  'if(k!==d&&known(k)&&getComputedStyle(k).position!=="absolute"&&k.getClientRects().length)kids.push(k);}' +
+                'var cs=getComputedStyle(c),row=(cs.display.indexOf("flex")>=0&&cs.flexDirection.indexOf("row")===0)||cs.display.indexOf("grid")>=0;' +
+                'var before=null;for(var i=0;i<kids.length;i++){var r=kids[i].getBoundingClientRect();' +
+                  'if(row?(y<r.top||(y<=r.bottom&&x<r.left+r.width/2)):(y<r.top+r.height/2)){before=kids[i];break;}}' +
+                'var cr=c.getBoundingClientRect();place(box,cr.left-3,cr.top-3,cr.width+6,cr.height+6);' +
+                'if(before){var b=before.getBoundingClientRect();' +
+                  'if(row)place(bar,b.left-4,b.top,3,b.height);else place(bar,b.left,b.top-4,b.width,3);}' +
+                'else if(kids.length){var l=kids[kids.length-1].getBoundingClientRect();' +
+                  'if(row)place(bar,l.right+2,l.top,3,l.height);else place(bar,l.left,l.bottom+2,l.width,3);}' +
+                'else place(bar,cr.left+8,cr.top+8,Math.max(24,cr.width-16),3);' +
+                'return{into:idOf(c),before:before?idOf(before):""};' +
               '}' +
               'var drag=null,activePtr=null;' +
               'function clientXY(e){if(e.touches&&e.touches[0])return{x:e.touches[0].clientX,y:e.touches[0].clientY};' +
@@ -4850,9 +5051,10 @@
                 'if(e.type==="mousedown"&&activePtr!=null)return;' +
                 'if(e.button!=null&&e.button!==0)return;' +
                 'var t=e.target;if(t&&t.nodeType===3)t=t.parentElement;' +
-                'var el=t&&t.closest?t.closest("[data-ue],.ue-drag"):null;' +
-                'if(!el||el.closest(".sidebar,aside,[data-appnav]"))return;' +
-                'if(!el.getAttribute("data-ue")){el.setAttribute("data-ue","ue"+(Date.now()%100000));}' +
+                'if(inNav(t))return;' +
+                'var el=editable(t);' +
+                'if(!el){document.querySelectorAll(".ue-sel").forEach(function(n){n.classList.remove("ue-sel");});' +
+                  'parent.postMessage({type:"ue-pick-none"},"*");return;}' +
                 'try{el.setAttribute("draggable","false");}catch(_d){}' +
                 'try{e.preventDefault();}catch(_p){}' +
                 'try{e.stopPropagation();}catch(_s){}' +
@@ -4860,9 +5062,9 @@
                 'var col=mainCol();if(!col)return;' +
                 'if(getComputedStyle(col).position==="static")col.style.position="relative";' +
                 'var pr=col.getBoundingClientRect(),er=el.getBoundingClientRect(),xy=clientXY(e);' +
-                'drag={el:el,col:col,ox:xy.x,oy:xy.y,moved:false,' +
+                'drag={el:el,col:col,ox:xy.x,oy:xy.y,moved:false,free:(MODE==="free")!==!!e.altKey,' +
                 'startLeft:er.left-pr.left+(col.scrollLeft||0),startTop:er.top-pr.top+(col.scrollTop||0),' +
-                'w:er.width,h:er.height,left:null,top:null};' +
+                'w:er.width,h:er.height,left:null,top:null,target:null};' +
                 'if(e.pointerId!=null){activePtr=e.pointerId;try{el.setPointerCapture(e.pointerId);}catch(_c){}}' +
               '}' +
               'function onMove(e){' +
@@ -4870,28 +5072,30 @@
                 'if(e.pointerId!=null&&activePtr!=null&&e.pointerId!==activePtr)return;' +
                 'var xy=clientXY(e),dx=xy.x-drag.ox,dy=xy.y-drag.oy;' +
                 'if(!drag.moved&&(dx*dx+dy*dy)<9)return;' +
-                'if(!drag.moved){' +
-                  'drag.moved=true;' +
-                  'drag.el.style.position="absolute";' +
-                  'drag.el.style.margin="0";' +
-                  'drag.el.style.width=Math.round(drag.w)+"px";' +
-                  'drag.el.style.zIndex="40";' +
-                  'drag.el.classList.add("ue-dragging");' +
-                '}' +
                 'try{e.preventDefault();}catch(_m){}' +
-                'var left=snap(drag.startLeft+dx),top=snap(drag.startTop+dy);' +
-                'if(left<0)left=0;if(top<0)top=0;' +
-                'drag.el.style.left=left+"px";drag.el.style.top=top+"px";' +
-                'drag.left=left;drag.top=top;' +
+                'if(!drag.moved){drag.moved=true;drag.el.classList.add("ue-dragging");' +
+                  'if(drag.free){drag.el.style.position="absolute";drag.el.style.margin="0";' +
+                    'drag.el.style.width=Math.round(drag.w)+"px";drag.el.style.zIndex="40";}' +
+                  'else{drag.el.style.pointerEvents="none";drag.el.style.opacity=".55";}}' +
+                'if(drag.free){' +
+                  'var left=snap(drag.startLeft+dx),top=snap(drag.startTop+dy);' +
+                  'if(left<0)left=0;if(top<0)top=0;' +
+                  'drag.el.style.left=left+"px";drag.el.style.top=top+"px";' +
+                  'drag.left=left;drag.top=top;return;}' +
+                'drag.el.style.transform="translate("+dx+"px,"+dy+"px)";' +
+                'drag.target=dropAt(xy.x,xy.y,drag.el);' +
               '}' +
               'function onUp(e){' +
                 'if(!drag)return;' +
                 'if(e&&e.pointerId!=null&&activePtr!=null&&e.pointerId!==activePtr)return;' +
-                'var d=drag;drag=null;activePtr=null;' +
+                'var d=drag;drag=null;activePtr=null;hideDrop();' +
                 'd.el.classList.remove("ue-dragging");' +
+                'd.el.style.transform="";d.el.style.pointerEvents="";d.el.style.opacity="";' +
                 'if(!d.moved)return;' +
-                'parent.postMessage({type:"ue-place",id:d.el.getAttribute("data-ue"),' +
-                'left:d.left,top:d.top,width:Math.round(d.w),height:Math.round(d.h)},"*");' +
+                'if(d.free){parent.postMessage({type:"ue-place",id:idOf(d.el),' +
+                  'left:d.left,top:d.top,width:Math.round(d.w),height:Math.round(d.h)},"*");return;}' +
+                'if(!d.target){parent.postMessage({type:"ue-move-none"},"*");return;}' +
+                'parent.postMessage({type:"ue-move",id:idOf(d.el),into:d.target.into,before:d.target.before},"*");' +
               '}' +
               'var downEv=window.PointerEvent?"pointerdown":"mousedown";' +
               'var moveEv=window.PointerEvent?"pointermove":"mousemove";' +
@@ -4907,6 +5111,15 @@
               'boot();setTimeout(boot,80);setTimeout(boot,250);setTimeout(boot,700);' +
             '})();'
           : '';
+        // Shortcuts reach the parent even when the preview iframe has focus.
+        var keyJs =
+          'document.addEventListener("keydown",function(e){var t=e.target,k=e.key||"";' +
+            'var typing=!!t&&(/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)||t.isContentEditable);' +
+            'var mod=e.ctrlKey||e.metaKey;' +
+            'var fwd=(mod&&k.length===1&&"szyd".indexOf(k.toLowerCase())>=0)||' +
+              '(' + (designing ? 'true' : 'false') + '&&!typing&&["Delete","Backspace","Escape","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(k)>=0);' +
+            'if(!fwd)return;e.preventDefault();' +
+            'parent.postMessage({type:"ue-key",key:k,ctrl:mod,shift:e.shiftKey,alt:e.altKey},"*");},true);';
         frame.srcdoc =
           '<!doctype html><html data-theme="' + theme + '"><meta charset="utf-8">' +
           '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>' +
@@ -4966,7 +5179,10 @@
           '</style>' +
           '<body>' + (shellNav ? '<div class="ue-shell">' + shellNav + '<div id="root"></div></div>' : '<div id="root"></div>') +
           '<script>window.NAMES=' + JSON.stringify(names).replace(/</g, '\\u003c') + ';' +
-            (designing ? 'window.navigate=function(){};' : NAV_JS) + '<\/script>' +
+            'window.UE_KNOWN=' + JSON.stringify(designing ? J.knownIds(liveSrc) : []) + ';' +
+            'window.UE_MODE=' + JSON.stringify(moveMode) + ';' +
+            'window.UE_SELECT=' + JSON.stringify(designing && picked ? String(picked.id).replace(/[^\w-]/g, '') : '') + ';' +
+            (designing ? 'window.navigate=function(){};' : NAV_JS) + keyJs + '<\/script>' +
           '<pre id="err" style="display:none;position:fixed;left:0;right:0;bottom:0;margin:0;background:#2a0a06;color:#ff9c8c;font:12px/1.45 ui-monospace,monospace;white-space:pre-wrap;padding:0.8rem 1rem;max-height:40%;overflow:auto"></pre>' +
           '<script>(function(){var React=window.React,ReactDOM=window.ReactDOM,useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef,useCallback=React.useCallback,useContext=React.useContext;function showErr(m){var el=document.getElementById("err");el.style.display="block";el.textContent=m;}try{' +
             'var code=Babel.transform(' + JSON.stringify(liveSrc).replace(/</g, '\\u003c') +
@@ -4979,8 +5195,11 @@
           '}catch(e){showErr(String(e&&e.message||e));}})();<\/script></html>';
       }
 
+      var announceReady = false;
+
       function setPreview(on) {
         previewMode = on;
+        announceReady = !on;
         if (modeBtn) modeBtn.classList.toggle('on', !on);
         board.style.display = 'none';
         frame.classList.add('show');
@@ -5015,7 +5234,7 @@
           return;
         }
         renderPickInspector();
-        status('Design: drag elements on the grid (8px snap). Studio is on the left.');
+        status('Design: drag elements into cards and columns (Alt-drag for free position). Studio is on the left.');
       }
 
       function showScreen() {
@@ -5283,8 +5502,8 @@
           status('Could not insert into this screen', true);
           return;
         }
-        sourceEl.value = next;
-        s.source = next;
+        checkpoint('insert:' + Date.now());
+        setSrc(current, next);
         renderLive();
         status('Added ' + (kind === 'h1' ? 'heading' : kind === 'p' ? 'text' : kind) + ' — not saved yet');
       }
@@ -5362,8 +5581,61 @@
         status('Moved — not saved yet');
       });
 
+      // One handler for keys typed in the editor chrome and keys forwarded from
+      // the preview iframe. Returns true when the key was used.
+      function handleKey(k) {
+        if (!host.classList.contains('open') || !canEditUi) return false;
+        var key = String(k.key || '');
+        var lower = key.toLowerCase();
+        if (k.ctrl && lower === 's') { save(); return true; }
+        if (k.ctrl && lower === 'z') { if (k.shift) redo(); else undo(); return true; }
+        if (k.ctrl && lower === 'y') { redo(); return true; }
+        if (previewMode) return false;
+        if (k.ctrl && lower === 'd') { duplicatePicked(); return true; }
+        if (key === 'Escape') {
+          placing = null;
+          if (picked) {
+            picked = null;
+            renderPickInspector();
+            try { frame.contentDocument.querySelectorAll('.ue-sel').forEach(function (n) { n.classList.remove('ue-sel'); }); } catch (_e) {}
+          }
+          return true;
+        }
+        if (!picked) return false;
+        if (key === 'Delete' || key === 'Backspace') { deletePicked(); return true; }
+        if (k.alt && (key === 'ArrowUp' || key === 'ArrowLeft')) { movePicked(-1); return true; }
+        if (k.alt && (key === 'ArrowDown' || key === 'ArrowRight')) { movePicked(1); return true; }
+        if (/^Arrow/.test(key)) {
+          var st = readUeStyles(sourceEl.value || '', picked.id);
+          if (st.position !== 'absolute') {
+            status('Arrows nudge free elements. Use Alt+↑/↓ to reorder in the layout.');
+            return true;
+          }
+          var step = k.shift ? 1 : 8;
+          var left = parseInt(st.left, 10) || 0;
+          var top = parseInt(st.top, 10) || 0;
+          if (key === 'ArrowLeft') left = Math.max(0, left - step);
+          if (key === 'ArrowRight') left += step;
+          if (key === 'ArrowUp') top = Math.max(0, top - step);
+          if (key === 'ArrowDown') top += step;
+          commitPickedStyles({ left: left, top: top });
+          renderPickInspector();
+          return true;
+        }
+        return false;
+      }
+
       function onKey(e) {
-        if (!host.classList.contains('open') || !canEditUi || previewMode) return;
+        if (!host.classList.contains('open')) return;
+        var t = e.target;
+        var typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+        var mod = e.ctrlKey || e.metaKey;
+        var lower = String(e.key || '').toLowerCase();
+        // Ctrl+S works everywhere; undo inside a text box stays the browser's own.
+        if (mod && lower === 's') { e.preventDefault(); handleKey({ key: e.key, ctrl: true }); return; }
+        if (typing) return;
+        if (handleKey({ key: e.key, ctrl: mod, shift: e.shiftKey, alt: e.altKey })) { e.preventDefault(); return; }
+        if (!canEditUi || previewMode) return;
         if (e.key === 'Escape') { placing = null; return; }
         if (!selectedId) return;
         if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
@@ -5386,10 +5658,10 @@
       function onFrameNav(e) {
         if (!e.data || e.source !== frame.contentWindow) return;
         if (e.data.type === 'ue-ready') {
-          if (!previewMode) {
-            status(e.data.count
-              ? ('Design: ' + e.data.count + ' elements — drag on the grid (8px snap)')
-              : 'Design: no draggable elements found — try Save then reopen');
+          // The first boot pass can run before React paints; wait for a count.
+          if (!previewMode && announceReady && e.data.count) {
+            announceReady = false;
+            status('Design: ' + e.data.count + ' elements. Drag into cards and columns, or click one to size it.');
           }
           return;
         }
@@ -5408,7 +5680,37 @@
             styles: readUeStyles(sourceEl.value || '', e.data.id)
           };
           renderPickInspector();
-          status('Selected — drag to place (8px grid) or edit size on the right');
+          status('Selected ' + (e.data.tag || 'element') + ' — drag it into a card or column, or size it on the right');
+          return;
+        }
+        if (e.data.type === 'ue-pick-none') {
+          picked = null;
+          renderPickInspector();
+          return;
+        }
+        if (e.data.type === 'ue-key') {
+          handleKey(e.data);
+          return;
+        }
+        if (e.data.type === 'ue-move-none') {
+          status('Drop onto a card, section or the page column to move it there');
+          return;
+        }
+        if (e.data.type === 'ue-move') {
+          var mid = String(e.data.id || '');
+          var into = String(e.data.into || '');
+          var beforeId = String(e.data.before || '');
+          if (!knownInSource(mid) || !knownInSource(into)) return;
+          var intoSpan = J.elementSpan(sourceEl.value || '', J.findTag(sourceEl.value || '', into));
+          var intoName = intoSpan ? intoSpan.name : '';
+          selectAfter = mid;
+          editSource('move:' + mid + ':' + Date.now(), function (src) {
+            var moved = J.moveElement(src, mid, into, beforeId);
+            if (!moved) return null;
+            return J.isFree(moved, mid) ? J.clearPosition(moved, mid) : moved;
+          }, /^(Card|Hero|section|form)$/.test(intoName)
+            ? 'Moved into the ' + intoName.toLowerCase() + ' — Save when ready'
+            : 'Moved — Save when ready');
           return;
         }
         if (e.data.type === 'ue-place') {
@@ -5420,12 +5722,7 @@
             height: e.data.height,
             styles: readUeStyles(sourceEl.value || '', e.data.id)
           };
-          // If the id exists only on the live DOM (not yet in source), stamp then retry merge.
-          if ((sourceEl.value || '').indexOf('data-ue="' + e.data.id + '"') < 0) {
-            var stamped = stampElementIds(sourceEl.value || '');
-            sourceEl.value = stamped;
-            if (screens[current]) screens[current].source = stamped;
-          }
+          lastCheckpoint = { key: '', at: 0 };
           commitPickedStyles({
             position: 'absolute',
             left: e.data.left,
@@ -5435,7 +5732,7 @@
             zIndex: '5'
           });
           renderPickInspector();
-          status('Snapped to grid at ' + e.data.left + ',' + e.data.top + ' — Save when ready');
+          status('Free position ' + e.data.left + ',' + e.data.top + ' — "Put back in layout" undoes it');
           return;
         }
         if (e.data.type !== 'ue-nav') return;
@@ -5446,34 +5743,99 @@
       }
       window.addEventListener('message', onFrameNav);
 
+      function onBeforeUnload(e) {
+        if (!dirtyList().length) return;
+        e.preventDefault();
+        e.returnValue = '';
+      }
+      window.addEventListener('beforeunload', onBeforeUnload);
+
       function close() {
+        var dirty = dirtyList();
+        if (dirty.length && !saving) {
+          var names = dirty.map(function (i) { return screens[i].name; }).join(', ');
+          if (!window.confirm('Unsaved changes on ' + names + '.\n\nClose without saving?')) return;
+        }
         window.removeEventListener('keydown', onKey);
         window.removeEventListener('message', onFrameNav);
+        window.removeEventListener('beforeunload', onBeforeUnload);
         host.classList.remove('open');
         host.innerHTML = '';
         loadArtifacts();
       }
 
-      function save() {
-        if (!previewMode) syncSource();
-        screens[current].source = sourceEl.value;
-        status('Saving…');
-        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen', {
+      function errorText(body, fallback) {
+        var err = body && (body.detail || body.error);
+        if (err && typeof err !== 'string') err = err.message || JSON.stringify(err);
+        return err || fallback;
+      }
+
+      function putScreen(i) {
+        var sc = screens[i];
+        return fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen', {
           method: 'PUT', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: screens[current].name,
-            source: sourceEl.value,
+            name: sc.name,
+            source: polishSource(sc.source || ''),
             instruction: lastInstruction || 'visual editor',
           }),
         })
-          .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (b) { return { ok: r.ok, body: b }; }); })
           .then(function (r) {
-            if (!r.ok) throw new Error(r.body.detail || r.body.error || 'Save failed');
-            lastInstruction = '';
-            status('Saved — Gate 3 approval withdrawn, and the agent is reviewing what changed');
+            if (!r.ok) throw new Error(errorText(r.body, 'Save failed'));
+          });
+      }
+
+      // Saves every edited screen one after another, then reloads what the
+      // server stored (the gate may repair the source on the way in).
+      function save() {
+        if (!canEditUi || saving) return;
+        if (screens[current]) screens[current].source = sourceEl.value || screens[current].source || '';
+        var dirty = dirtyList();
+        if (!dirty.length) {
+          status('Nothing to save — every screen matches the saved design');
+          return;
+        }
+        saving = true;
+        updateDirtyUi();
+        status('Saving ' + dirty.length + ' screen' + (dirty.length === 1 ? '' : 's') + '…');
+        var saved = [];
+        var failed = null;
+        dirty.reduce(function (chain, i) {
+          return chain.then(function () {
+            if (failed) return null;
+            return putScreen(i).then(function () { saved.push(i); })
+              .catch(function (e) { failed = { i: i, message: e.message }; });
+          });
+        }, Promise.resolve())
+          .then(function () {
+            return fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screens', { credentials: 'include' })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .catch(function () { return null; });
           })
-          .catch(function (e) { status(e.message, true); });
+          .then(function (data) {
+            var fresh = {};
+            ((data && data.screens) || []).forEach(function (sc) { fresh[sc.name] = sc.source; });
+            saved.forEach(function (i) {
+              var name = screens[i].name;
+              if (typeof fresh[name] === 'string') {
+                var keep = J.normalize(polishSource(screens[i].source || '')) === J.normalize(polishSource(fresh[name]));
+                if (!keep) setSrc(i, fresh[name]);
+              }
+              resetBaseline(i);
+            });
+            saving = false;
+            lastInstruction = saved.length && !failed ? '' : lastInstruction;
+            if (saved.indexOf(current) >= 0) renderLive();
+            updateDirtyUi();
+            var names = saved.map(function (i) { return screens[i].name; }).join(', ');
+            if (failed) {
+              status((saved.length ? 'Saved ' + names + '. ' : '') + screens[failed.i].name + ' was not saved: ' + failed.message, true);
+            } else {
+              status('Saved ' + saved.length + ' screen' + (saved.length === 1 ? '' : 's') + ' to the design branch (' + names + ')');
+            }
+          });
       }
 
       function alignBlocks(kind) {
@@ -5482,8 +5844,8 @@
         if (s) {
           var src = sourceEl.value || s.source || '';
           var next = stampAlign(src, s.name, kind);
-          sourceEl.value = next;
-          s.source = next;
+          if (next !== src) checkpoint('align');
+          setSrc(current, next);
         }
         renderLive();
         var labels = {
@@ -5527,13 +5889,26 @@
               throw new Error(err);
             }
             if (!r.body.source) throw new Error('The agent returned no JSX');
-            sourceEl.value = r.body.source;
-            screens[current].source = r.body.source;
+            var themeBefore = currentTheme();
+            checkpoint('ask:' + Date.now());
+            setSrc(current, r.body.source);
             parts = null;
             blocks = [];
             lastInstruction = text;
+            var themeAfter = J.themeOf(r.body.source);
+            var spread = 0;
+            if (applyAll && themeAfter && themeAfter !== themeBefore) {
+              screens.forEach(function (sc, i) {
+                if (i === current) return;
+                var next = J.setTheme(polishSource(sc.source || ''), themeAfter);
+                if (next && next !== sc.source) { setSrc(i, next); spread += 1; }
+              });
+            }
             showScreen();
-            status((r.body.summary || 'Rewrote the screen') + ' — review it, then Save');
+            paintStudio();
+            status((r.body.summary || 'Rewrote the screen') +
+              (spread ? ' — theme ' + themeAfter + ' also applied to ' + spread + ' other screen' + (spread === 1 ? '' : 's') : '') +
+              ' — review it, then Save (Ctrl+Z to undo)');
             input.value = '';
           })
           .catch(function (e) { status(e.message, true); })
@@ -5580,23 +5955,30 @@
         midnight: { bg: '#0b0c0e', sidebar: '#101114', surface: '#16171b', text: '#f3f3f1', muted: '#9a9ba1', accent: '#f2761f', line: '#2a2b30' }
       };
 
+      function targetScreens() {
+        if (!applyAll) return [current];
+        return screens.map(function (_sc, i) { return i; });
+      }
+
       function applyTheme(name) {
-        var s = screens[current];
-        if (!s) return;
-        var src = polishSource(sourceEl.value || s.source || '');
-        if (/data-theme=["'][a-z]+["']/.test(src)) {
-          src = src.replace(/data-theme=["'][a-z]+["']/g, 'data-theme="' + name + '"');
-        } else if (/<Page(?=[\s>/])/.test(src)) {
-          src = src.replace(/<Page(?=[\s>/])/, '<Page data-theme="' + name + '"');
-        } else {
-          status('No Page root for theme', true);
-          return;
-        }
-        sourceEl.value = src;
-        s.source = src;
+        if (!screens[current]) return;
+        screens[current].source = sourceEl.value || screens[current].source || '';
+        checkpoint('theme');
+        var changed = 0;
+        var missing = [];
+        targetScreens().forEach(function (i) {
+          var next = J.setTheme(polishSource(screens[i].source || ''), name);
+          if (!next) { missing.push(screens[i].name); return; }
+          if (next !== screens[i].source) changed += 1;
+          setSrc(i, next);
+        });
         paintStudio();
         renderLive();
-        status('Theme → ' + name + ' (pink/white = blush) — Save when ready');
+        if (missing.length) {
+          status('Theme → ' + name + '. No Page root on ' + missing.join(', ') + ' — use Ask to add one', true);
+          return;
+        }
+        status('Theme → ' + name + (applyAll ? ' on all ' + screens.length + ' screens' : ' on this screen') + ' — Save when ready');
       }
 
       function applyColour(token, hex) {
@@ -5604,35 +5986,45 @@
           status('Hex looks wrong', true);
           return;
         }
-        applyPageVar('--color-' + token, hex);
-        status('Set --color-' + token + ' — Save when ready');
+        if (applyPageVar('--color-' + token, hex)) status('Set ' + token + ' colour on ' + scopeText() + ' — Save when ready');
+      }
+
+      function resetColours() {
+        var vars = {};
+        COLOUR_TOKENS.forEach(function (c) { vars['--color-' + c.token] = ''; });
+        if (applyPageVars(vars, 'reset-colours')) {
+          paintStudio();
+          status('Colours back to the ' + currentTheme() + ' theme on ' + scopeText() + ' — Save when ready');
+        }
+      }
+
+      // vars: { '--color-accent': '#…', … }. One undo step per control.
+      function applyPageVars(vars, key) {
+        if (!screens[current]) return false;
+        screens[current].source = sourceEl.value || screens[current].source || '';
+        checkpoint('vars:' + (key || Object.keys(vars).join(',')));
+        var missing = [];
+        targetScreens().forEach(function (i) {
+          var next = J.setPageVars(screens[i].source || '', vars);
+          if (!next) { missing.push(screens[i].name); return; }
+          setSrc(i, next);
+        });
+        renderLive();
+        if (missing.length) {
+          status('No Page root on ' + missing.join(', '), true);
+          return false;
+        }
+        return true;
       }
 
       function applyPageVar(cssVar, value) {
-        var s = screens[current];
-        if (!s) return;
-        var src = sourceEl.value || s.source || '';
-        var pair = '"' + cssVar + '":"' + value + '"';
-        var m = src.match(/<Page(\s[^>]*)?>/);
-        if (!m) { status('No Page root', true); return; }
-        var open = m[0];
-        var abs = src.indexOf(open);
-        var key = '"' + cssVar + '"';
-        if (/style=\{\{/.test(open)) {
-          if (open.indexOf(key) >= 0) {
-            open = open.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:\\s*"[^"]*"'), pair);
-          } else {
-            open = open.replace(/style=\{\{/, 'style={{' + pair + ', ');
-          }
-        } else if (/\/>$/.test(open)) {
-          open = open.replace(/\/>$/, ' style={{' + pair + '}} />');
-        } else {
-          open = open.replace(/>$/, ' style={{' + pair + '}}>');
-        }
-        src = src.slice(0, abs) + open + src.slice(abs + m[0].length);
-        sourceEl.value = src;
-        s.source = src;
-        renderLive();
+        var vars = {};
+        vars[cssVar] = value;
+        return applyPageVars(vars, cssVar);
+      }
+
+      function scopeText() {
+        return applyAll ? 'all screens' : 'this screen';
       }
 
       function polishSource(src) {
@@ -5652,6 +6044,20 @@
         out = out.replace(/<\/?([A-Z][A-Z0-9_]*)\b[^>]*?\/?>/g, function (m, name) {
           return m.charAt(1) === '/' ? '' : name;
         });
+        // Host and model both emit function Sidebar. Keep the later one.
+        ['Page', 'Sidebar', 'Button', 'Field', 'Table', 'Card', 'Badge', 'Hero', 'Image'].forEach(function (fnName) {
+          var rx = new RegExp('function\\s+' + fnName + '\\s*\\(', 'g');
+          var starts = [];
+          var found;
+          while ((found = rx.exec(out))) starts.push(found.index);
+          for (var i = starts.length - 2; i >= 0; i--) {
+            var brace = out.indexOf('{', starts[i]);
+            if (brace < 0) continue;
+            var end = matchPair(out, brace, '{', '}');
+            if (end < 0) continue;
+            out = out.slice(0, starts[i]) + out.slice(end + 1);
+          }
+        });
         return out;
       }
 
@@ -5661,8 +6067,8 @@
         var src = ensureStudioHelpers(polishSource(sourceEl.value || s.source || ''));
         var snippet = '<div className="' + cls + '" style={{marginBottom:12}}><Badge>Motion on</Badge></div>';
         var next = injectSnippet(src, s.name, snippet);
-        sourceEl.value = next;
-        s.source = next;
+        checkpoint('motion:' + Date.now());
+        setSrc(current, next);
         renderLive();
         status('Motion ' + cls + ' — Save when ready');
       }
@@ -5680,8 +6086,13 @@
             t.bg + ' 55%,' + t.accent + ' 55%)"><span>' + t.id + '</span></button>';
         }).join('');
         var defaults = THEME_DEFAULTS[active] || THEME_DEFAULTS.midnight;
-        coloursEl.innerHTML = COLOUR_TOKENS.map(function (c) {
-          var hex = defaults[c.token] || '#ffffff';
+        var vars = J.pageVars(sourceEl.value || (screens[current] && screens[current].source) || '');
+        var allBox = host.querySelector('#ue-all');
+        if (allBox) allBox.checked = applyAll;
+        coloursEl.innerHTML = '<button type="button" class="uied-pal-item" data-reset-colours="1" title="Remove colour overrides">Reset to theme</button>' +
+          COLOUR_TOKENS.map(function (c) {
+          var own = vars['--color-' + c.token];
+          var hex = /^#[0-9a-fA-F]{6}$/.test(own || '') ? own : defaults[c.token] || '#ffffff';
           return '<label class="uied-colorchip">' + c.label +
             '<input type="color" data-token="' + c.token + '" value="' + hex + '">' +
             '<input type="text" data-token-hex="' + c.token + '" value="' + hex + '" maxlength="9" spellcheck="false">' +
@@ -5734,6 +6145,20 @@
               '<option value="36rem">Wide</option><option value="100%">Full</option>' +
             '</select></label>';
         }
+        Array.prototype.forEach.call(host.querySelectorAll('#ue-studio select[data-lay]'), function (sel) {
+          var v = vars[sel.getAttribute('data-lay')];
+          if (v && Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) sel.value = v;
+        });
+        function presetOf(table, cssVar) {
+          var v = vars[cssVar];
+          var hit = '';
+          Object.keys(table).forEach(function (k) { if (table[k][cssVar] === v) hit = k; });
+          return hit;
+        }
+        var typeSel = host.querySelector('#ue-studio select[data-lay-preset="type"]');
+        if (typeSel && presetOf(TYPE_PRESETS, '--type-base')) typeSel.value = presetOf(TYPE_PRESETS, '--type-base');
+        var ctlSel = host.querySelector('#ue-studio select[data-lay-preset="control"]');
+        if (ctlSel && presetOf(CONTROL_PRESETS, '--control-h')) ctlSel.value = presetOf(CONTROL_PRESETS, '--control-h');
       }
 
       var TYPE_PRESETS = {
@@ -5755,6 +6180,11 @@
       if (studio) {
         paintStudio();
         studio.addEventListener('click', function (e) {
+          if (e.target.closest('[data-reset-colours]')) {
+            e.preventDefault();
+            resetColours();
+            return;
+          }
           var sw = e.target.closest('[data-theme]');
           if (sw) {
             e.preventDefault();
@@ -5789,21 +6219,26 @@
             applyColour(tok, el.value);
             return;
           }
+          if (el.id === 'ue-all') {
+            applyAll = !!el.checked;
+            try { localStorage.setItem('ue-apply-all', applyAll ? '1' : '0'); } catch (_e) {}
+            status(applyAll
+              ? 'Theme, colours, type and layout now change all ' + screens.length + ' screens'
+              : 'Theme, colours, type and layout now change only this screen');
+            return;
+          }
           if (el.getAttribute('data-lay')) {
-            applyPageVar(el.getAttribute('data-lay'), el.value);
-            status('Layout updated — Save when ready');
+            if (applyPageVar(el.getAttribute('data-lay'), el.value)) status('Layout updated on ' + scopeText() + ' — Save when ready');
             return;
           }
           if (el.getAttribute('data-lay-preset') === 'type') {
             var tp = TYPE_PRESETS[el.value] || TYPE_PRESETS.m;
-            Object.keys(tp).forEach(function (k) { applyPageVar(k, tp[k]); });
-            status('Type size ' + el.value.toUpperCase() + ' — Save when ready');
+            if (applyPageVars(tp, 'type')) status('Type size ' + el.value.toUpperCase() + ' on ' + scopeText() + ' — Save when ready');
             return;
           }
           if (el.getAttribute('data-lay-preset') === 'control') {
             var cp = CONTROL_PRESETS[el.value] || CONTROL_PRESETS.m;
-            Object.keys(cp).forEach(function (k) { applyPageVar(k, cp[k]); });
-            status('Control size ' + el.value.toUpperCase() + ' — Save when ready');
+            if (applyPageVars(cp, 'control')) status('Control size ' + el.value.toUpperCase() + ' on ' + scopeText() + ' — Save when ready');
           }
         });
         studio.addEventListener('input', function (e) {
@@ -5820,6 +6255,26 @@
       host.querySelector('#ue-close').addEventListener('click', close);
       var saveBtn = host.querySelector('#ue-save');
       if (saveBtn) saveBtn.addEventListener('click', save);
+      var undoBtn = host.querySelector('#ue-undo');
+      if (undoBtn) undoBtn.addEventListener('click', undo);
+      var redoBtn = host.querySelector('#ue-redo');
+      if (redoBtn) redoBtn.addEventListener('click', redo);
+      var moveModeBtn = host.querySelector('#ue-move-mode');
+      function paintMoveMode() {
+        if (!moveModeBtn) return;
+        moveModeBtn.textContent = moveMode === 'free' ? 'Drag: free' : 'Drag: layout';
+        moveModeBtn.classList.toggle('on', moveMode === 'free');
+      }
+      paintMoveMode();
+      if (moveModeBtn) moveModeBtn.addEventListener('click', function () {
+        moveMode = moveMode === 'free' ? 'flow' : 'free';
+        try { localStorage.setItem('ue-move-mode', moveMode); } catch (_e) {}
+        paintMoveMode();
+        if (!previewMode) renderLive();
+        status(moveMode === 'free'
+          ? 'Free drag: elements keep a pixel position (Alt-drag for layout)'
+          : 'Layout drag: drop into cards, sections and columns (Alt-drag for free position)');
+      });
       var askBtn = host.querySelector('#ue-ask');
       if (askBtn) askBtn.addEventListener('click', function () {
         if (previewMode) setPreview(false);
@@ -5893,12 +6348,19 @@
         screens[current].source = sourceEl.value;
         current = Number(selectEl.value);
         sourceEl.value = screens[current].source || '';
+        picked = null;
+        renderPickInspector();
+        paintStudio();
         showScreen();
       });
       var srcTimer = null;
+      sourceEl.addEventListener('beforeinput', function () {
+        if (screens[current]) checkpoint('source', sourceEl.value);
+      });
       sourceEl.addEventListener('input', function () {
         status('Unsaved changes');
         if (screens[current]) screens[current].source = sourceEl.value;
+        updateDirtyUi();
         clearTimeout(srcTimer);
         srcTimer = setTimeout(renderLive, 600);
       });
@@ -5915,10 +6377,12 @@
             o.value = i; o.textContent = s.name + '  ' + (s.route || '');
             selectEl.appendChild(o);
           });
+          screens.forEach(function (_s, i) { resetBaseline(i); });
           sourceEl.value = screens[0].source || '';
+          paintStudio();
           showScreen();
           status(canEditUi
-            ? 'Live themed preview. Design keeps this look — insert and align on the real screen.'
+            ? 'Live preview. Design lets you drag elements into cards and columns; Save stores every edited screen.'
             : 'Read-only — switch screens in the dropdown');
         })
         .catch(function (e) { status('Could not load screens: ' + e.message, true); });

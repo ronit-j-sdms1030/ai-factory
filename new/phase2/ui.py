@@ -562,7 +562,7 @@ def repair_for_gate(name: str, source: str) -> str:
             'padding:"var(--space-md)"}}>{props.children}</button>; }\n'
             + text
         )
-    return text
+    return jsx_gate.dedupe_host_functions(text)
 
 
 def ensure_sidebar_shell(

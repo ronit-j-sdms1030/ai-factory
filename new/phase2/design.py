@@ -17,6 +17,8 @@ DESIGN_SYSTEM_REL = "skills/design-system.skill.md"
 
 
 def clarification_needed(brd_text: str) -> str | None:
+    if stack_profiles.delivery_fit(brd_text)["core_outside"]:
+        return stack_profiles.boundary_question(brd_text)
     if not re.search(r"^##(?:\s+\d+\.)?\s+Page behaviour\b", brd_text, re.M | re.I):
         return "Which pages should a reviewer click through for this BRD?"
     if "### " not in brd_text:

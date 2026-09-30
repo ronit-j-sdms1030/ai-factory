@@ -12,8 +12,10 @@ Do not stamp Stark Factory orange-on-black onto every product.
 ## Output contract
 
 - JSX only. No markdown fence. Balanced braces and parentheses.
-- Define `function Page`, `function Sidebar`, `function Button`, `function Field`,
-  `function Table`, then the screen component named in the request.
+- Do not define `Page`, `Sidebar`, `Button`, `Field`, `Table`, `Card`, `Badge`,
+  `Hero`, or `Image`. The host already declares each of those once. A second
+  `function Sidebar` fails the preview (`Identifier 'Sidebar' has already been declared`).
+  Use them as tags. Then define only the screen component named in the request.
 - `Page` sets `data-theme` to one of: midnight, aurora, paper, grove, coral,
   ink, glacier, sand.
 - The screen returns `( <Page data-theme="…"><Sidebar>…</Sidebar><div>…</div></Page> )`.

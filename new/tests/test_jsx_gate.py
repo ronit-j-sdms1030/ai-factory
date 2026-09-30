@@ -165,6 +165,39 @@ def test_unknown_theme_is_rejected():
     assert any("theme" in item for item in failures)
 
 
+def test_unclosed_jsx_is_rejected_so_the_preview_can_fall_back():
+    source = (
+        "function Screen() {\n"
+        "  return ( <Page><h1>Hi</h1><Button>Go</Button> );\n"
+        "}\n"
+    )
+    try:
+        jsx_gate.compile_jsx("Screen", source)
+    except jsx_gate.CompileFailed as exc:
+        assert "closing tag" in exc.reason
+    else:
+        raise AssertionError("unclosed Page should not compile")
+
+
+def test_a_second_sidebar_declaration_is_dropped():
+    source = (
+        "function Sidebar(props) { return <aside>{props.children}</aside>; }\n"
+        "function Screen() {\n"
+        "  return ( <Page><Sidebar><Button>Home</Button></Sidebar><h1>Hi</h1></Page> );\n"
+        "}\n"
+        "function Sidebar() {\n"
+        "  const screens = [{ name: 'Home', label: 'Overview' }];\n"
+        "  return <aside><Button>Overview</Button></aside>;\n"
+        "}\n"
+        "function Page(props) { return <main>{props.children}</main>; }\n"
+        "function Button(props) { return <button>{props.children}</button>; }\n"
+    )
+    out = jsx_gate.dedupe_host_functions(source)
+    assert out.count("function Sidebar") == 1
+    assert "Overview" in out
+    assert "function Screen" in out
+
+
 def test_placeholder_tags_are_plain_text_for_every_screen():
     brd = "## Page behaviour\n- AgencyHome: show the agency\n"
     proposed = (

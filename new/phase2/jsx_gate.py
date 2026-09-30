@@ -82,6 +82,105 @@ PLACEHOLDER_TAG = re.compile(r"</?([A-Z][A-Z0-9_]*)\b[^>]*?/?>")
 MAX_RETRIES = 2
 
 
+HOST_COMPONENTS = (
+    "Page",
+    "Sidebar",
+    "Button",
+    "Field",
+    "Table",
+    "Card",
+    "Badge",
+    "Hero",
+    "Image",
+)
+
+
+def _top_level_function_spans(source: str, name: str) -> list[tuple[int, int]]:
+    """Byte spans of top-level `function Name` bodies, including the keyword."""
+    spans: list[tuple[int, int]] = []
+    pattern = re.compile(rf"function\s+{re.escape(name)}\s*\(")
+    depth = 0
+    in_str: str | None = None
+    i = 0
+    text = source or ""
+    while i < len(text):
+        ch = text[i]
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == in_str:
+                in_str = None
+            i += 1
+            continue
+        if ch in {"'", '"', "`"}:
+            in_str = ch
+            i += 1
+            continue
+        if ch == "{":
+            depth += 1
+            i += 1
+            continue
+        if ch == "}":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        if depth == 0:
+            match = pattern.match(text, i)
+            if match:
+                brace = text.find("{", match.end())
+                if brace < 0:
+                    break
+                inner = 0
+                j = brace
+                nested: str | None = None
+                while j < len(text):
+                    c = text[j]
+                    if nested:
+                        if c == "\\":
+                            j += 2
+                            continue
+                        if c == nested:
+                            nested = None
+                        j += 1
+                        continue
+                    if c in {"'", '"', "`"}:
+                        nested = c
+                        j += 1
+                        continue
+                    if c == "{":
+                        inner += 1
+                    elif c == "}":
+                        inner -= 1
+                        if inner == 0:
+                            spans.append((match.start(), j + 1))
+                            i = j + 1
+                            break
+                    j += 1
+                else:
+                    break
+                continue
+        i += 1
+    return spans
+
+
+def dedupe_host_functions(source: str) -> str:
+    """Keep one declaration of each design-system component.
+
+    The host and the model both emit `function Sidebar`. Babel then stops the
+    preview with 'Identifier Sidebar has already been declared'.
+    The later declaration wins — that is the rewrite, not the stub prepended first.
+    """
+    text = source or ""
+    for name in HOST_COMPONENTS:
+        spans = _top_level_function_spans(text, name)
+        if len(spans) < 2:
+            continue
+        for start, end in reversed(spans[:-1]):
+            text = text[:start] + text[end:]
+    return text
+
+
 def neutralize_placeholder_tags(source: str) -> str:
     """Turn `<LOCATION>` into the text LOCATION. Leave PascalCase components."""
 
@@ -97,6 +196,34 @@ class CompileFailed(Exception):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason
+
+
+_VOID_TAGS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+    "source", "track", "wbr",
+})
+_JSX_TAG = re.compile(r"<(/?)([A-Za-z][\w.]*)([^<>]*?)(/?)>")
+
+
+def _jsx_tag_error(source: str) -> str | None:
+    """Reject markup Babel cannot render. Comparisons with a space (`a < b`) are ignored."""
+    stack: list[str] = []
+    for match in _JSX_TAG.finditer(source or ""):
+        closing, name, _attrs, self_close = match.groups()
+        if self_close or name.lower() in _VOID_TAGS:
+            if closing:
+                return f"expected closing tag, found </{name}>"
+            continue
+        if closing:
+            if not stack or stack[-1] != name:
+                opened = stack[-1] if stack else name
+                return f"expected closing tag for <{opened}>"
+            stack.pop()
+            continue
+        stack.append(name)
+    if stack:
+        return f"expected closing tag for <{stack[-1]}>"
+    return None
 
 
 def compile_jsx(name: str, source: str) -> None:
@@ -115,6 +242,11 @@ def compile_jsx(name: str, source: str) -> None:
         raise CompileFailed("component does not return markup")
     if "<" not in source:
         raise CompileFailed("no JSX markup")
+    if PLACEHOLDER_TAG.search(source or ""):
+        raise CompileFailed("placeholder tag such as <LOCATION> — write plain text")
+    tag_error = _jsx_tag_error(source)
+    if tag_error:
+        raise CompileFailed(tag_error)
 
 
 def _has_banned_hex(source: str) -> bool:
@@ -156,7 +288,7 @@ def generate_with_gate(
     error: str | None = None
     source = ""
     for _ in range(MAX_RETRIES + 1):
-        source = neutralize_placeholder_tags(produce(error))
+        source = dedupe_host_functions(neutralize_placeholder_tags(produce(error)))
         try:
             compile_jsx(name, source)
             error = None
