@@ -16,5 +16,15 @@ def host() -> dict[str, str]:
     return {"sandbox": "factory", "status": "substitute", "tool": "E2B cloud"}
 
 
-def document(requirement_id: str, screens: list[dict[str, Any]]) -> str:
-    return product.frontend_html(requirement_id, screens, f"/preview/{requirement_id}/api")
+def document(
+    requirement_id: str,
+    screens: list[dict[str, Any]],
+    brd_text: str = "",
+) -> str:
+    entities = product.parse_entities(brd_text) if brd_text else []
+    return product.frontend_html(
+        requirement_id,
+        screens,
+        f"/preview/{requirement_id}/api",
+        entities=entities,
+    )

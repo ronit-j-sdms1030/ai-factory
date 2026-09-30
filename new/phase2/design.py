@@ -69,12 +69,23 @@ def build(
                     "description": str(page.get("description") or ident)[:220],
                 }
             )
-    generated = ui.build_screens(
-        brd_text,
-        skill_text + "\n" + ui_bundle.content,
-        extra_pages=extra,
-        sources=screen_sources,
-    )
+    if refresh == "architecture":
+        # Screens wait until BA has signed Gate 3 — Architect reviews stack/ADRs only.
+        generated = {
+            "screens": [],
+            "pages": [],
+            "repaired": [],
+            "extras": [],
+            "conform_failures": [],
+            "preview_index": "",
+        }
+    else:
+        generated = ui.build_screens(
+            brd_text,
+            skill_text + "\n" + ui_bundle.content,
+            extra_pages=extra,
+            sources=screen_sources,
+        )
     files = {
         f"requirements/{requirement_id}/design/architecture.md": architecture,
         f"requirements/{requirement_id}/design/architecture.json": json.dumps(

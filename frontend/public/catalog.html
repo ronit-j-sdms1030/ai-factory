@@ -6,16 +6,65 @@
 <title>Software catalog</title>
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/theme-client.css">
+<style>
+  .cat-list { list-style: none; padding: 0; margin: 1.5rem 0; }
+  .cat-list li {
+    border: 1px solid var(--color-line, #ccc);
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    margin: 0 0 0.85rem;
+  }
+  .cat-list h2 { margin: 0 0 0.35rem; font-size: 1.1rem; }
+  .cat-list p { margin: 0.25rem 0; color: var(--color-muted, #666); font-size: 0.9rem; }
+  .cat-list a { margin-right: 1rem; }
+</style>
 </head>
 <body style="padding:2rem;max-width:52rem;margin:0 auto">
   <p><a href="/login.html">Sign in</a></p>
   <h1>Software catalog</h1>
-  <p>Backstage Component entities from <code>GET /api/catalog</code>. Live portal needs Entra; this feed is the contract.</p>
-  <pre id="out">loading…</pre>
+  <p>Released requirements — live preview + GitHub (named after the requirement).</p>
+  <ul class="cat-list" id="list"><li>loading…</li></ul>
   <script>
     fetch('/api/catalog').then(r => r.json()).then(data => {
-      document.getElementById('out').textContent = JSON.stringify(data, null, 2);
-    }).catch(err => { document.getElementById('out').textContent = String(err); });
+      const items = (data && data.items) || [];
+      const root = document.getElementById('list');
+      if (!items.length) {
+        root.innerHTML = '<li>No released components yet.</li>';
+        return;
+      }
+      root.innerHTML = '';
+      items.forEach(item => {
+        const meta = item.metadata || {};
+        const ann = meta.annotations || {};
+        const rid = ann['governed.io/requirement'] || meta.name || '';
+        const preview = ann['governed.io/preview'] || (rid ? '/preview/' + rid : '');
+        const git = ann['governed.io/github'] || '';
+        const phase = ann['governed.io/phase'] || (item.spec && item.spec.lifecycle) || '';
+        const li = document.createElement('li');
+        li.innerHTML =
+          '<h2></h2><p></p><p class="links"></p>';
+        li.querySelector('h2').textContent = meta.title || rid;
+        li.querySelector('p').textContent = rid + (phase ? ' · ' + phase : '');
+        const links = li.querySelector('.links');
+        if (preview) {
+          const a = document.createElement('a');
+          a.href = preview;
+          a.textContent = 'Live app';
+          links.appendChild(a);
+        }
+        if (git) {
+          const a = document.createElement('a');
+          a.href = git;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          a.textContent = 'GitHub';
+          links.appendChild(a);
+        }
+        root.appendChild(li);
+      });
+    }).catch(err => {
+      document.getElementById('list').innerHTML = '<li>' + String(err) + '</li>';
+    });
   </script>
 </body>
 </html>

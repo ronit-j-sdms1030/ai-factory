@@ -20,12 +20,27 @@ def _fold(value: str) -> str:
 
 
 def pages_from_brd(brd_text: str) -> list[dict[str, str]]:
+    """Screens named in ``## Page behaviour`` — one row per screen id.
+
+    BRDs often repeat the same screen under each ``### REQ-…`` requirement.
+    Those repeats are behaviours of the same page, not new screens, so they
+    must not mint LoginScreen2 / LoanManagement3 stubs.
+    """
     pages: list[dict[str, str]] = []
     match = PAGE_HEADING.search(brd_text)
     if match:
-        body = brd_text[match.end() :].split("\n## ", 1)[0]
+        body = brd_text[match.end() :]
+        # Stop before the next ## section or the first ### requirement heading.
+        body = re.split(r"\n##\s+", body, maxsplit=1)[0]
+        body = re.split(r"\n###\s+", body, maxsplit=1)[0]
+        seen: set[str] = set()
         for line in PAGE_LINE.finditer(body):
-            pages.append({"id": line.group(1).strip(), "description": line.group(2).strip()})
+            ident = line.group(1).strip()
+            key = _fold(ident)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            pages.append({"id": ident, "description": line.group(2).strip()})
     if pages:
         return pages
     for match in HEADING.finditer(brd_text):
@@ -59,17 +74,23 @@ def check(pages: list[dict[str, str]], screens: list[dict[str, Any]]) -> dict[st
 
 
 def component_name(page: dict[str, str], used: set[str]) -> str:
-    raw = page["id"] if re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", page["id"]) else (
-        page["id"] + " " + page.get("description", "")
+    page_id = str(page.get("id") or "")
+    folded_id = _fold(page_id)
+    if folded_id:
+        for existing in used:
+            base = re.sub(r"\d+$", "", existing)
+            if _fold(existing) == folded_id or _fold(base) == folded_id:
+                return existing
+    raw = page_id if re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", page_id) else (
+        page_id + " " + page.get("description", "")
     )
     words = re.findall(r"[A-Za-z0-9]+", raw)
     name = "".join(word[:1].upper() + word[1:] for word in words) or "Screen"
     if name[0].isdigit():
         name = "R" + name
-    candidate = name
-    n = 2
-    while candidate in used:
-        candidate = f"{name}{n}"
-        n += 1
-    used.add(candidate)
-    return candidate
+    folded = _fold(name)
+    for existing in used:
+        if _fold(existing) == folded or _fold(re.sub(r"\d+$", "", existing)) == folded:
+            return existing
+    used.add(name)
+    return name

@@ -33,8 +33,8 @@ ATTENDANCE_BRD = """
 def reach_plan(p1: Phase1) -> str:
     rid = reach_design(p1)
     p1.decide(rid, directory.actor("u-arch"), "approve")
-    p1.decide(rid, directory.actor("u-ux"), "approve")
     p1.decide(rid, directory.actor("u-ba"), "approve")
+    p1.decide(rid, directory.actor("u-ux"), "approve")
     return rid
 
 
@@ -108,8 +108,8 @@ def test_brownfield_skips_sprint_0(tmp_path: Path):
     p1.decide(rid, directory.actor("u-bo"), "approve")
     p1.decide(rid, directory.actor("u-ctl"), "approve")
     p1.decide(rid, directory.actor("u-arch"), "approve")
-    p1.decide(rid, directory.actor("u-ux"), "approve")
     p1.decide(rid, directory.actor("u-ba"), "approve")
+    p1.decide(rid, directory.actor("u-ux"), "approve")
     planned = p1.get(rid)
     assert planned["sprint0"]["status"] == "skipped"
     assert not p1.git.exists(f"requirements/{rid}/plan/sprint0/ci.yml", f"plan/{rid}")

@@ -67,7 +67,7 @@ _TIER_BY_ID = {
 _GATE_CHAIN = [
     {"gate": 1, "approverTiers": ["po"], "mode": "single"},
     {"gate": 2, "approverTiers": ["bo", "ctl"], "mode": "all"},
-    {"gate": 3, "approverTiers": ["architect", "ux", "ba"], "mode": "all"},
+    {"gate": 3, "approverTiers": ["architect", "ba", "ux"], "mode": "ordered"},
     {"gate": 4, "approverTiers": ["tech", "sl"], "mode": "all"},
     {"gate": 5, "approverTiers": ["se"], "mode": "single"},
     {"gate": 6, "approverTiers": ["requester", "stakeholder"], "mode": "single"},
@@ -220,6 +220,13 @@ class CompatibilityAPI:
         scope = brd.parse_scope(row.get("scope_text") or "")
         phase = row.get("phase") or ""
         awaiting = row.get("awaiting")
+        if awaiting is None and requirement:
+            try:
+                awaiting = int(requirement.get("awaiting"))
+            except (TypeError, ValueError):
+                awaiting = None
+        if not phase and awaiting in (1, 2, 3, 4, 5, 6, 7):
+            phase = f"awaiting_gate_{awaiting}"
         stage = {
             "intake": "clarifying",
             "awaiting_gate_1": "pending_approval",
@@ -308,7 +315,13 @@ class CompatibilityAPI:
         gate_3_roles = {"architect", "ui_ux", "business_analyst"}
         gate_4_roles = {"tech_lead", "stream_lead"}
         can_gate_2 = awaiting == 2 and bool(viewer_roles & gate_2_roles) and not signed
-        can_gate_3 = awaiting == 3 and bool(viewer_roles & gate_3_roles) and not signed
+        next_gate3 = self._next_ordered_role(row, 3) if awaiting == 3 else None
+        can_gate_3 = (
+            awaiting == 3
+            and not signed
+            and bool(viewer_roles & gate_3_roles)
+            and (next_gate3 is None or next_gate3 in viewer_roles)
+        )
         can_gate_4 = awaiting == 4 and bool(viewer_roles & gate_4_roles) and not signed
         can_gate_5 = awaiting == 5 and bool(viewer_roles & {"senior_engineer"})
         can_gate_6 = awaiting == 6 and (
@@ -342,6 +355,8 @@ class CompatibilityAPI:
             report = {"objective": architecture, "architecture": architecture}
         elif not report and brd_text:
             report = None
+        from phase1 import codegen as codegen_jobs
+
         return {
             "_id": requirement.get("id"),
             "title": title,
@@ -364,7 +379,12 @@ class CompatibilityAPI:
             "phase1": True,
             "phase2": governed >= 2,
             "governedPhase": governed,
-            "teamReports": list(row.get("team_reports") or []),
+            "teamReports": codegen_jobs.enrich_team_reports(
+                list(row.get("team_reports") or []),
+                tickets=list(row.get("tickets") or []),
+                stack_profile=row.get("stack_profile") or {},
+                screens=screens,
+            ),
             "discussionMessages": [],
             "ui": {
                 "screens": screens,
@@ -387,6 +407,13 @@ class CompatibilityAPI:
             "awaitingGate": awaiting,
             "designProgress": row.get("design_progress"),
             "build": row.get("build") or {},
+            "mergedBuild": {
+                "branch": f"build/{requirement.get('id')}",
+                "available": bool(row.get("build")),
+                "ok": bool((row.get("build") or {}).get("ok", True)),
+            }
+            if row.get("build")
+            else None,
             "uat": row.get("uat") or {},
             "release": row.get("release") or {},
         }
@@ -413,14 +440,43 @@ class CompatibilityAPI:
             gate_no = 0
         definition = gate_engine.GATES.get(gate_no)
         if definition and definition.all_must_sign:
-            outstanding = [
-                _ROLE_WAITING.get(role, role)
-                for role in sorted(definition.approver_roles - signed_roles)
-            ]
+            remaining = definition.approver_roles - signed_roles
+            if definition.sign_order:
+                ordered = [role for role in definition.sign_order if role in remaining]
+                outstanding = [_ROLE_WAITING.get(role, role) for role in ordered]
+            else:
+                outstanding = [
+                    _ROLE_WAITING.get(role, role) for role in sorted(remaining)
+                ]
         return {
             "viewerHasSigned": bool(viewer_id and viewer_id in signed_ids),
             "outstandingLabels": outstanding,
         }
+
+    def _next_ordered_role(self, row: dict[str, Any], gate: int) -> str | None:
+        definition = gate_engine.GATES.get(gate)
+        if not definition or not definition.sign_order:
+            return None
+        live_roles = {
+            str(item.get("role") or "")
+            for item in ((row.get("requirement") or {}).get("signatures") or [])
+            if item.get("gate") == gate and not item.get("stale")
+        }
+        # Prefer live signatures tied to the current design artefact when present.
+        artefact = ((row.get("requirement") or {}).get("artefacts") or {}).get("design") or {}
+        sha = str(artefact.get("sha") or "")
+        if sha:
+            live_roles = {
+                str(item.get("role") or "")
+                for item in ((row.get("requirement") or {}).get("signatures") or [])
+                if item.get("gate") == gate
+                and not item.get("stale")
+                and str(item.get("artefact_sha") or item.get("artefactSha") or "") == sha
+            }
+        for role in definition.sign_order:
+            if role not in live_roles:
+                return role
+        return None
 
     def ensure_owner(self, row: dict[str, Any], actor: dict[str, Any]) -> None:
         originator = (row.get("requirement") or {}).get("originator") or {}

@@ -189,6 +189,8 @@ services:
       PHASE1_DEV_MODE: ${PHASE1_DEV_MODE:-1}
       PHASE1_HOST: 0.0.0.0
       RUNTIME_ROOT: /data
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
     command: ["python", "-m", "phase1"]
     volumes:
       - app-data:/data
@@ -250,6 +252,8 @@ services:
       E2B_API_KEY: ${E2B_API_KEY:-}
       OPENHANDS_URL: ${OPENHANDS_URL:-}
       SWE_AGENT: ${SWE_AGENT:-}
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
     volumes:
       - app-data:/data
       - signing-data:/signing:ro

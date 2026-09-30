@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from temporalio.client import Client
+from temporalio.common import WorkflowIDReusePolicy
 
 from phase1 import webhook
 from phase1.adapters import RuntimeAdapters
@@ -35,6 +36,14 @@ class TemporalPhase1:
         adapters = RuntimeAdapters.from_env(self.root)
         self.identity = adapters.identity
         self.store = adapters.store
+
+    @property
+    def git(self):
+        """Server/settings read artefacts through Phase1's governance repo."""
+        return self._direct().git
+
+    def preview_document(self, *args, **kwargs):
+        return self._direct().preview_document(*args, **kwargs)
 
     def _run(self, awaitable):
         return asyncio.run(awaitable)
@@ -67,20 +76,28 @@ class TemporalPhase1:
                 },
                 id=rid,
                 task_queue=self.task_queue,
+                # Failed first-question calls left a closed REQ-nnnn run that
+                # blocked "Start guided intake" with "Workflow execution already started".
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             )
             return await handle.execute_update("ready")
 
         return self._run(start())
 
     def get(self, requirement_id: str) -> dict[str, Any]:
+        # Durable store is source of truth. The workflow snapshot can lag when
+        # screens/BRD are repaired out-of-band (or via edit_screen → _direct).
+        # Prefer store so /ui/screens matches the Gate 3 card badge.
+        try:
+            return self._direct().get(requirement_id)
+        except Exception:
+            pass
+
         async def query() -> dict[str, Any]:
             client = await self._client()
             return await client.get_workflow_handle(requirement_id).query("snapshot")
 
-        try:
-            return self._run(query())
-        except Exception:
-            return self._direct().get(requirement_id)
+        return self._run(query())
 
     def turn(
         self,
@@ -215,6 +232,12 @@ class TemporalPhase1:
 
     def apply_screen_instruction(self, *args, **kwargs):
         return self._direct().apply_screen_instruction(*args, **kwargs)
+
+    def revise_scope_draft(self, *args, **kwargs):
+        return self._direct().revise_scope_draft(*args, **kwargs)
+
+    def revise_brd_draft(self, *args, **kwargs):
+        return self._direct().revise_brd_draft(*args, **kwargs)
 
     def list_change_requests(self) -> list[dict[str, Any]]:
         return self._direct().list_change_requests()

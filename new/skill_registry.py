@@ -124,7 +124,10 @@ class SkillBundle:
         return [item.name for item in self.files]
 
 
-_REQUIRED_MARKERS = {"design-system.skill.md": ("navigate(", "LucideReact")}
+_REQUIRED_MARKERS = {
+    "design-system.skill.md": ("navigate(", "LucideReact"),
+    "intake.skill.md": ("`GUESS:`",),
+}
 
 
 def _read(root: Path, relative: str) -> SkillFile:

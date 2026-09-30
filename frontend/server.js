@@ -99,7 +99,12 @@ function staticHeaders(ext) {
 
 function createServer() {
   return http.createServer((req, res) => {
-    if (req.url === '/api' || req.url.startsWith('/api/')) {
+    if (
+      req.url === '/api'
+      || req.url.startsWith('/api/')
+      || req.url === '/preview'
+      || req.url.startsWith('/preview/')
+    ) {
       return proxyToPhase1(req, res);
     }
 

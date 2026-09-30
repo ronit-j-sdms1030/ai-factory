@@ -86,10 +86,46 @@ def record(
         "total_tokens": total,
         "usd": cost_usd(completion.model, prompt, comp),
         "estimated": not bool((completion.metadata or {}).get("usage")),
+        "ok": True,
     }
     served = (completion.metadata or {}).get("served_by")
     if served:
         row["served_by"] = str(served)
+    path = _path(root)
+    line = json.dumps(row, sort_keys=True) + "\n"
+    with _LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+    return row
+
+
+def record_failure(
+    root: Path,
+    *,
+    agent: str,
+    requirement_id: str = "",
+    model: str = "",
+    error: str = "",
+) -> dict[str, Any]:
+    """Log a gate-agent call that never got a completion (timeout, 502, etc.).
+
+    Intake raises on model failure; later agents fall back to templates via
+    ``_invoke_llm``. Without this row, Spend looks like only intake ever ran.
+    """
+    row = {
+        "at": _now(),
+        "agent": agent or "unknown",
+        "requirement_id": requirement_id or "",
+        "model": model or "",
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "usd": 0.0,
+        "estimated": False,
+        "ok": False,
+        "error": (error or "model call failed")[:400],
+    }
     path = _path(root)
     line = json.dumps(row, sort_keys=True) + "\n"
     with _LOCK:
@@ -210,7 +246,9 @@ def dashboard(root: Path, store: Any = None) -> dict[str, Any]:
         )
         _add(_bucket(by_agent, str(row.get("agent") or "unknown"), "agent"), row)
         rid = str(row.get("requirement_id") or "").strip() or "(no requirement)"
-        _add(_bucket(by_requirement, rid, "requirementId"), row)
+        req_bucket = _bucket(by_requirement, rid, "requirementId")
+        _add(req_bucket, row)
+        req_bucket["last"] = max(str(req_bucket.get("last") or ""), str(row.get("at") or ""))
     cycle = agent_settings.cycle_cost(root)
     history = list(reversed(rows[-200:]))
     return {
@@ -224,15 +262,19 @@ def dashboard(root: Path, store: Any = None) -> dict[str, Any]:
         },
         "byModel": [
             {**bucket, "usd": round(bucket["usd"], 6)}
-            for bucket in sorted(by_model.values(), key=lambda item: item["usd"], reverse=True)
+            for bucket in sorted(
+                by_model.values(), key=lambda item: (item["usd"], item["total_tokens"]), reverse=True
+            )
         ],
         "byAgent": [
             {**bucket, "usd": round(bucket["usd"], 6)}
-            for bucket in sorted(by_agent.values(), key=lambda item: item["usd"], reverse=True)
+            for bucket in sorted(
+                by_agent.values(), key=lambda item: (item["usd"], item["total_tokens"]), reverse=True
+            )
         ],
         "byRequirement": [
             {**bucket, "usd": round(bucket["usd"], 6)}
-            for bucket in sorted(by_requirement.values(), key=lambda item: item["usd"], reverse=True)
+            for bucket in sorted(by_requirement.values(), key=lambda item: item["last"], reverse=True)
         ],
         "recent": history[:25],
         "history": history,

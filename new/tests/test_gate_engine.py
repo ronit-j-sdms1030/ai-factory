@@ -132,6 +132,31 @@ class TestMultipleSignatures:
     def test_a_single_approver_gate_completes_at_once(self):
         assert evaluate(1, "approve", PRODUCT_OWNER, requirement()).satisfied is True
 
+    def test_gate_3_requires_architect_before_ba_and_ui(self):
+        ba = {"id": "u-ba", "roles": ["business_analyst"], "team": "business"}
+        ux = {"id": "u-ux", "roles": ["ui_ux"], "team": "design"}
+        arch = {"id": "u-arch", "roles": ["architect"], "team": "eng"}
+        with pytest.raises(GateRefused, match="requires architect"):
+            evaluate(3, "approve", ba, requirement())
+        with pytest.raises(GateRefused, match="requires architect"):
+            evaluate(3, "approve", ux, requirement())
+        first = evaluate(3, "approve", arch, requirement())
+        assert first.satisfied is False
+        assert first.awaiting == ["business_analyst", "ui_ux"]
+        after_arch = signed(3, ("architect", "u-arch", "eng"))
+        with pytest.raises(GateRefused, match="requires business_analyst"):
+            evaluate(3, "approve", ux, after_arch)
+        second = evaluate(3, "approve", ba, after_arch)
+        assert second.satisfied is False
+        assert second.awaiting == ["ui_ux"]
+        after_ba = signed(
+            3,
+            ("architect", "u-arch", "eng"),
+            ("business_analyst", "u-ba", "business"),
+        )
+        last = evaluate(3, "approve", ux, after_ba)
+        assert last.satisfied is True
+
 
 class TestOutcomes:
     def test_discard_exists_only_at_the_first_two_gates(self):

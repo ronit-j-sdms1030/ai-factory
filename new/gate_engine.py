@@ -60,6 +60,11 @@ class Gate:
     ``distinct_teams`` covers Gate 2, where two reviewers are required *and*
     they must come from different teams. Two signatures from one team is one
     perspective twice.
+
+    ``sign_order`` (when set) forces an approve sequence inside an
+    ``all_must_sign`` gate — later roles are refused until earlier ones have
+    signed. Gate 3 uses it so architecture lands before BA coverage, and screens
+    are only generated after BA.
     """
 
     number: int
@@ -69,6 +74,7 @@ class Gate:
     all_must_sign: bool = False
     distinct_teams: int = 1
     excludes_originator: bool = True
+    sign_order: tuple[str, ...] = ()
 
 
 # The gate set, exactly as §9 of the architecture defines it. Discard appears
@@ -96,6 +102,7 @@ GATES: dict[int, Gate] = {
         approver_roles=frozenset({"architect", "ui_ux", "business_analyst"}),
         outcomes=frozenset({"approve", "revise"}),
         all_must_sign=True,
+        sign_order=("architect", "business_analyst", "ui_ux"),
     ),
     4: Gate(
         number=4,
@@ -237,8 +244,24 @@ def evaluate(
             note=f"gate {gate} returned '{outcome}'",
         )
 
+    if definition.sign_order:
+        for role in sorted(entitled):
+            if role not in definition.sign_order:
+                continue
+            idx = definition.sign_order.index(role)
+            for prior in definition.sign_order[:idx]:
+                if prior not in already:
+                    raise GateRefused(
+                        f"gate {gate} requires {prior} to sign before {role}"
+                    )
+
     signed_roles = set(already) | entitled
-    outstanding = sorted(definition.approver_roles - signed_roles) if definition.all_must_sign else []
+    if definition.all_must_sign and definition.sign_order:
+        outstanding = [role for role in definition.sign_order if role not in signed_roles]
+    elif definition.all_must_sign:
+        outstanding = sorted(definition.approver_roles - signed_roles)
+    else:
+        outstanding = []
 
     teams = _signed_teams(requirement, gate) | ({actor.get("team")} if actor.get("team") else set())
     short_of_teams = definition.distinct_teams > len(teams)

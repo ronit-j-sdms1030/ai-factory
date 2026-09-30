@@ -51,8 +51,9 @@ class GitHubAppRepository(LocalGitRepository):
     """Local working tree plus GitHub App branch/commit/PR/merge primitives.
 
     With ``per_requirement`` every ``REQ-nnnn`` branch lives in its own private
-    repo ``<repo>-req-nnnn``, created on first commit. Branches without a
-    requirement id (skills, settings) stay in the governance repo.
+    repo named after the requirement: ``<repo>-req-nnnn`` (e.g.
+    ``ai-factory-governance-req-0001``), created on first commit. Branches
+    without a requirement id (skills, settings) stay in the governance repo.
     """
 
     def __init__(
@@ -123,16 +124,17 @@ class GitHubAppRepository(LocalGitRepository):
                 if str(me.get("login") or "").lower() == self.owner.lower()
                 else f"{self.api_url}/orgs/{self.owner}/repos"
             )
-            requirement = repo[len(self.repo) + 1 :].upper()
+            requirement = repo[len(self.repo) + 1 :].upper() if repo.startswith(self.repo + "-") else repo.upper()
             try:
                 self._call(
                     "POST",
                     create,
                     {
-                        "name": repo,
+                        "name": repo,  # always …-req-nnnn — named after the requirement
                         "private": True,
                         "auto_init": True,
-                        "description": f"Governed factory artefacts for {requirement}",
+                        "description": f"Requirement {requirement} — governed product artefacts",
+                        "homepage": f"http://127.0.0.1:5173/preview/{requirement}",
                     },
                 )
             except RuntimeError as create_exc:
@@ -207,9 +209,10 @@ class GitHubAppRepository(LocalGitRepository):
         *,
         author: str,
         email: str,
+        delete: list[str] | None = None,
     ) -> str:
         sha = super().commit_files(
-            branch, files, message, author=author, email=email
+            branch, files, message, author=author, email=email, delete=delete
         )
         repo = self.repo_for(branch)
         try:
@@ -251,7 +254,15 @@ class GitHubAppRepository(LocalGitRepository):
         try:
             self.merge_pull_request(number, message, repo=repo)
         except RuntimeError as exc:
-            if "409" not in str(exc) and "not mergeable" not in str(exc).lower():
+            text = str(exc).lower()
+            # GitHub returns 405/409 when the PR is dirty or already merged.
+            # Local merge already landed; do not fail gate clearance for that.
+            if (
+                "409" not in str(exc)
+                and "405" not in str(exc)
+                and "not mergeable" not in text
+                and "merge conflict" not in text
+            ):
                 raise
         return sha
 

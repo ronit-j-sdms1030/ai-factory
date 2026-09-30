@@ -1,0 +1,14 @@
+---
+description: This repo is a POC for a demo, not production.
+alwaysApply: true
+---
+
+# POC demo, not production
+
+This project is a **proof of concept for a live demo**. It is OK if it is not production-ready.
+
+- Ship local FOSS substitutes so a walkthrough works without Entra, AKS, E2B cloud, org GitHub Apps, Rekor, or paid model SKUs.
+- Do not block features on tenant keys. Do not claim those services are live.
+- Cookie login + demo directory (`PHASE1_DEV_MODE`) is the demo identity.
+- Keep architecture FOSS tools; Entra and GitHub Enterprise stay client-SoW commercial and out of the demo path.
+- Prefer a complete demo loop (intake → gates → artefacts → catalog) over hardening.

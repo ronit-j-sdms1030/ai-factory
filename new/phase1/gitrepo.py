@@ -62,6 +62,7 @@ class GovernanceRepo:
         *,
         author: str,
         email: str,
+        delete: list[str] | None = None,
     ) -> str:
         listed = self._run(["git", "branch", "--list", branch]).strip()
         if listed:
@@ -69,6 +70,15 @@ class GovernanceRepo:
         else:
             self._run(["git", "checkout", "main"])
             self._run(["git", "checkout", "-b", branch])
+        for rel in delete or []:
+            path = self.root / rel
+            if path.exists() or self.exists(rel, branch):
+                if path.exists():
+                    path.unlink()
+                try:
+                    self._run(["git", "rm", "-f", "--", rel])
+                except GitError:
+                    pass
         for rel, content in files.items():
             path = self.root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -102,6 +112,14 @@ class GovernanceRepo:
     def read(self, rel: str, ref: str = "main") -> str:
         return self._run(["git", "show", f"{ref}:{rel}"])
 
+    def list_files(self, ref: str = "main") -> list[str]:
+        """Paths present on ``ref`` (recursive). Empty if the ref is missing."""
+        try:
+            out = self._run(["git", "ls-tree", "-r", "--name-only", ref])
+        except GitError:
+            return []
+        return [line.strip() for line in out.splitlines() if line.strip()]
+
     def exists(self, rel: str, ref: str = "main") -> bool:
         try:
             self.read(rel, ref)
@@ -134,11 +152,23 @@ class GovernanceRepo:
     def design_system(self) -> str:
         shipped = Path(__file__).resolve().parent.parent / "skills/design-system.skill.md"
         path = self.root / "skills/design-system.skill.md"
+        required = (
+            "Page",
+            "Sidebar",
+            "Button",
+            "Field",
+            "Table",
+            "Card",
+            "Badge",
+            "Hero",
+            "Image",
+            "--color-sidebar",
+            "navigate(",
+            "LucideReact",
+            "blush",
+        )
         if path.exists():
             text = path.read_text(encoding="utf-8")
-            required = (
-                "Page", "Sidebar", "Button", "Field", "Table", "--color-sidebar", "navigate(", "LucideReact",
-            )
             if all(marker in text for marker in required):
                 return text
         return shipped.read_text(encoding="utf-8") if shipped.exists() else ""

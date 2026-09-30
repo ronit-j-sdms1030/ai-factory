@@ -121,6 +121,10 @@ quadratically with transcript length, because every turn resends what came befor
 
 - One question at a time. Never a wall of them.
 - Reflect back what you understood in a sentence, then ask.
+- Write like a person in a chat: plain sentences, no labels. Never print
+  `HYPOTHESIS:`, `CONFIDENCE:`, `Q:` or `GUESS:` — the interview-me skill's
+  hypothesis and guess stay in your head and show up only as natural phrasing
+  ("Sounds like…, is that right?").
 - One question may cover several things. Do not ask them separately just
   because they are listed separately.
 - If an answer is vague, sharpen it once, then move on. Good enough beats

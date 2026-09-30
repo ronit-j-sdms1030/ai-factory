@@ -24,15 +24,31 @@ ALLOWED_TOKENS = (
     "--space-md",
     "--font-sans",
 )
-ALLOWED_COMPONENTS = ("Page", "Sidebar", "Button", "Field", "Table")
+ALLOWED_COMPONENTS = (
+    "Page",
+    "Sidebar",
+    "Button",
+    "Field",
+    "Table",
+    "Card",
+    "Badge",
+    "Hero",
+    "Image",
+)
 TOKEN_HINT = (
     "var(--color-bg), var(--color-sidebar), var(--color-surface), "
     "var(--color-text), var(--color-muted), var(--color-accent), "
     "var(--color-line), var(--space-md), var(--font-sans)"
 )
+PLACEHOLDER_RULE = (
+    "Never emit angle-bracket placeholders such as <LOCATION>, <BRAND>, or <LOCATIONS>. "
+    "Those are not components. Write the words as plain text (LOCATION). "
+    "Only use real tags: Page, Sidebar, Button, Field, Table, Card, Badge, Hero, Image, "
+    "and lowercase HTML."
+)
 COMPONENT_HINT = (
     "function Page, function Sidebar, function Button, function Field, "
-    "function Table"
+    "function Table, function Card, function Badge, function Hero, function Image"
 )
 ALLOWED_THEMES = (
     "midnight",
@@ -43,11 +59,38 @@ ALLOWED_THEMES = (
     "ink",
     "glacier",
     "sand",
+    "blush",
+    "noir",
+    "ocean",
+    "sunrise",
+    "plum",
 )
 THEME_ATTR = re.compile(r'data-theme=["\']([a-z]+)["\']')
-THEME_HINT = "data-theme midnight|aurora|paper|grove|coral|ink|glacier|sand"
+THEME_HINT = (
+    "data-theme midnight|aurora|paper|grove|coral|ink|glacier|sand|"
+    "blush|noir|ocean|sunrise|plum"
+)
 HEX_COLOUR = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+# Hex OK only when assigning a design-token CSS variable (Studio colour pickers).
+TOKEN_HEX = re.compile(
+    r'--color-(?:bg|sidebar|surface|text|muted|accent|line)\s*["\']?\s*:\s*["\']?'
+    r"#[0-9a-fA-F]{3,8}\b"
+)
+# All-caps tags such as <LOCATION> are intake placeholders, not components.
+# Babel treats them as unclosed JSX and the live preview stays blank.
+PLACEHOLDER_TAG = re.compile(r"</?([A-Z][A-Z0-9_]*)\b[^>]*?/?>")
 MAX_RETRIES = 2
+
+
+def neutralize_placeholder_tags(source: str) -> str:
+    """Turn `<LOCATION>` into the text LOCATION. Leave PascalCase components."""
+
+    def repl(match: re.Match[str]) -> str:
+        if match.group(0).startswith("</"):
+            return ""
+        return match.group(1)
+
+    return PLACEHOLDER_TAG.sub(repl, source or "")
 
 
 class CompileFailed(Exception):
@@ -74,10 +117,19 @@ def compile_jsx(name: str, source: str) -> None:
         raise CompileFailed("no JSX markup")
 
 
+def _has_banned_hex(source: str) -> bool:
+    for match in HEX_COLOUR.finditer(source or ""):
+        window = (source or "")[max(0, match.start() - 48) : match.end()]
+        if TOKEN_HEX.search(window):
+            continue
+        return True
+    return False
+
+
 def conform(source: str, skill_text: str) -> list[str]:
     failures = []
-    if HEX_COLOUR.search(source):
-        failures.append("raw hex colour; use design-system tokens")
+    if _has_banned_hex(source):
+        failures.append("raw hex colour; use design-system tokens or Studio token overrides")
     for found in THEME_ATTR.findall(source):
         if found not in ALLOWED_THEMES:
             failures.append(f"unknown theme {found}; use a named palette")
@@ -104,7 +156,7 @@ def generate_with_gate(
     error: str | None = None
     source = ""
     for _ in range(MAX_RETRIES + 1):
-        source = produce(error)
+        source = neutralize_placeholder_tags(produce(error))
         try:
             compile_jsx(name, source)
             error = None

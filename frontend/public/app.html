@@ -157,17 +157,85 @@
                 background: var(--bg); border-bottom: 1px solid var(--line); min-height: 1.4rem; }
   .uied-toast.bad { color: var(--bad); }
   .uied-askrow {
-    display: none; gap: 0.5rem; align-items: center; padding: 0.55rem 0.9rem;
-    background: var(--surface); border-bottom: 1px solid var(--line);
+    display: none; gap: 0.5rem; align-items: center; padding: 0.55rem 0.75rem;
+    background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0;
   }
   .uied-askrow.open { display: flex; }
   .uied-askrow input {
-    flex: 1; font: inherit; font-size: 0.88rem; padding: 0.55rem 0.8rem;
+    flex: 1; min-width: 0; font: inherit; font-size: 0.82rem; padding: 0.45rem 0.65rem;
     border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text);
   }
   .uied-askrow button {
-    font: inherit; font-size: 0.8rem; padding: 0.5rem 1rem; border-radius: 8px;
-    border: 0; background: var(--accent); color: var(--accent-ink); cursor: pointer;
+    font: inherit; font-size: 0.78rem; padding: 0.45rem 0.75rem; border-radius: 8px;
+    border: 0; background: var(--accent); color: var(--accent-ink); cursor: pointer; flex-shrink: 0;
+  }
+  .uied-studio-rail {
+    width: 292px; flex-shrink: 0; display: none; flex-direction: column;
+    background: var(--surface); border-right: 1px solid var(--line);
+    min-height: 0; transition: width 0.2s ease;
+  }
+  .uied-studio-rail.open { display: flex; }
+  .uied-studio-rail.collapsed { width: 44px; }
+  .uied-studio-rail.collapsed .uied-studio-body,
+  .uied-studio-rail.collapsed .uied-askrow { display: none !important; }
+  .uied-studio-head {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid var(--line); flex-shrink: 0; min-height: 42px;
+  }
+  .uied-studio-head .uied-studio-title {
+    flex: 1; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-faint); white-space: nowrap; overflow: hidden;
+  }
+  .uied-studio-rail.collapsed .uied-studio-title { display: none; }
+  .uied-studio-toggle {
+    font: inherit; font-size: 1rem; line-height: 1; width: 32px; height: 32px;
+    border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+    color: var(--text); cursor: pointer; flex-shrink: 0; padding: 0;
+  }
+  .uied-studio-toggle:hover { border-color: var(--accent); color: var(--accent); }
+  .uied-studio-body {
+    flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  }
+  .uied-studio {
+    display: flex; flex-direction: column; gap: 0.55rem; padding: 0.7rem 0.75rem 1rem;
+    background: transparent; border: 0; max-height: none;
+  }
+  .uied-studio.open { display: flex; }
+  .uied-studio-row { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+  .uied-studio h4 {
+    margin: 0.15rem 0 0; width: 100%; font-size: 0.64rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-faint);
+  }
+  .uied-studio h4:first-child { margin-top: 0; }
+  .uied-swatch {
+    width: 28px; height: 28px; border-radius: 8px; border: 2px solid transparent;
+    cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.18);
+  }
+  .uied-swatch.on { border-color: var(--accent); }
+  .uied-swatch span { display: none; }
+  .uied-colorchip {
+    display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; color: var(--text-soft);
+  }
+  .uied-colorchip input[type=color] {
+    width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 8px;
+    background: transparent; cursor: pointer;
+  }
+  .uied-colorchip input[type=text] {
+    width: 72px; font: inherit; font-size: 0.68rem; font-family: var(--font-mono, monospace);
+    padding: 0.25rem 0.35rem; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--text);
+  }
+  .uied-studio select {
+    font: inherit; font-size: 0.72rem; padding: 0.35rem 0.45rem; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); max-width: 100%;
+  }
+  .uied-studio label.uied-lay {
+    display: inline-flex; flex-direction: column; gap: 0.15rem; font-size: 0.64rem;
+    color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em;
+    min-width: calc(50% - 0.2rem);
+  }
+  .uied-studio .uied-pal-item {
+    display: inline-block; width: auto; margin: 0; padding: 0.38rem 0.55rem; font-size: 0.72rem;
   }
   .uied-work { flex: 1; display: flex; min-width: 0; min-height: 0; }
   .uied-palette {
@@ -255,6 +323,10 @@
     font: inherit; font-size: 0.8rem; padding: 0.4rem 0.55rem; border-radius: 8px;
     border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); cursor: pointer; width: 100%;
   }
+  .uied-inspector .uied-size-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;
+  }
+  .uied-ins-hint { font-size: 0.72rem; color: var(--text-faint); line-height: 1.4; margin: 0 0 0.75rem; }
   .uied-canvas {
     position: absolute; inset: 0; width: 100%; height: 100%;
     border: 0; background: var(--bg); display: none;
@@ -380,6 +452,15 @@
     margin: 0; flex-shrink: 0; padding: 0.5rem 1rem 0.7rem; border-top: 1px solid var(--line); background: var(--surface);
     font-family: var(--font-mono); font-size: 0.66rem; color: var(--text-faint);
   }
+  .chat-typing { display: inline-flex; gap: 4px; padding: 0.2rem 0; margin-right: 0.55rem; vertical-align: middle; }
+  .chat-typing-text { color: var(--text-muted, var(--text-faint)); font-size: 0.85rem; }
+  .chat-typing i {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint);
+    animation: chat-typing 1.2s infinite ease-in-out;
+  }
+  .chat-typing i:nth-child(2) { animation-delay: 0.15s; }
+  .chat-typing i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes chat-typing { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
 
   .chat-summary-block {
     border: 1px solid var(--line); border-radius: 9px; background: var(--surface);
@@ -592,6 +673,41 @@
   .ide-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 0.6rem; color: #4a4a52; font-size: 0.84rem; }
   .ide-placeholder .ide-placeholder-icon { font-size: 2rem; }
 
+  .ide-compare-panel {
+    flex: 1; overflow: auto; padding: 1rem 1.2rem; color: #c0c0c4; font-size: 0.82rem;
+  }
+  .ide-compare-panel h3 {
+    margin: 0 0 0.35rem; font-size: 0.95rem; color: #e8e8ea; font-weight: 600;
+  }
+  .ide-compare-panel .ide-compare-meta {
+    margin: 0 0 1rem; color: #6b6c72; font-size: 0.75rem;
+  }
+  .ide-compare-section { margin: 0 0 1.1rem; }
+  .ide-compare-section h4 {
+    margin: 0 0 0.45rem; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #8a8b92;
+  }
+  .ide-compare-section.made h4 { color: #4caf7d; }
+  .ide-compare-section.missing h4 { color: #e2685a; }
+  .ide-compare-item {
+    display: flex; flex-direction: column; gap: 0.15rem;
+    padding: 0.45rem 0.55rem; margin-bottom: 0.35rem;
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; background: rgba(255,255,255,0.03);
+  }
+  .ide-compare-item .label { color: #d4d4d8; font-weight: 500; }
+  .ide-compare-item .kind {
+    font-size: 0.68rem; color: #6b6c72; font-family: var(--font-mono); text-transform: uppercase;
+  }
+  .ide-compare-item .files {
+    font-size: 0.72rem; color: #8a8b92; font-family: var(--font-mono); word-break: break-all;
+  }
+  .ide-compare-item button.file-link {
+    background: none; border: none; color: #f2761f; cursor: pointer; padding: 0;
+    font: inherit; font-family: var(--font-mono); font-size: 0.72rem; text-align: left;
+  }
+  .ide-compare-item button.file-link:hover { text-decoration: underline; }
+  .ide-compare-empty { color: #6b6c72; font-style: italic; margin: 0; }
+
   /* Issues drawer */
   .ide-issues-drawer {
     flex-shrink: 0; max-height: 140px; background: #131418; border-top: 1px solid rgba(255,255,255,0.08);
@@ -739,7 +855,7 @@
                 <textarea id="chat-input" rows="1" placeholder="Type your reply..."></textarea>
                 <button class="btn" id="chat-send-btn" type="button">Send</button>
               </div>
-              <p class="chat-footnote">Intake talks through LiteLLM &rarr; OpenRouter. Model per agent is in Settings.</p>
+              <p class="chat-footnote">Intake talks through LiteLLM &rarr; FreeLLMAPI. Model per agent is in Settings.</p>
             </div>
           </div>
         </div>
@@ -927,6 +1043,7 @@
       <button class="btn secondary" id="ide-save-rescan-btn" type="button" style="display:none;">🛡 Save &amp; Re-Scan</button>
       <button class="btn secondary" id="ide-save-btn" type="button" style="display:none;">💾 Save file</button>
       <button class="btn secondary" id="ide-demo-btn" type="button">▶ UI Demo</button>
+      <button class="btn secondary" id="ide-compare-btn" type="button" style="display:none;">⇄ Compare to report</button>
       <button class="btn secondary" id="ide-download-btn" type="button" disabled>⬇ Download All</button>
       <button class="btn secondary" id="ide-close-btn" type="button">✕ Close</button>
     </div>
@@ -1101,7 +1218,8 @@
     function fmtChain(artifact) {
       return artifact.approvalChain.map(function (step, i) {
         var marker = i < artifact.currentApprovalIndex ? '✓' : (i === artifact.currentApprovalIndex ? '▸' : '·');
-        var names = step.approverTiers.map(function (t) { return TIER_LABELS[t] || t; }).join(' / ');
+        var sep = (step.gate === 3 || step.mode === 'ordered') ? ' → ' : ' / ';
+        var names = step.approverTiers.map(function (t) { return TIER_LABELS[t] || t; }).join(sep);
         return marker + ' G' + (step.gate || (i + 1)) + ' ' + names;
       }).join('  ');
     }
@@ -1194,7 +1312,12 @@
       if (!me.isClient) {
         if (stage === 'pending_approval') {
           var step = artifact.approvalChain[artifact.currentApprovalIndex];
-          if (step && step.approverTiers.indexOf(me.tierId) !== -1 && !artifact.viewerHasSigned) {
+          var onStep = step && step.approverTiers.indexOf(me.tierId) !== -1 && !artifact.viewerHasSigned;
+          // Gate 3 is ordered Architect → BA → UI — only the next role may act.
+          if (onStep && artifact.awaitingGate === 3 && artifact.uiGate && artifact.uiGate.canApprove === false) {
+            onStep = false;
+          }
+          if (onStep) {
             if (artifact.phase1) {
               var g = artifact.awaitingGate || step.gate;
               var lens = gate3Lens(me.tierId);
@@ -1310,38 +1433,41 @@
         buttons.push({ action: 'regenerateTeamSplit', label: 'Generate TL packages' });
       }
 
-      // Gate 3: each signer opens their own lens — architect sees architecture,
-      // UI/UX sees screens, BA sees BRD coverage. Same approval, different artefact.
+      // Gate 3 lens view (architecture / screens / BRD) is the remapped primary
+      // "View" button in renderArtifactItem — do not push it again here or the
+      // card shows two identical openers.
       var hasScreens = artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
-      var hasArchitecture = !!(artifact.architectureText || (artifact.detailedReport && artifact.detailedReport.architecture));
       var stepNow = artifact.approvalChain[artifact.currentApprovalIndex] || {};
       var namedOnCurrent = (stepNow.approverTiers || []).indexOf(me.tierId) !== -1;
       var gate = artifact.uiGate || {};
       var governed = artifact.governedPhase || (artifact.phase2 ? 2 : 1);
       var atGate3 = artifact.awaitingGate === 3 || (artifact.uiGate && artifact.uiGate.blocksSplit);
       var lens = gate3Lens(me.tierId);
-      if (atGate3 && !me.isClient && (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
-           ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
-        if (lens === 'architecture' && hasArchitecture) {
-          buttons.push({ modal: 'gate3Architecture', label: 'View architecture' });
-        } else if (lens === 'screens' && hasScreens) {
-          buttons.push({ modal: 'uiEditor', label: 'Review screens (' + artifact.ui.screens.length + ')' });
-        } else if (lens === 'business' && (artifact.brdText || hasScreens)) {
-          buttons.push({ modal: 'gate3Business', label: 'Review BRD coverage' });
-        } else if (hasScreens) {
-          buttons.push({ modal: 'uiEditor', label: 'Review screens (' + artifact.ui.screens.length + ')' });
-        }
-      } else if (hasScreens && !me.isClient &&
+      if (hasScreens && !me.isClient &&
           (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
            ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
-        buttons.push({
-          modal: 'uiEditor',
-          label: 'Review screens (' + artifact.ui.screens.length + ')',
-        });
+        // Only when the primary View button is NOT already remapped to screens.
+        var viewAlreadyScreens = atGate3 && (lens === 'screens' || lens === 'all');
+        if (!viewAlreadyScreens && !(atGate3 && (lens === 'architecture' || lens === 'business'))) {
+          buttons.push({
+            modal: 'uiEditor',
+            label: 'Review screens (' + artifact.ui.screens.length + ')',
+          });
+        }
       }
 
       if (artifact.phase1 && artifact.brdText && gate.canEdit && governed < 2) {
         buttons.push({ modal: 'brdEditor', label: 'Edit BRD', secondary: true });
+      }
+      if (
+        artifact.phase1
+        && !me.isClient
+        && artifact.awaitingGate === 5
+        && me.tierId === 'se'
+      ) {
+        if (artifact.brdText) {
+          buttons.push({ modal: 'viewBrd', label: 'View BRD', secondary: true });
+        }
       }
       if (artifact.phase1) return buttons;
       if (governed >= 2 && gate.canEdit && lens !== 'architecture' && lens !== 'business') {
@@ -1367,7 +1493,39 @@
         buttons.push({ action: 'approve', label: 'Approve release' });
         buttons.push({ action: 'reject', label: 'Hold release', secondary: true });
       }
-      if (artifact.phase1 && governed <= 6) return buttons;
+      if (artifact.phase1 && governed <= 6) {
+        // Demo IDE codegen: stream assembler modules (screens → API → DB).
+        var canPhase1Codegen = !me.isClient
+          && ['tech', 'sl', 'po', 'se', 'dev-lead'].indexOf(me.tierId) !== -1
+          && (
+            (artifact.tickets && artifact.tickets.length)
+            || (artifact.teamReports && artifact.teamReports.length)
+            || (artifact.ui && artifact.ui.screens && artifact.ui.screens.length)
+            || (artifact.awaitingGate != null && artifact.awaitingGate >= 4)
+            || (artifact.build && artifact.build.ok)
+          );
+        if (canPhase1Codegen) {
+          var cgDept = me.department || 'development';
+          var codegenEntry = findCodegenModuleStatus(artifact._id, cgDept);
+          if (codegenEntry && codegenEntry.status !== 'not_started') {
+            if (codegenEntry.status === 'error') {
+              buttons.push({ action: 'codeGen', label: 'Retry code generation', modal: 'codeGen' });
+            } else {
+              var cgLabel = codegenEntry.status === 'done'
+                ? 'View generated code'
+                : 'View progress (' + codegenEntry.progressPct + '%)';
+              buttons.push({
+                action: 'codeGenResume', label: cgLabel, modal: 'codeGenResume',
+                secondary: codegenEntry.status !== 'generating',
+                codeGenId: codegenEntry.codeGenId, modelLabel: codegenEntry.modelLabel,
+              });
+            }
+          } else {
+            buttons.push({ action: 'codeGen', label: 'Generate Code', modal: 'codeGen' });
+          }
+        }
+        return buttons;
+      }
       if (!artifact.phase1 && gate.canEdit && governed < 2) buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
       if (!artifact.phase1 && gate.canApprove && governed < 2) {
         buttons.push({ action: 'approveUi', label: 'Approve UI' });
@@ -1473,6 +1631,9 @@
       if (artifact.teamReports && artifact.teamReports.length) {
         addBadge(artifact.teamReports.length + ' team package' + (artifact.teamReports.length === 1 ? '' : 's'), true);
       }
+      if (artifact.awaitingGate === 5 && artifact.mergedBuild && artifact.mergedBuild.available) {
+        addBadge('Merged build ready — review before approve');
+      }
 
       var why = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
       if (why) {
@@ -1483,12 +1644,19 @@
 
       var viewBtn = el.querySelector('[data-view]');
       var atGate3 = artifact.awaitingGate === 3 || (artifact.uiGate && artifact.uiGate.blocksSplit);
+      var atGate5 = artifact.awaitingGate === 5 && artifact.build;
+      var atGate6 = artifact.awaitingGate === 6;
       var lens = gate3Lens(me.tierId);
       var g3screens = atGate3 && lens === 'screens' && artifact.ui && artifact.ui.screens && artifact.ui.screens.length;
-      var g3arch = atGate3 && lens === 'architecture' &&
-        (artifact.architectureText || (artifact.detailedReport && artifact.detailedReport.architecture));
+      var g3arch = atGate3 && lens === 'architecture';
       var g3biz = atGate3 && lens === 'business' && (artifact.brdText || (artifact.ui && artifact.ui.screens && artifact.ui.screens.length));
-      if (g3arch) {
+      if (atGate6) {
+        viewBtn.textContent = 'View UAT';
+        viewBtn.className = 'btn';
+      } else if (atGate5) {
+        viewBtn.textContent = 'View merged code';
+        viewBtn.className = 'btn';
+      } else if (g3arch) {
         viewBtn.textContent = 'View architecture';
         viewBtn.className = 'btn';
       } else if (g3biz) {
@@ -1499,6 +1667,14 @@
         viewBtn.className = 'btn';
       }
       viewBtn.addEventListener('click', function () {
+        if (atGate6) {
+          var uatPath = (artifact.uat && (artifact.uat.preview || artifact.uat.url))
+            || (artifact.ui && artifact.ui.previewUrl)
+            || ('/preview/' + artifact._id);
+          if (uatPath.indexOf('http') !== 0) uatPath = (window.API_BASE || '') + uatPath;
+          return window.open(uatPath, '_blank', 'noopener');
+        }
+        if (atGate5) return openMergedBuildIde(artifact);
         if (g3arch) return openGate3ArchitectureModal(artifact);
         if (g3biz) return openGate3BusinessModal(artifact);
         if (g3screens || (atGate3 && lens === 'all' && artifact.ui && artifact.ui.screens && artifact.ui.screens.length)) {
@@ -1531,6 +1707,7 @@
           if (btnDef.modal === 'fsdChat') return openFsdChatModal(artifact);
           if (btnDef.modal === 'teamReportChat') return openTeamReportChatModal(artifact);
           if (btnDef.modal === 'brdEditor') return openBrdEditorModal(artifact);
+          if (btnDef.modal === 'viewBrd') return openViewModal(artifact);
           if (btnDef.modal === 'uiEditor') return openUiEditorModal(artifact);
           if (btnDef.modal === 'gate3Architecture') return openGate3ArchitectureModal(artifact);
           if (btnDef.modal === 'gate3Business') return openGate3BusinessModal(artifact);
@@ -1692,8 +1869,7 @@
     // renderer rather than reusing renderArtifactItem.
     function renderReviewBlock(label, review, toolLabel) {
       if (!review) return '';
-      // "exhausted" = auto-fix genuinely retried and plateaued (see
-      // scanAndAutoFix) — some findings (e.g. a SonarQube security hotspot)
+      // "exhausted" = auto-fix genuinely retried and plateaued — some findings
       // aren't something a rewrite reliably eliminates. Shown distinctly
       // from a plain "Needs fixes" (which implies re-running might still
       // help) rather than as a false "Pass" — the findings stay listed
@@ -1701,15 +1877,18 @@
       var verdictClass = review.verdict === 'pass' ? 'pass' : review.exhausted ? 'flagged' : 'needs_fixes';
       var verdictLabel = review.verdict === 'pass' ? 'Pass' : review.exhausted ? 'Flagged — manual review' : 'Needs fixes';
 
-      // 3-Stage breakdown if available in review.stages
+      // Per-scanner / flowchart stage breakdown when present.
       var stagesHtml = '';
       if (review.stages && Array.isArray(review.stages) && review.stages.length) {
-        var stagePills = review.stages.map(function (st, idx) {
+        var stagePills = review.stages.map(function (st) {
           var stClass = st.skipped ? 'skipped' : (st.passed ? 'pass' : 'fail');
           var stIcon = st.skipped ? '↷' : (st.passed ? '✓' : '✕');
-          var stStatusText = st.skipped ? 'Skipped' : (st.passed ? 'Pass (0 issues)' : st.findingsCount + ' issue(s)');
+          var modeNote = st.mode ? ' · ' + st.mode : '';
+          var stStatusText = st.skipped ? 'Skipped' : (st.passed ? 'Pass' : (st.findingsCount ? st.findingsCount + ' issue(s)' : 'Fail'));
           return '<div class="codegen-stage-pill ' + stClass + '">' +
-            '<span>' + stIcon + ' <strong>Stage ' + (idx + 1) + ': ' + escapeHtml(st.name) + '</strong></span>' +
+            '<span>' + stIcon + ' <strong>' + escapeHtml(st.name) + '</strong>' +
+              (modeNote ? '<span style="opacity:0.7;font-weight:400;">' + escapeHtml(modeNote) + '</span>' : '') +
+            '</span>' +
             '<span class="codegen-stage-badge ' + stClass + '">' + escapeHtml(stStatusText) + '</span>' +
             '</div>';
         }).join('');
@@ -1721,9 +1900,13 @@
             var tag = f.tool || f.category;
             var lineInfo = f.line ? ' (Line ' + f.line + ')' : '';
             var sevClass = (f.severity === 'high' || f.severity === 'critical') ? 'sev-high' : 'sev-med';
-            return '<div class="codegen-finding ' + sevClass + '"><span class="sev">' + escapeHtml(f.severity) + '</span>' +
-              (tag ? '<strong>[' + escapeHtml(tag.toUpperCase()) + ']</strong> ' : '') +
-              '<code>' + escapeHtml(f.file) + lineInfo + '</code>: ' + escapeHtml(f.issue) + '</div>';
+            var issue = f.issue || f.message || f.detail || f.rule || '';
+            var file = f.file || f.path || '';
+            if (!issue && !file) return '';
+            return '<div class="codegen-finding ' + sevClass + '"><span class="sev">' + escapeHtml(f.severity || 'info') + '</span>' +
+              (tag ? '<strong>[' + escapeHtml(String(tag).toUpperCase()) + ']</strong> ' : '') +
+              (file ? '<code>' + escapeHtml(file) + lineInfo + '</code>: ' : '') +
+              escapeHtml(issue) + '</div>';
           }).join('')
         : '<div class="codegen-finding" style="border-color:transparent;color:var(--text-faint);font-style:italic;">No issues found.</div>';
 
@@ -1837,9 +2020,16 @@
         var verdictClass = m.security.verdict === 'pass' ? 'pass' : m.security.exhausted ? 'flagged' : 'needs_fixes';
         var verdictLabel = m.securityFixRunning ? 'Fixing…' : m.security.verdict === 'pass' ? 'Pass' : m.security.exhausted ? 'Flagged' : 'Needs fixes';
 
+        var toolLabel = (m.security && m.security.mode)
+          ? ('Eight scanners · ' + m.security.mode)
+          : 'Gitleaks · Bandit · eslint-security · Opengrep · Trivy · Checkov · Syft · ScanCode';
         var body = m.securityFixRunning
-          ? '<div class="codegen-stage-note">AI repair is running. Security Tests, Semgrep, SonarQube, and CI will replace the previous result when complete.</div>'
-          : renderReviewBlock('Security review (3-Stage)', m.security, 'Security Tests + Semgrep + SonarQube') + renderExecutionBlock('CI build and validation', m.ciExecution);
+          ? '<div class="codegen-stage-note">AI repair is running. Phase 4 pipeline (CI → scanners → Review Bench ×4 → adversary) will replace the previous result when complete.</div>'
+          : renderReviewBlock('Phase 4 security & license scans', m.security, toolLabel)
+            + renderExecutionBlock('Phase 4 CI + Review Bench + adversary', m.ciExecution)
+            + (m.security && m.security.pipeline && m.security.pipeline.summary
+              ? '<p class="codegen-stage-note">' + escapeHtml(m.security.pipeline.summary) + '</p>'
+              : '');
         if (isOwnDept && !m.securityFixRunning && (m.security.verdict !== 'pass' || !m.ciExecution || m.ciExecution.verdict !== 'pass')) {
           body += '<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:0.6rem;">' +
             '<button class="btn" type="button" data-fix-ai data-codegen-id="' + escapeAttr(m.codeGenId) + '" style="padding:0.4rem 0.85rem;font-size:0.8rem;">✨ Fix with AI</button>' +
@@ -2156,7 +2346,19 @@
     // for every approved, team-split artifact already in this user's list.
     function loadCodegenStatusList(artifacts) {
       if (me.isClient || (me.tierId !== 'po' && me.tierId !== 'tech')) return;
-      var candidates = artifacts.filter(function (a) { return a.currentStage === 'approved' && a.teamReportsGeneratedAt; });
+      // Phase 1 keeps currentStage as pending_approval until Gate 7 complete —
+      // so "approved" alone never lights this page during Gate 4/5 build.
+      // Show any requirement that already has a plan split (tickets/packages)
+      // or has crossed into/ past Gate 4.
+      var candidates = artifacts.filter(function (a) {
+        if (a.phase1) {
+          return (a.teamReports && a.teamReports.length)
+            || (a.tickets && a.tickets.length)
+            || (a.awaitingGate != null && a.awaitingGate >= 4)
+            || (a.build && Object.keys(a.build).length);
+        }
+        return a.currentStage === 'approved' && a.teamReportsGeneratedAt;
+      });
       if (!candidates.length) {
         codegenStatusData = [];
         renderCodegenStatusList();
@@ -2175,7 +2377,29 @@
           })
           .catch(function () { return { artifact: artifact, modules: [] }; });
       })).then(function (entries) {
-        codegenStatusData = entries.filter(function (e) { return e.modules.length; })
+        codegenStatusData = entries
+          .map(function (e) {
+            if (e.modules.length) return e;
+            // Phase 1: no IDE job started yet — still surface the requirement
+            // with not_started rows so this page is not blank after Gate 4.
+            var reports = e.artifact.teamReports || [];
+            if (!e.artifact.phase1 || !reports.length) return e;
+            return {
+              artifact: e.artifact,
+              modules: reports.map(function (t) {
+                return {
+                  department: t.team,
+                  status: 'not_started',
+                  progressPct: 0,
+                  codeGenId: null,
+                  modelLabel: '',
+                };
+              }),
+              projectDemoReady: false,
+              projectDemoGeneratedAt: null,
+            };
+          })
+          .filter(function (e) { return e.modules.length; })
           .sort(function (a, b) { return new Date(b.artifact.updatedAt) - new Date(a.artifact.updatedAt); });
         renderCodegenStatusList();
         // A TL's own "Generate Code" button depends on whether a job already
@@ -2339,38 +2563,88 @@
 
     function openBrdEditorModal(artifact) {
       document.getElementById('modal-title').textContent = (artifact.title || 'Requirement') + ' — Edit BRD';
-      document.getElementById('modal-body').innerHTML =
-        '<div class="field"><label>BRD (Markdown)</label><textarea id="brd-editor-content" rows="22"></textarea></div>' +
-        '<div class="error-banner" id="brd-editor-error"></div>' +
-        '<button class="btn" id="brd-editor-save" type="button" style="align-self:flex-start;">Save BRD</button>';
-      document.getElementById('brd-editor-content').value = artifact.brdText || '';
-      document.getElementById('modal-overlay').classList.add('open');
 
-      document.getElementById('brd-editor-save').addEventListener('click', function () {
-        var btn = document.getElementById('brd-editor-save');
-        var error = document.getElementById('brd-editor-error');
-        btn.disabled = true;
-        btn.textContent = 'Saving...';
-        error.classList.remove('visible');
-        fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/brd', {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: document.getElementById('brd-editor-content').value }),
-        })
-          .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
-          .then(function (result) {
-            if (!result.ok) throw new Error(result.body.error || 'Could not save BRD');
-            closeModal();
-            loadArtifacts();
+      function render() {
+        document.getElementById('modal-body').innerHTML =
+          '<div class="field"><label>BRD (Markdown)</label><textarea id="brd-editor-content" rows="18"></textarea></div>' +
+          '<div class="field" style="margin:0;">' +
+            '<label for="brd-ai-input">Ask the AI to change something</label>' +
+            '<textarea id="brd-ai-input" rows="2" placeholder="e.g. Set loan duration to 14 days everywhere. Remove the open question about CSV headers — use member_id,name,email and isbn,title,author."></textarea>' +
+            '<div style="display:flex; gap:0.55rem; align-items:center; margin-top:0.45rem; flex-wrap:wrap;">' +
+              '<button class="btn secondary" id="brd-ai-btn" type="button">Apply with AI</button>' +
+              '<span id="brd-ai-status" style="font-size:0.82rem;color:var(--text-faint);"></span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="error-banner" id="brd-editor-error"></div>' +
+          '<button class="btn" id="brd-editor-save" type="button" style="align-self:flex-start;">Save BRD</button>';
+        document.getElementById('brd-editor-content').value = artifact.brdText || '';
+
+        document.getElementById('brd-ai-btn').addEventListener('click', function () {
+          var aiBtn = this;
+          var input = document.getElementById('brd-ai-input');
+          var status = document.getElementById('brd-ai-status');
+          var saveBtn = document.getElementById('brd-editor-save');
+          var instruction = input.value.trim();
+          if (!instruction) { input.focus(); return; }
+          aiBtn.disabled = true;
+          saveBtn.disabled = true;
+          status.style.color = 'var(--text-faint)';
+          status.textContent = 'The AI is updating the BRD…';
+          fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/brd-revise', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              instruction: instruction,
+              content: document.getElementById('brd-editor-content').value,
+            }),
           })
-          .catch(function (err) {
-            error.textContent = err.message;
-            error.classList.add('visible');
-            btn.disabled = false;
-            btn.textContent = 'Save BRD';
-          });
-      });
+            .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'The AI could not update the BRD');
+              artifact.brdText = result.body.content || artifact.brdText;
+              render();
+              var s = document.getElementById('brd-ai-status');
+              s.textContent = 'Updated — check the markdown above, then Save BRD.';
+              document.getElementById('brd-ai-input').value = '';
+            })
+            .catch(function (err) {
+              status.style.color = 'var(--danger, #b42318)';
+              status.textContent = err.message;
+              aiBtn.disabled = false;
+              saveBtn.disabled = false;
+            });
+        });
+
+        document.getElementById('brd-editor-save').addEventListener('click', function () {
+          var btn = document.getElementById('brd-editor-save');
+          var error = document.getElementById('brd-editor-error');
+          btn.disabled = true;
+          btn.textContent = 'Saving...';
+          error.classList.remove('visible');
+          fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/brd', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: document.getElementById('brd-editor-content').value }),
+          })
+            .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'Could not save BRD');
+              closeModal();
+              loadArtifacts();
+            })
+            .catch(function (err) {
+              error.textContent = err.message;
+              error.classList.add('visible');
+              btn.disabled = false;
+              btn.textContent = 'Save BRD';
+            });
+        });
+      }
+
+      render();
+      document.getElementById('modal-overlay').classList.add('open');
     }
 
     // A separate modal for the team split report — kept apart from
@@ -2642,7 +2916,11 @@
       if (d.architectureDiagram) lines.push(h2 + ' Architecture Diagram', '', '```mermaid', d.architectureDiagram, '```', '');
       if (asArray(d.techStack).length) {
         lines.push(h + ' Tech Stack', '');
-        asArray(d.techStack).forEach(function (t) { lines.push('- **' + t.layer + '**: ' + t.choice + ' — ' + t.rationale); });
+        asArray(d.techStack).forEach(function (t) {
+          var choice = t.choice || t.name || '';
+          var rationale = t.rationale || t.reason || '';
+          lines.push('- **' + (t.layer || 'layer') + '**: ' + choice + (rationale ? ' — ' + rationale : ''));
+        });
         lines.push('');
       }
       if (opts.userFlow && asArray(d.userFlow).length) {
@@ -2733,7 +3011,8 @@
       if (me.tierId === 'sl' && me.department) {
         return reports.filter(function (t) { return t.team === me.department; });
       }
-      if (['tech', 'po', 'architect', 'ba'].indexOf(me.tierId) !== -1) return reports;
+      // Senior Engineer reviews the full split before Gate 5 merge.
+      if (['tech', 'po', 'architect', 'ba', 'se'].indexOf(me.tierId) !== -1) return reports;
       return [];
     }
 
@@ -3471,12 +3750,14 @@
         '<th>When</th><th>Requirement</th><th>Agent</th><th>Model</th><th class="num">Tokens</th><th class="num">USD</th>' +
         '</tr></thead><tbody>' +
         shown.map(function (row) {
+          var modelCell = escapeHtml(row.model || '') +
+              (row.served_by ? ' <span style="color:var(--text-faint)">→ ' + escapeHtml(row.served_by) + '</span>' : '') +
+              (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') +
+              (row.ok === false ? ' <span style="color:var(--danger, #b42318)">(failed — template fallback)</span>' : '');
           return '<tr><td>' + escapeHtml(row.at || '') + '</td>' +
             '<td>' + escapeHtml(row.requirement_id || '—') + '</td>' +
             '<td>' + escapeHtml(row.agent || '') + '</td>' +
-            '<td>' + escapeHtml(row.model || '') +
-              (row.served_by ? ' <span style="color:var(--text-faint)">→ ' + escapeHtml(row.served_by) + '</span>' : '') +
-              (row.estimated ? ' <span style="color:var(--text-faint)">(est.)</span>' : '') + '</td>' +
+            '<td>' + modelCell + '</td>' +
             '<td class="num">' + fmtTokens(row.total_tokens) + '</td>' +
             '<td class="num">' + fmtUsd(row.usd) + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -3915,7 +4196,9 @@
     function ueNewWidget(kind) {
       if (kind === 'h1') return { kind: 'h1', jsx: '<h1>Heading</h1>', w: 480 };
       if (kind === 'p') return { kind: 'p', jsx: '<p>New text</p>', w: 480 };
-      if (kind === 'Button') return { kind: 'Button', jsx: '<Button>Button</Button>', w: 140 };
+      if (kind === 'Button') return { kind: 'Button', jsx: '<Button variant="solid">Button</Button>', w: 140 };
+      if (kind === 'ButtonGhost') return { kind: 'Button', jsx: '<Button variant="ghost">Ghost</Button>', w: 140 };
+      if (kind === 'ButtonOutline') return { kind: 'Button', jsx: '<Button variant="outline">Outline</Button>', w: 140 };
       if (kind === 'Field') return { kind: 'Field', jsx: '<Field name="field" label="Label" />', w: 360 };
       if (kind === 'Table') {
         return {
@@ -3924,7 +4207,29 @@
           w: 520,
         };
       }
-      return { kind: 'Button', jsx: '<Button>Button</Button>', w: 140 };
+      if (kind === 'Card') {
+        return {
+          kind: 'Card',
+          jsx: '<Card motion="motion-rise"><h2 style={{fontSize:16, margin:0}}>Card title</h2><p style={{margin:"8px 0 0"}}>Supporting copy.</p></Card>',
+          w: 320,
+        };
+      }
+      if (kind === 'Badge') return { kind: 'Badge', jsx: '<Badge>Live</Badge>', w: 100 };
+      if (kind === 'Hero') {
+        return {
+          kind: 'Hero',
+          jsx: '<Hero motion="motion-rise"><Badge>Featured</Badge><h1 style={{marginTop:12}}>Hero headline</h1><p>Short supporting line.</p><Button variant="solid">Primary action</Button></Hero>',
+          w: 560,
+        };
+      }
+      if (kind === 'Image') {
+        return {
+          kind: 'Image',
+          jsx: '<Image alt="" caption="Photo inset" ratio="16 / 9" motion="motion-fade" />',
+          w: 480,
+        };
+      }
+      return { kind: 'Button', jsx: '<Button variant="solid">Button</Button>', w: 140 };
     }
 
     function ueSerialize(parts, blocks) {
@@ -3956,14 +4261,49 @@
           (canEditUi ? '<button id="ue-save" class="primary" type="button">Save</button>' : '') +
           '<button id="ue-close" type="button">Close</button>' +
         '</div>' +
-        (canEditUi
-          ? '<div class="uied-askrow" id="ue-askrow">' +
-              '<input id="ue-prompt" placeholder="Reimagine this screen, change the theme, add a column…">' +
-              '<button id="ue-ask-go" type="button">Send</button>' +
-            '</div>'
-          : '') +
         '<div class="uied-toast" id="ue-status"></div>' +
         '<div class="uied-work">' +
+          (canEditUi
+            ? '<aside class="uied-studio-rail" id="ue-studio-rail">' +
+                '<div class="uied-studio-head">' +
+                  '<button type="button" class="uied-studio-toggle" id="ue-studio-toggle" title="Collapse studio">⟨</button>' +
+                  '<span class="uied-studio-title">Studio</span>' +
+                '</div>' +
+                '<div class="uied-askrow" id="ue-askrow">' +
+                  '<input id="ue-prompt" placeholder="Ask: theme, layout, copy…">' +
+                  '<button id="ue-ask-go" type="button">Send</button>' +
+                '</div>' +
+                '<div class="uied-studio-body">' +
+                  '<div class="uied-studio open" id="ue-studio">' +
+                    '<h4>Themes</h4>' +
+                    '<div class="uied-studio-row" id="ue-themes"></div>' +
+                    '<h4>Colours</h4>' +
+                    '<div class="uied-studio-row" id="ue-colours"></div>' +
+                    '<h4>Type</h4>' +
+                    '<div class="uied-studio-row" id="ue-type"></div>' +
+                    '<h4>Size &amp; layout</h4>' +
+                    '<div class="uied-studio-row" id="ue-layout"></div>' +
+                    '<h4>Insert</h4>' +
+                    '<div class="uied-studio-row">' +
+                      '<button class="uied-pal-item" type="button" data-kind="Hero">Hero</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="Image">Photo</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="Card">Card</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="Badge">Badge</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="Button">Solid</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="ButtonGhost">Ghost</button>' +
+                      '<button class="uied-pal-item" type="button" data-kind="ButtonOutline">Outline</button>' +
+                    '</div>' +
+                    '<h4>Motion</h4>' +
+                    '<div class="uied-studio-row">' +
+                      '<button class="uied-pal-item" type="button" data-motion="motion-rise">Rise</button>' +
+                      '<button class="uied-pal-item" type="button" data-motion="motion-fade">Fade</button>' +
+                      '<button class="uied-pal-item" type="button" data-motion="motion-slide">Slide</button>' +
+                      '<button class="uied-pal-item" type="button" data-motion="motion-pulse">Pulse</button>' +
+                    '</div>' +
+                  '</div>' +
+                '</div>' +
+              '</aside>'
+            : '') +
           (canEditUi
             ? '<aside class="uied-palette" id="ue-palette" style="display:none">' +
                 '<h4>Insert</h4>' +
@@ -3972,6 +4312,10 @@
                 '<button class="uied-pal-item" type="button" data-kind="Button">Button</button>' +
                 '<button class="uied-pal-item" type="button" data-kind="Field">Field</button>' +
                 '<button class="uied-pal-item" type="button" data-kind="Table">Table</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Hero">Hero</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Image">Photo</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Card">Card</button>' +
+                '<button class="uied-pal-item" type="button" data-kind="Badge">Badge</button>' +
                 '<h4>Align</h4>' +
                 '<div class="uied-align-grid">' +
                   '<button type="button" data-align="left">Left</button>' +
@@ -4016,6 +4360,253 @@
       var placing = null;
       var drag = null;
       var uid = 1;
+      var picked = null; // { id, tag, text, width, height, fontSize, padding, paddingX, paddingY }
+
+      function stampElementIds(src) {
+        var n = 0;
+        var existing = src.match(/data-ue="ue(\d+)"/g) || [];
+        existing.forEach(function (m) {
+          var num = Number(m.replace(/\D/g, ''));
+          if (num > n) n = num;
+        });
+        function stampChunk(chunk) {
+          return String(chunk || '').replace(
+            /<(Button|Field|Table|Card|Badge|Hero|Image|h1|h2|h3|p|label|section|figure|table|button)(\s[^>]*?)?(\/>|>)/g,
+            function (full, tag, attrs, end) {
+              attrs = attrs || '';
+              if (/\bdata-ue=/.test(attrs)) return full;
+              n += 1;
+              return '<' + tag + ' data-ue="ue' + n + '"' + attrs + end;
+            }
+          ).replace(
+            /<div(\s[^>]*ue-place[^>]*)>/g,
+            function (full, attrs) {
+              if (/\bdata-ue=/.test(attrs || '')) return full;
+              n += 1;
+              return '<div data-ue="ue' + n + '"' + attrs + '>';
+            }
+          );
+        }
+        // Only stamp the active screen component body — never helper factories
+        // (stamping helpers baked data-ue into every Button/Field render).
+        var s = screens[current];
+        var name = s && s.name;
+        if (name) {
+          var range = screenBodyRange(src, name);
+          if (range) {
+            return src.slice(0, range.start) + stampChunk(src.slice(range.start, range.end)) + src.slice(range.end);
+          }
+        }
+        return stampChunk(src);
+      }
+
+      function parseJsxStyle(styleInner) {
+        var out = {};
+        if (!styleInner) return out;
+        String(styleInner).split(',').forEach(function (part) {
+          var i = part.indexOf(':');
+          if (i < 0) return;
+          var k = part.slice(0, i).trim();
+          var v = part.slice(i + 1).trim();
+          if (!k) return;
+          if ((v[0] === '"' || v[0] === "'") && v[v.length - 1] === v[0]) v = v.slice(1, -1);
+          out[k] = v;
+        });
+        return out;
+      }
+
+      function styleToJsx(obj) {
+        return Object.keys(obj).filter(function (k) {
+          return obj[k] !== '' && obj[k] != null;
+        }).map(function (k) {
+          var v = obj[k];
+          if (typeof v === 'number' || (/^\d+(\.\d+)?$/.test(String(v)) && k !== 'fontFamily')) return k + ':' + v;
+          return k + ':"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+        }).join(', ');
+      }
+
+      function px(val) {
+        if (val === '' || val == null) return '';
+        var s = String(val).trim();
+        if (!s) return '';
+        if (/px|%|rem|em|vh|vw|ch$/.test(s)) return s;
+        return s + 'px';
+      }
+
+      function mergeUeStyle(src, id, styles) {
+        var token = 'data-ue="' + id + '"';
+        var idx = src.indexOf(token);
+        if (idx < 0) return src;
+        var start = src.lastIndexOf('<', idx);
+        if (start < 0) return src;
+        var end = src.indexOf('>', idx);
+        if (end < 0) return src;
+        var open = src.slice(start, end + 1);
+        var self = /\/>$/.test(open);
+        var body = open.slice(1, self ? -2 : -1);
+        var styleMatch = body.match(/style=\{\{([\s\S]*?)\}\}/);
+        var current = styleMatch ? parseJsxStyle(styleMatch[1]) : {};
+        Object.keys(styles).forEach(function (k) {
+          if (styles[k] === '' || styles[k] == null) delete current[k];
+          else current[k] = styles[k];
+        });
+        var styled = styleToJsx(current);
+        if (styleMatch) {
+          body = body.replace(/style=\{\{([\s\S]*?)\}\}/, styled ? 'style={{' + styled + '}}' : '');
+        } else if (styled) {
+          body += ' style={{' + styled + '}}';
+        }
+        var nextOpen = '<' + body + (self ? ' />' : '>');
+        return src.slice(0, start) + nextOpen + src.slice(end + 1);
+      }
+
+      function readUeStyles(src, id) {
+        var token = 'data-ue="' + id + '"';
+        var idx = src.indexOf(token);
+        if (idx < 0) return {};
+        var start = src.lastIndexOf('<', idx);
+        var end = src.indexOf('>', idx);
+        if (start < 0 || end < 0) return {};
+        var open = src.slice(start, end + 1);
+        var styleMatch = open.match(/style=\{\{([\s\S]*?)\}\}/);
+        return styleMatch ? parseJsxStyle(styleMatch[1]) : {};
+      }
+
+      function applyPickedDom(styles) {
+        try {
+          var doc = frame.contentDocument;
+          var el = doc && doc.querySelector('[data-ue="' + picked.id + '"]');
+          if (!el) return;
+          if (styles.position != null) el.style.position = styles.position === '' ? '' : styles.position;
+          if (styles.left != null) el.style.left = styles.left === '' ? '' : px(styles.left);
+          if (styles.top != null) el.style.top = styles.top === '' ? '' : px(styles.top);
+          if (styles.width != null) el.style.width = styles.width === '' ? '' : px(styles.width);
+          if (styles.height != null) el.style.height = styles.height === '' ? '' : px(styles.height);
+          if (styles.minHeight != null) el.style.minHeight = styles.minHeight === '' ? '' : px(styles.minHeight);
+          if (styles.fontSize != null) el.style.fontSize = styles.fontSize === '' ? '' : px(styles.fontSize);
+          if (styles.padding != null) el.style.padding = styles.padding === '' ? '' : styles.padding;
+          if (styles.borderRadius != null) el.style.borderRadius = styles.borderRadius === '' ? '' : px(styles.borderRadius);
+          if (styles.maxWidth != null) el.style.maxWidth = styles.maxWidth === '' ? '' : px(styles.maxWidth);
+          if (styles.margin != null) el.style.margin = styles.margin === '' ? '' : styles.margin;
+          if (styles.zIndex != null) el.style.zIndex = styles.zIndex === '' ? '' : String(styles.zIndex);
+        } catch (_e) { /* ignore */ }
+      }
+
+      function commitPickedStyles(partial) {
+        if (!picked) return;
+        var s = screens[current];
+        if (!s) return;
+        var next = {};
+        Object.keys(partial).forEach(function (k) {
+          var v = partial[k];
+          if (v === '' || v == null) next[k] = '';
+          else if (k === 'padding' || k === 'margin' || k === 'position') next[k] = v;
+          else if (k === 'zIndex') next[k] = String(v);
+          else if (k === 'fontSize' || k === 'width' || k === 'height' || k === 'minHeight' || k === 'borderRadius' || k === 'maxWidth' || k === 'left' || k === 'top') next[k] = px(v);
+          else next[k] = v;
+        });
+        applyPickedDom(next);
+        var base = Object.assign({}, readUeStyles(sourceEl.value || s.source || '', picked.id));
+        Object.keys(next).forEach(function (k) {
+          if (next[k] === '') delete base[k];
+          else base[k] = next[k];
+        });
+        var wipe = {};
+        Object.keys(readUeStyles(sourceEl.value || s.source || '', picked.id)).forEach(function (k) { wipe[k] = ''; });
+        var src = mergeUeStyle(sourceEl.value || s.source || '', picked.id, wipe);
+        src = mergeUeStyle(src, picked.id, base);
+        sourceEl.value = src;
+        s.source = src;
+        picked.styles = base;
+        if (base.width) picked.width = parseInt(base.width, 10);
+        if (base.height) picked.height = parseInt(base.height, 10);
+        if (base.fontSize) picked.fontSize = parseInt(base.fontSize, 10);
+        if (base.left) picked.left = parseInt(base.left, 10);
+        if (base.top) picked.top = parseInt(base.top, 10);
+        if (base.padding) picked.padding = base.padding;
+        status('Updated ' + picked.id + ' — Save when ready');
+      }
+
+      function renderPickInspector() {
+        if (!ins) return;
+        if (previewMode) {
+          ins.style.display = 'none';
+          return;
+        }
+        ins.style.display = '';
+        if (!picked) {
+          ins.innerHTML = '<h4>Element size</h4>' +
+            '<p class="uied-ins-hint">Click any button, field, heading, card, table or photo in the preview. Then set width / height / font for that one element.</p>';
+          return;
+        }
+        var st = picked.styles || {};
+        var w = st.width != null ? String(st.width).replace(/px$/, '') : (picked.width || '');
+        var h = st.height != null ? String(st.height).replace(/px$/, '') : (picked.height || '');
+        var fs = st.fontSize != null ? String(st.fontSize).replace(/px$/, '') : (picked.fontSize || '');
+        var rad = st.borderRadius != null ? String(st.borderRadius).replace(/px$/, '') : '';
+        var pad = st.padding != null ? st.padding : (picked.padding || '');
+        var left = st.left != null ? String(st.left).replace(/px$/, '') : (picked.left || '');
+        var top = st.top != null ? String(st.top).replace(/px$/, '') : (picked.top || '');
+        var html = '<h4>' + escapeHtml(picked.tag || 'element') + '</h4>' +
+          '<p class="uied-ins-hint">' + escapeHtml((picked.text || picked.id || '').slice(0, 48)) +
+          ' — drag on canvas snaps to 8px grid.</p>' +
+          '<div class="uied-size-grid">' +
+            '<div class="uied-ins-row"><label>X (px)</label><input data-pick="left" type="number" step="8" value="' + escapeAttr(String(left || '')) + '"></div>' +
+            '<div class="uied-ins-row"><label>Y (px)</label><input data-pick="top" type="number" step="8" value="' + escapeAttr(String(top || '')) + '"></div>' +
+            '<div class="uied-ins-row"><label>Width (px)</label><input data-pick="width" type="number" min="40" step="8" value="' + escapeAttr(String(w || '')) + '"></div>' +
+            '<div class="uied-ins-row"><label>Height (px)</label><input data-pick="height" type="number" min="20" step="4" value="' + escapeAttr(String(h || '')) + '"></div>' +
+            '<div class="uied-ins-row"><label>Font (px)</label><input data-pick="fontSize" type="number" min="10" max="96" step="1" value="' + escapeAttr(String(fs || '')) + '"></div>' +
+            '<div class="uied-ins-row"><label>Radius (px)</label><input data-pick="borderRadius" type="number" min="0" max="64" step="1" value="' + escapeAttr(String(rad || '')) + '"></div>' +
+          '</div>' +
+          '<div class="uied-ins-row"><label>Padding (CSS)</label><input data-pick="padding" placeholder="8px 16px" value="' + escapeAttr(String(pad || '')) + '"></div>' +
+          '<div class="uied-ins-row"><label>Max width (px)</label><input data-pick="maxWidth" type="number" min="40" step="8" value="' + escapeAttr(String((st.maxWidth || '').toString().replace(/px$/, ''))) + '"></div>' +
+          '<div class="uied-size-grid" style="margin-top:0.4rem">' +
+            '<button type="button" data-pick-preset="smaller">− Smaller</button>' +
+            '<button type="button" data-pick-preset="bigger">+ Bigger</button>' +
+          '</div>' +
+          '<button type="button" id="ue-pick-clear" style="margin-top:0.55rem">Clear size &amp; position</button>';
+        ins.innerHTML = html;
+        Array.prototype.forEach.call(ins.querySelectorAll('[data-pick]'), function (el) {
+          function apply() {
+            var key = el.getAttribute('data-pick');
+            var val = el.value;
+            var patch = {};
+            patch[key] = val;
+            if ((key === 'left' || key === 'top') && val !== '') {
+              patch.position = 'absolute';
+              patch.margin = '0';
+              patch.zIndex = '5';
+            }
+            commitPickedStyles(patch);
+          }
+          el.addEventListener('change', apply);
+          el.addEventListener('input', apply);
+          el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') el.blur();
+          });
+        });
+        Array.prototype.forEach.call(ins.querySelectorAll('[data-pick-preset]'), function (btn) {
+          btn.addEventListener('click', function () {
+            var dir = btn.getAttribute('data-pick-preset') === 'bigger' ? 1 : -1;
+            var curW = Number(String((picked.styles && picked.styles.width) || picked.width || 160).replace(/\D/g, '')) || 160;
+            var curH = Number(String((picked.styles && picked.styles.height) || picked.height || 40).replace(/\D/g, '')) || 40;
+            var curF = Number(String((picked.styles && picked.styles.fontSize) || picked.fontSize || 15).replace(/\D/g, '')) || 15;
+            commitPickedStyles({
+              width: Math.max(40, curW + dir * 16),
+              height: Math.max(24, curH + dir * 4),
+              fontSize: Math.max(10, Math.min(72, curF + dir * 1))
+            });
+            renderPickInspector();
+          });
+        });
+        var clear = ins.querySelector('#ue-pick-clear');
+        if (clear) clear.addEventListener('click', function () {
+          commitPickedStyles({ width: '', height: '', fontSize: '', padding: '', borderRadius: '', maxWidth: '', minHeight: '', left: '', top: '', position: '', margin: '', zIndex: '' });
+          picked.styles = {};
+          renderPickInspector();
+          status('Cleared size & position — Save when ready');
+        });
+      }
 
       function status(text, bad) {
         statusEl.textContent = text || '';
@@ -4145,7 +4736,7 @@
       var liveAlign = '';
 
       function currentTheme() {
-        var palettes = ['midnight','aurora','paper','grove','coral','ink','glacier','sand'];
+        var palettes = ['midnight','aurora','paper','grove','coral','ink','glacier','sand','blush','noir','ocean','sunrise','plum'];
         var themeMatch = String(sourceEl.value || '').match(/data-theme=["']([a-z]+)["']/);
         if (themeMatch && palettes.indexOf(themeMatch[1]) >= 0) return themeMatch[1];
         for (var si = 0; si < screens.length; si++) {
@@ -4188,7 +4779,13 @@
         var designing = !previewMode;
         var theme = currentTheme();
         var names = screens.map(function (sc) { return sc.name; });
-        var hasNav = /<Sidebar\b|<aside\b|className=["']sidebar/.test(String(sourceEl.value || ''));
+        var liveSrc = polishSource(sourceEl.value || s.source || '');
+        if (designing) liveSrc = stampElementIds(liveSrc);
+        if (liveSrc !== (sourceEl.value || '')) {
+          sourceEl.value = liveSrc;
+          s.source = liveSrc;
+        }
+        var hasNav = /<Sidebar\b|<aside\b|className=["']sidebar/.test(String(liveSrc));
         var shellNav = hasNav ? '' :
           '<aside class="sidebar app-nav" data-appnav="1">' +
           names.map(function (n) {
@@ -4199,7 +4796,116 @@
         var align = liveAlign || (alignMatch && alignMatch[1]) || '';
         var alignCss = alignRules(align);
         var designCss = designing
-          ? '#root a,#root button,#root input,#root select,#root textarea,#root label{pointer-events:none}#root *{cursor:default}#root *:hover{outline:2px solid var(--color-accent);outline-offset:2px}'
+          ? '.page>div,.page>[data-ue-canvas]{position:relative!important;min-height:720px;' +
+            'background-image:linear-gradient(to right,rgba(128,128,128,.14) 1px,transparent 1px),' +
+            'linear-gradient(to bottom,rgba(128,128,128,.14) 1px,transparent 1px);background-size:8px 8px}' +
+            '[data-ue].ue-sel{outline:2px solid var(--color-accent)!important;outline-offset:3px}' +
+            '#root [data-ue],#root .ue-drag{cursor:grab!important;touch-action:none;user-select:none;-webkit-user-select:none}' +
+            '#root [data-ue].ue-dragging,#root .ue-drag.ue-dragging{cursor:grabbing!important;z-index:50!important;' +
+            'box-shadow:0 10px 28px rgba(0,0,0,.28)!important;opacity:.95}' +
+            '.sidebar [data-ue],aside [data-ue],.sidebar .ue-drag,aside .ue-drag{cursor:pointer!important}' +
+            '#root a,#root button{pointer-events:auto}' +
+            '#root input,#root textarea,#root select{pointer-events:none}'
+          : '';
+        var pickJs = designing
+          ? '(function(){' +
+              'var GRID=8;function snap(n){return Math.round(Number(n)/GRID)*GRID;}' +
+              'function mainCol(){var p=document.querySelector("main.page, .page, [data-theme]");' +
+                'if(!p)return document.querySelector("#root");' +
+                'var kids=p.children;for(var i=0;i<kids.length;i++){' +
+                  'if(!kids[i].classList.contains("sidebar")&&kids[i].tagName!=="ASIDE"){' +
+                    'kids[i].setAttribute("data-ue-canvas","1");return kids[i];}}' +
+                'p.setAttribute("data-ue-canvas","1");return p;}' +
+              'function ensureIds(){' +
+                'var col=mainCol();if(!col)return 0;' +
+                'var max=0;' +
+                'document.querySelectorAll("[data-ue]").forEach(function(el){' +
+                  'var m=/^ue(\\d+)$/.exec(el.getAttribute("data-ue")||"");if(m)max=Math.max(max,+m[1]);});' +
+                'var sel="h1,h2,h3,p,button,label,table,figure,section,img,.ds-card,.ds-hero,.ds-inset,.ue-place";' +
+                'var tagged=[];' +
+                'col.querySelectorAll(sel).forEach(function(el){' +
+                  'if(el.closest(".sidebar,aside,[data-appnav]"))return;' +
+                  'el.classList.add("ue-drag");' +
+                  'if(!el.getAttribute("data-ue")){max+=1;el.setAttribute("data-ue","ue"+max);}' +
+                  'tagged.push(el.getAttribute("data-ue"));' +
+                '});' +
+                'parent.postMessage({type:"ue-ready",count:tagged.length,ids:tagged},"*");' +
+                'return tagged.length;' +
+              '}' +
+              'function emitPick(el){' +
+                'document.querySelectorAll(".ue-sel").forEach(function(n){n.classList.remove("ue-sel");});' +
+                'el.classList.add("ue-sel");' +
+                'var cs=getComputedStyle(el),r=el.getBoundingClientRect();' +
+                'parent.postMessage({type:"ue-pick",id:el.getAttribute("data-ue"),tag:el.tagName.toLowerCase(),' +
+                'text:(el.innerText||el.getAttribute("alt")||"").replace(/\\s+/g," ").trim().slice(0,80),' +
+                'width:Math.round(r.width),height:Math.round(r.height),' +
+                'left:parseInt(el.style.left,10)||null,top:parseInt(el.style.top,10)||null,' +
+                'fontSize:parseInt(cs.fontSize,10)||16,padding:cs.padding,borderRadius:parseInt(cs.borderRadius,10)||0},"*");' +
+              '}' +
+              'var drag=null,activePtr=null;' +
+              'function clientXY(e){if(e.touches&&e.touches[0])return{x:e.touches[0].clientX,y:e.touches[0].clientY};' +
+                'if(e.changedTouches&&e.changedTouches[0])return{x:e.changedTouches[0].clientX,y:e.changedTouches[0].clientY};' +
+                'return{x:e.clientX,y:e.clientY};}' +
+              'function onDown(e){' +
+                'if(e.type==="mousedown"&&activePtr!=null)return;' +
+                'if(e.button!=null&&e.button!==0)return;' +
+                'var t=e.target;if(t&&t.nodeType===3)t=t.parentElement;' +
+                'var el=t&&t.closest?t.closest("[data-ue],.ue-drag"):null;' +
+                'if(!el||el.closest(".sidebar,aside,[data-appnav]"))return;' +
+                'if(!el.getAttribute("data-ue")){el.setAttribute("data-ue","ue"+(Date.now()%100000));}' +
+                'try{el.setAttribute("draggable","false");}catch(_d){}' +
+                'try{e.preventDefault();}catch(_p){}' +
+                'try{e.stopPropagation();}catch(_s){}' +
+                'emitPick(el);' +
+                'var col=mainCol();if(!col)return;' +
+                'if(getComputedStyle(col).position==="static")col.style.position="relative";' +
+                'var pr=col.getBoundingClientRect(),er=el.getBoundingClientRect(),xy=clientXY(e);' +
+                'drag={el:el,col:col,ox:xy.x,oy:xy.y,moved:false,' +
+                'startLeft:er.left-pr.left+(col.scrollLeft||0),startTop:er.top-pr.top+(col.scrollTop||0),' +
+                'w:er.width,h:er.height,left:null,top:null};' +
+                'if(e.pointerId!=null){activePtr=e.pointerId;try{el.setPointerCapture(e.pointerId);}catch(_c){}}' +
+              '}' +
+              'function onMove(e){' +
+                'if(!drag)return;' +
+                'if(e.pointerId!=null&&activePtr!=null&&e.pointerId!==activePtr)return;' +
+                'var xy=clientXY(e),dx=xy.x-drag.ox,dy=xy.y-drag.oy;' +
+                'if(!drag.moved&&(dx*dx+dy*dy)<9)return;' +
+                'if(!drag.moved){' +
+                  'drag.moved=true;' +
+                  'drag.el.style.position="absolute";' +
+                  'drag.el.style.margin="0";' +
+                  'drag.el.style.width=Math.round(drag.w)+"px";' +
+                  'drag.el.style.zIndex="40";' +
+                  'drag.el.classList.add("ue-dragging");' +
+                '}' +
+                'try{e.preventDefault();}catch(_m){}' +
+                'var left=snap(drag.startLeft+dx),top=snap(drag.startTop+dy);' +
+                'if(left<0)left=0;if(top<0)top=0;' +
+                'drag.el.style.left=left+"px";drag.el.style.top=top+"px";' +
+                'drag.left=left;drag.top=top;' +
+              '}' +
+              'function onUp(e){' +
+                'if(!drag)return;' +
+                'if(e&&e.pointerId!=null&&activePtr!=null&&e.pointerId!==activePtr)return;' +
+                'var d=drag;drag=null;activePtr=null;' +
+                'd.el.classList.remove("ue-dragging");' +
+                'if(!d.moved)return;' +
+                'parent.postMessage({type:"ue-place",id:d.el.getAttribute("data-ue"),' +
+                'left:d.left,top:d.top,width:Math.round(d.w),height:Math.round(d.h)},"*");' +
+              '}' +
+              'var downEv=window.PointerEvent?"pointerdown":"mousedown";' +
+              'var moveEv=window.PointerEvent?"pointermove":"mousemove";' +
+              'var upEv=window.PointerEvent?"pointerup":"mouseup";' +
+              'document.addEventListener(downEv,onDown,true);' +
+              'window.addEventListener(moveEv,onMove,true);' +
+              'window.addEventListener(upEv,onUp,true);' +
+              'window.addEventListener("pointercancel",onUp,true);' +
+              'document.addEventListener("touchstart",onDown,{capture:true,passive:false});' +
+              'window.addEventListener("touchmove",onMove,{capture:true,passive:false});' +
+              'window.addEventListener("touchend",onUp,true);' +
+              'function boot(){ensureIds();}' +
+              'boot();setTimeout(boot,80);setTimeout(boot,250);setTimeout(boot,700);' +
+            '})();'
           : '';
         frame.srcdoc =
           '<!doctype html><html data-theme="' + theme + '"><meta charset="utf-8">' +
@@ -4209,7 +4915,7 @@
           UI_LIBS.map(function (src) { return '<script src="' + src + '"><\/script>'; }).join('') +
           '<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>' +
           '<style>' +
-            ':root,[data-theme="midnight"]{--color-bg:#0b0c0e;--color-sidebar:#101114;--color-surface:#16171b;--color-text:#f3f3f1;--color-muted:#9a9ba1;--color-accent:#f2761f;--color-line:rgba(255,255,255,0.08);--space-md:16px;--font-sans:Ubuntu,Liberation Sans,system-ui,sans-serif}' +
+            ':root,[data-theme="midnight"]{--color-bg:#0b0c0e;--color-sidebar:#101114;--color-surface:#16171b;--color-text:#f3f3f1;--color-muted:#9a9ba1;--color-accent:#f2761f;--color-line:rgba(255,255,255,0.08);--space-md:16px;--font-sans:Ubuntu,Liberation Sans,system-ui,sans-serif;--font-display:var(--font-sans);--type-base:0.95rem;--type-h1:clamp(1.55rem,2.4vw,2.2rem);--type-label:0.78rem;--control-h:40px;--control-pad:0.55rem 1rem;--radius:8px;--radius-pill:999px;--sidebar-w:220px;--field-w:28rem}' +
             '[data-theme="aurora"]{--color-bg:#071422;--color-sidebar:#0b1c30;--color-surface:#10263c;--color-text:#e7f6ff;--color-muted:#7fa4bc;--color-accent:#3ee0c5;--color-line:rgba(62,224,197,0.18)}' +
             '[data-theme="paper"]{--color-bg:#faf9f5;--color-sidebar:#f2efe5;--color-surface:#ffffff;--color-text:#262117;--color-muted:#6b6355;--color-accent:#bf6a4d;--color-line:rgba(38,33,23,0.12)}' +
             '[data-theme="grove"]{--color-bg:#102117;--color-sidebar:#163024;--color-surface:#1c3a2c;--color-text:#e8f6e4;--color-muted:#8fb89a;--color-accent:#c5e86a;--color-line:rgba(197,232,106,0.16)}' +
@@ -4217,37 +4923,59 @@
             '[data-theme="ink"]{--color-bg:#111008;--color-sidebar:#1a1810;--color-surface:#221f14;--color-text:#f4ead0;--color-muted:#b3a57a;--color-accent:#e0b84e;--color-line:rgba(224,184,78,0.18)}' +
             '[data-theme="glacier"]{--color-bg:#eef3f8;--color-sidebar:#e2ebf3;--color-surface:#ffffff;--color-text:#142033;--color-muted:#5b6d82;--color-accent:#1d4e89;--color-line:rgba(20,32,51,0.1)}' +
             '[data-theme="sand"]{--color-bg:#f6efe4;--color-sidebar:#efe4d2;--color-surface:#fffaf2;--color-text:#2a1c12;--color-muted:#7a6352;--color-accent:#c45c26;--color-line:rgba(42,28,18,0.12)}' +
+            '[data-theme="blush"]{--color-bg:#fff7fb;--color-sidebar:#ffe8f1;--color-surface:#ffffff;--color-text:#3a2430;--color-muted:#9a6b7e;--color-accent:#e85a8c;--color-line:rgba(58,36,48,0.1)}' +
+            '[data-theme="noir"]{--color-bg:#0a0a0a;--color-sidebar:#141414;--color-surface:#1c1c1c;--color-text:#f5f5f5;--color-muted:#8a8a8a;--color-accent:#ffffff;--color-line:rgba(255,255,255,0.12)}' +
+            '[data-theme="ocean"]{--color-bg:#061820;--color-sidebar:#0b2430;--color-surface:#123040;--color-text:#e6f7ff;--color-muted:#7aa8b8;--color-accent:#2ec4b6;--color-line:rgba(46,196,182,0.2)}' +
+            '[data-theme="sunrise"]{--color-bg:#fff8f0;--color-sidebar:#ffe8d2;--color-surface:#ffffff;--color-text:#2c1a0e;--color-muted:#9a6b45;--color-accent:#ff7a45;--color-line:rgba(44,26,14,0.1)}' +
+            '[data-theme="plum"]{--color-bg:#1a1020;--color-sidebar:#261530;--color-surface:#321c40;--color-text:#f6eaff;--color-muted:#b08cc0;--color-accent:#c77dff;--color-line:rgba(199,125,255,0.2)}' +
             '*{box-sizing:border-box}html,body,#root{height:100%;margin:0}body{background:var(--color-bg);color:var(--color-text);font-family:var(--font-sans)}' +
             '@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}' +
+            '@keyframes fade{from{opacity:0}to{opacity:1}}' +
+            '@keyframes slide-in{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}' +
+            '@keyframes pulse-soft{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}' +
             '.page{display:flex;min-height:100%;width:100%;max-width:none;padding:0;animation:rise .45s ease both}' +
-            '.sidebar{width:240px;flex-shrink:0;background:var(--color-sidebar);border-right:1px solid var(--color-line);padding:1.25rem .9rem;display:flex;flex-direction:column;gap:.35rem}' +
-            '.sidebar>p:first-child{padding:.2rem .7rem 1rem;margin:0;font-weight:600}' +
-            '.page>:not(.sidebar){flex:1;min-width:0;padding:clamp(1.4rem,3vw,2.6rem)}' +
-            'h1{margin:0 0 .4rem;font-size:clamp(1.55rem,2.4vw,2.2rem);font-weight:700}' +
-            'p{margin:0 0 1.2rem;max-width:42em;line-height:1.55;color:var(--color-muted)}' +
-            'label{display:flex;flex-direction:column;gap:8px;width:min(100%,28rem);margin:0 0 1rem;font-size:.78rem;font-weight:500;color:var(--color-muted)}' +
-            'input,select,textarea{font:inherit;font-size:.95rem;height:42px;border:1px solid var(--color-line);border-radius:8px;padding:0 12px;background:var(--color-surface);width:100%;color:var(--color-text)}' +
-            'button{appearance:none;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer;background:var(--color-accent);color:var(--color-bg);padding:.7rem 1.1rem;transition:transform .16s ease,filter .16s ease}' +
+            '.sidebar{width:var(--sidebar-w,220px);flex-shrink:0;background:var(--color-sidebar);border-right:1px solid var(--color-line);padding:var(--space-md);display:flex;flex-direction:column;gap:.25rem}' +
+            '.sidebar>p:first-child{padding:.2rem .7rem .85rem;margin:0;font-weight:600;font-family:var(--font-display,var(--font-sans))}' +
+            '.page>div{flex:1;min-width:0;padding:clamp(1.2rem,2.6vw,2.2rem)}' +
+            'button,section,figure,table,label,h1,h2,h3,p{flex:none;max-width:100%}' +
+            'h1{margin:0 0 .4rem;font-size:var(--type-h1,clamp(1.55rem,2.4vw,2.2rem));font-weight:700;font-family:var(--font-display,var(--font-sans));letter-spacing:-.02em}' +
+            'h2{font-family:var(--font-display,var(--font-sans));font-size:calc(var(--type-base,.95rem)*1.15)}' +
+            'p{margin:0 0 1.2rem;max-width:42em;line-height:1.55;color:var(--color-muted);font-size:var(--type-base,.95rem)}' +
+            'label{display:flex;flex-direction:column;gap:8px;width:min(100%,var(--field-w,28rem));margin:0 0 1rem;font-size:var(--type-label,.78rem);font-weight:500;color:var(--color-muted)}' +
+            'input,select,textarea{font:inherit;font-size:var(--type-base,.95rem);height:var(--control-h,40px);border:1px solid var(--color-line);border-radius:var(--radius,8px);padding:0 12px;background:var(--color-surface);width:100%;color:var(--color-text)}' +
+            'button{appearance:none;border:0;border-radius:var(--radius,8px);font:inherit;font-size:var(--type-base,.95rem);font-weight:600;cursor:pointer;background:var(--color-accent);color:var(--color-bg);min-height:var(--control-h,40px);padding:var(--control-pad,.55rem 1rem);transition:transform .16s ease,filter .16s ease,box-shadow .16s ease}' +
             'button:hover{transform:translateY(-1px);filter:brightness(1.06)}' +
-            '.sidebar button{background:transparent;color:var(--color-muted);padding:.5rem .75rem;text-align:left;width:100%;font-weight:500}' +
-            '.sidebar button:hover,.sidebar button.on{background:var(--color-accent);color:var(--color-bg)}' +
+            'button[data-variant=ghost]{background:transparent;color:var(--color-accent);border:1px solid var(--color-line)}' +
+            'button[data-variant=outline]{background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-accent)}' +
+            'button[data-variant=soft]{background:var(--color-surface);color:var(--color-accent);box-shadow:inset 0 0 0 1px var(--color-line)}' +
+            'button[data-variant=nav],.sidebar button{background:transparent!important;color:var(--color-muted)!important;border:1px solid transparent;padding:.45rem .7rem;text-align:left;width:100%;font-weight:500;min-height:calc(var(--control-h,40px)*.85);box-shadow:none}' +
+            'button[data-variant=nav]:hover,.sidebar button:hover,.sidebar button.on,button[data-variant=nav].on{background:var(--color-accent)!important;color:var(--color-bg)!important}' +
+            '.ds-card{background:var(--color-surface);border:1px solid var(--color-line);border-radius:var(--radius,8px);padding:var(--space-md);box-shadow:0 8px 28px rgba(0,0,0,.08)}' +
+            '.ds-badge{display:inline-flex;align-items:center;gap:6px;padding:.25rem .65rem;border-radius:var(--radius-pill,999px);font-size:.72rem;font-weight:600;background:var(--color-surface);color:var(--color-accent);border:1px solid var(--color-line)}' +
+            '.ds-hero{position:relative;overflow:hidden;border-radius:calc(var(--radius,8px)+6px);min-height:180px;padding:clamp(1.2rem,3vw,2rem);background:linear-gradient(135deg,var(--color-surface),var(--color-sidebar));border:1px solid var(--color-line);margin:0 0 1.2rem}' +
+            '.ds-inset{margin:0 0 1.2rem;border-radius:calc(var(--radius,8px)+4px);overflow:hidden;border:1px solid var(--color-line);background:var(--color-surface)}' +
+            '.ds-inset img{display:block;width:100%;height:100%;object-fit:cover}' +
+            '.ds-inset figcaption{padding:.55rem .85rem;font-size:.78rem;color:var(--color-muted)}' +
+            '.motion-rise{animation:rise .5s ease both}.motion-fade{animation:fade .55s ease both}.motion-slide{animation:slide-in .5s ease both}.motion-pulse{animation:pulse-soft 2.4s ease-in-out infinite}' +
             '.ue-shell{display:flex;height:100%}.ue-shell>#root{flex:1;min-width:0;overflow:auto}' +
             '@media (max-width:720px){.page,.ue-shell{flex-direction:column}.sidebar{width:auto;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--color-line)}.sidebar button{width:auto;white-space:nowrap}}' +
-            'table{width:100%;border-collapse:collapse;background:var(--color-surface);border:1px solid var(--color-line);border-radius:10px;overflow:hidden;margin-top:1.2rem}' +
+            'table{width:100%;border-collapse:collapse;background:var(--color-surface);border:1px solid var(--color-line);border-radius:var(--radius,8px);overflow:hidden;margin-top:1.2rem}' +
             'th,td{text-align:left;padding:.8rem 1rem;border-bottom:1px solid var(--color-line)}' +
             'th{font-size:.7rem;letter-spacing:.04em;text-transform:uppercase;color:var(--color-muted);font-weight:600}' +
             alignCss + designCss +
           '</style>' +
           '<body>' + (shellNav ? '<div class="ue-shell">' + shellNav + '<div id="root"></div></div>' : '<div id="root"></div>') +
-          '<script>window.NAMES=' + JSON.stringify(names).replace(/</g, '\\u003c') + ';' + NAV_JS + '<\/script>' +
+          '<script>window.NAMES=' + JSON.stringify(names).replace(/</g, '\\u003c') + ';' +
+            (designing ? 'window.navigate=function(){};' : NAV_JS) + '<\/script>' +
           '<pre id="err" style="display:none;position:fixed;left:0;right:0;bottom:0;margin:0;background:#2a0a06;color:#ff9c8c;font:12px/1.45 ui-monospace,monospace;white-space:pre-wrap;padding:0.8rem 1rem;max-height:40%;overflow:auto"></pre>' +
           '<script>(function(){var React=window.React,ReactDOM=window.ReactDOM,useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef,useCallback=React.useCallback,useContext=React.useContext;function showErr(m){var el=document.getElementById("err");el.style.display="block";el.textContent=m;}try{' +
-            'var code=Babel.transform(' + JSON.stringify(sourceEl.value) +
+            'var code=Babel.transform(' + JSON.stringify(liveSrc).replace(/</g, '\\u003c') +
               ',{presets:[["react",{runtime:"classic"}]]}).code;' +
             'eval(code+"\\n;try{if(typeof ' + s.name + '===\'function\'){window.' + s.name + '=' + s.name + ';window.__C=' + s.name + ';}}catch(_e){}" );' +
-            'if(!window.__C){var ks=Object.keys(window);for(var ki=0;ki<ks.length;ki++){var fn=window[ks[ki]];if(typeof fn==="function"&&/^[A-Z]/.test(ks[ki])&&["Page","Sidebar","Button","Field","Table","React","ReactDOM","Babel"].indexOf(ks[ki])<0){window.__C=fn;break;}}}' +
+            'if(!window.__C){var ks=Object.keys(window);for(var ki=0;ki<ks.length;ki++){var fn=window[ks[ki]];if(typeof fn==="function"&&/^[A-Z]/.test(ks[ki])&&["Page","Sidebar","Button","Field","Table","Card","Badge","Hero","Image","React","ReactDOM","Babel"].indexOf(ks[ki])<0){window.__C=fn;break;}}}' +
             'if(!window.__C){showErr("No component called ' + s.name + '");return;}' +
             'ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.__C));' +
+            pickJs +
           '}catch(e){showErr(String(e&&e.message||e));}})();<\/script></html>';
       }
 
@@ -4258,20 +4986,36 @@
         frame.classList.add('show');
         if (palette) palette.style.display = on ? 'none' : '';
         if (ins) ins.style.display = on ? 'none' : '';
+        var rail = host.querySelector('#ue-studio-rail');
+        if (rail) {
+          rail.classList.toggle('open', !on);
+          if (on) {
+            var askRow = host.querySelector('#ue-askrow');
+            if (askRow) askRow.classList.remove('open');
+            if (host.querySelector('#ue-ask')) host.querySelector('#ue-ask').classList.remove('on');
+          }
+        }
         var wrap = host.querySelector('.uied-board-wrap');
         if (wrap) {
           wrap.style.padding = '0';
           wrap.style.overflow = 'hidden';
         }
+        if (!on) {
+          picked = null;
+          var s = screens[current];
+          if (s) {
+            var stamped = stampElementIds(polishSource(sourceEl.value || s.source || ''));
+            sourceEl.value = stamped;
+            s.source = stamped;
+          }
+        }
         renderLive();
         if (on) {
-          status('Live preview. Design keeps this theme.');
+          status('Live preview. Click Design for the studio.');
           return;
         }
-        if (ins) {
-          ins.innerHTML = '<h4>Inspector</h4><p class="uied-ins-empty">You are on the live themed screen. Insert from the left. Align restacks the main column. Ask rewrites copy or layout.</p>';
-        }
-        status('Design: same theme as preview. Insert adds a control. Align restacks.');
+        renderPickInspector();
+        status('Design: drag elements on the grid (8px snap). Studio is on the left.');
       }
 
       function showScreen() {
@@ -4366,8 +5110,13 @@
         var has = function (n) { return new RegExp('function\\s+' + n + '\\b').test(src || ''); };
         if (kind === 'h1') return '<h1>Heading</h1>';
         if (kind === 'p') return '<p>New text</p>';
-        if (kind === 'Button') {
-          return has('Button') ? '<Button>Button</Button>' : '<button type="button">Button</button>';
+        if (kind === 'Button' || kind === 'ButtonGhost' || kind === 'ButtonOutline') {
+          var variant = kind === 'ButtonGhost' ? 'ghost' : kind === 'ButtonOutline' ? 'outline' : 'solid';
+          var label = variant === 'solid' ? 'Button' : variant.charAt(0).toUpperCase() + variant.slice(1);
+          if (has('Button')) {
+            return '<Button variant="' + variant + '" style={{width:"fit-content", alignSelf:"flex-start"}}>' + label + '</Button>';
+          }
+          return '<button type="button" data-variant="' + variant + '" style={{width:"fit-content"}}>' + label + '</button>';
         }
         if (kind === 'Field') {
           return has('Field')
@@ -4379,7 +5128,39 @@
             ? '<Table heading="Rows"><tr><td>Row 1</td></tr></Table>'
             : '<table><thead><tr><th>Rows</th></tr></thead><tbody><tr><td>Row 1</td></tr></tbody></table>';
         }
+        if (kind === 'Card') {
+          return has('Card')
+            ? '<Card motion="motion-rise"><h2 style={{fontSize:16, margin:0}}>Card title</h2><p style={{margin:"8px 0 0"}}>Supporting copy.</p></Card>'
+            : '<div class="ds-card motion-rise"><h2 style="font-size:16px;margin:0">Card title</h2><p style="margin:8px 0 0">Supporting copy.</p></div>';
+        }
+        if (kind === 'Badge') {
+          return has('Badge') ? '<Badge>Live</Badge>' : '<span class="ds-badge">Live</span>';
+        }
+        if (kind === 'Hero') {
+          return has('Hero')
+            ? '<Hero motion="motion-rise"><Badge>Featured</Badge><h2 style={{marginTop:12}}>Hero headline</h2><p>Short supporting line.</p><Button variant="solid">Primary action</Button></Hero>'
+            : '<section class="ds-hero motion-rise"><span class="ds-badge">Featured</span><h2 style="margin-top:12px">Hero headline</h2><p>Short supporting line.</p><button type="button">Primary action</button></section>';
+        }
+        if (kind === 'Image') {
+          return has('Image')
+            ? '<Image alt="" caption="Photo inset" ratio="16 / 9" motion="motion-fade" />'
+            : '<figure class="ds-inset motion-fade" style="aspect-ratio:16/9"><div style="height:100%;min-height:160px;background:linear-gradient(135deg,var(--color-surface),var(--color-sidebar))"></div><figcaption>Photo inset</figcaption></figure>';
+        }
         return '<p>New text</p>';
+      }
+
+      var STUDIO_HELPERS =
+        'function Card(props){return <div data-ue={props["data-ue"]} className={"ds-card "+(props.motion||"")} style={{...(props.style||{})}}>{props.children}</div>;}\n' +
+        'function Badge(props){return <span data-ue={props["data-ue"]} className="ds-badge" style={{...(props.style||{})}}>{props.children}</span>;}\n' +
+        'function Hero(props){return <section data-ue={props["data-ue"]} className={"ds-hero "+(props.motion||"motion-rise")} style={{...(props.style||{})}}>{props.children}</section>;}\n' +
+        'function Image(props){var src=props.src||"data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'1200\' height=\'720\'%3E%3Crect width=\'1200\' height=\'720\' fill=\'%23ccc\' fill-opacity=\'0.25\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' fill=\'%23666\' font-size=\'42\' text-anchor=\'middle\' dominant-baseline=\'middle\'%3EPhoto inset%3C/text%3E%3C/svg%3E";' +
+        'return (<figure data-ue={props["data-ue"]} className={"ds-inset "+(props.motion||"motion-fade")} style={{aspectRatio:props.ratio||"16 / 9",...(props.style||{})}}><img src={src} alt={props.alt||""}/>{props.caption?<figcaption>{props.caption}</figcaption>:null}</figure>);}\n';
+
+      function ensureStudioHelpers(src) {
+        var need = ['Card', 'Badge', 'Hero', 'Image'].some(function (n) {
+          return !new RegExp('function\\s+' + n + '\\b').test(src || '');
+        });
+        return need ? STUDIO_HELPERS + (src || '') : (src || '');
       }
 
       function injectSnippet(src, name, snippet) {
@@ -4389,21 +5170,64 @@
         var jsx = returnJsxRange(body);
         var target = jsx ? body.slice(jsx.start, jsx.end) : body;
         var base = from + (jsx ? jsx.start : 0);
-        var chunk = '\n      ' + snippet + '\n      ';
+        // Keep inserts inside the main column — never as a Page flex sibling
+        // (those pick up flex:1 and blow up into a giant strip).
+        var chunk = '\n          <div className="ue-place" style={{marginTop:"var(--space-md)", alignSelf:"flex-start", width:"fit-content", maxWidth:"100%"}}>\n            ' +
+          snippet + '\n          </div>\n          ';
         var self = target.match(/^\s*<([A-Za-z][A-Za-z0-9]*)(\s[^>]*)?\s*\/>\s*$/);
         if (self) {
           var expanded = '<' + self[1] + (self[2] || '').replace(/\s*$/, '') + '>' + chunk + '</' + self[1] + '>';
           return src.slice(0, base) + expanded + src.slice(base + target.length);
         }
-        var tokens = ['</form>', '</main>', '</section>', '</Page>', '</div>'];
+
+        function findCloseTag(html, openIdx) {
+          var tagMatch = html.slice(openIdx).match(/^<([A-Za-z][A-Za-z0-9]*)\b/);
+          if (!tagMatch) return -1;
+          var tag = tagMatch[1];
+          var i = openIdx;
+          var depth = 0;
+          var re = new RegExp('<\\/?' + tag + '\\b[^>]*>', 'g');
+          re.lastIndex = openIdx;
+          var m;
+          while ((m = re.exec(html))) {
+            if (m[0][1] === '/') {
+              depth -= 1;
+              if (depth === 0) return m.index;
+            } else if (!/\/>$/.test(m[0])) {
+              depth += 1;
+            }
+            if (m.index === openIdx && depth === 0) depth = 1;
+          }
+          return -1;
+        }
+
+        // Main column = first <div> after </Sidebar> (or after <Sidebar/>…</Sidebar>)
+        var sideEnd = target.search(/<\/Sidebar>/i);
+        if (sideEnd < 0) sideEnd = target.search(/<\/aside>/i);
+        var searchFrom = sideEnd >= 0 ? sideEnd : 0;
+        var mainOpen = target.indexOf('<div', searchFrom);
+        if (mainOpen >= 0) {
+          var mainClose = findCloseTag(target, mainOpen);
+          if (mainClose >= 0) {
+            var abs = base + mainClose;
+            return src.slice(0, abs) + chunk + src.slice(abs);
+          }
+        }
+
+        // Fallback: before </Page>, still wrap so flex:1 cannot apply to the control itself
+        var pageClose = target.lastIndexOf('</Page>');
+        if (pageClose >= 0) {
+          var absPage = base + pageClose;
+          return src.slice(0, absPage) + chunk + src.slice(absPage);
+        }
+        var tokens = ['</form>', '</main>', '</section>', '</div>'];
         var best = -1;
         for (var t = 0; t < tokens.length; t++) {
           var idx = target.lastIndexOf(tokens[t]);
           if (idx >= 0) { best = idx; break; }
         }
         if (best >= 0) {
-          var abs = base + best;
-          return src.slice(0, abs) + chunk + src.slice(abs);
+          return src.slice(0, base + best) + chunk + src.slice(base + best);
         }
         if (jsx) return src.slice(0, base + target.length) + chunk + src.slice(base + target.length);
         if (range) return src.slice(0, range.end) + chunk + src.slice(range.end);
@@ -4452,7 +5276,7 @@
       function addBlock(kind, x, y) {
         var s = screens[current];
         if (!s) return;
-        var src = sourceEl.value || s.source || '';
+        var src = ensureStudioHelpers(sourceEl.value || s.source || '');
         var snippet = liveSnippet(kind, src);
         var next = injectSnippet(src, s.name, snippet);
         if (next === src) {
@@ -4560,7 +5384,61 @@
       window.addEventListener('keydown', onKey);
 
       function onFrameNav(e) {
-        if (!e.data || e.data.type !== 'ue-nav' || e.source !== frame.contentWindow) return;
+        if (!e.data || e.source !== frame.contentWindow) return;
+        if (e.data.type === 'ue-ready') {
+          if (!previewMode) {
+            status(e.data.count
+              ? ('Design: ' + e.data.count + ' elements — drag on the grid (8px snap)')
+              : 'Design: no draggable elements found — try Save then reopen');
+          }
+          return;
+        }
+        if (e.data.type === 'ue-pick') {
+          picked = {
+            id: e.data.id,
+            tag: e.data.tag,
+            text: e.data.text,
+            width: e.data.width,
+            height: e.data.height,
+            left: e.data.left,
+            top: e.data.top,
+            fontSize: e.data.fontSize,
+            padding: e.data.padding,
+            borderRadius: e.data.borderRadius,
+            styles: readUeStyles(sourceEl.value || '', e.data.id)
+          };
+          renderPickInspector();
+          status('Selected — drag to place (8px grid) or edit size on the right');
+          return;
+        }
+        if (e.data.type === 'ue-place') {
+          picked = picked && picked.id === e.data.id ? picked : {
+            id: e.data.id,
+            tag: 'element',
+            text: e.data.id,
+            width: e.data.width,
+            height: e.data.height,
+            styles: readUeStyles(sourceEl.value || '', e.data.id)
+          };
+          // If the id exists only on the live DOM (not yet in source), stamp then retry merge.
+          if ((sourceEl.value || '').indexOf('data-ue="' + e.data.id + '"') < 0) {
+            var stamped = stampElementIds(sourceEl.value || '');
+            sourceEl.value = stamped;
+            if (screens[current]) screens[current].source = stamped;
+          }
+          commitPickedStyles({
+            position: 'absolute',
+            left: e.data.left,
+            top: e.data.top,
+            width: e.data.width,
+            margin: '0',
+            zIndex: '5'
+          });
+          renderPickInspector();
+          status('Snapped to grid at ' + e.data.left + ',' + e.data.top + ' — Save when ready');
+          return;
+        }
+        if (e.data.type !== 'ue-nav') return;
         var idx = screens.map(function (sc) { return sc.name; }).indexOf(String(e.data.name));
         if (idx < 0 || idx === current) return;
         selectEl.value = String(idx);
@@ -4662,20 +5540,321 @@
           .then(function () { if (go) go.disabled = false; });
       }
 
+      var THEME_SWATCHES = [
+        { id: 'blush', bg: '#fff7fb', accent: '#e85a8c' },
+        { id: 'sunrise', bg: '#fff8f0', accent: '#ff7a45' },
+        { id: 'paper', bg: '#faf9f5', accent: '#bf6a4d' },
+        { id: 'glacier', bg: '#eef3f8', accent: '#1d4e89' },
+        { id: 'sand', bg: '#f6efe4', accent: '#c45c26' },
+        { id: 'grove', bg: '#102117', accent: '#c5e86a' },
+        { id: 'ocean', bg: '#061820', accent: '#2ec4b6' },
+        { id: 'aurora', bg: '#071422', accent: '#3ee0c5' },
+        { id: 'coral', bg: '#1a1214', accent: '#ff6b6b' },
+        { id: 'plum', bg: '#1a1020', accent: '#c77dff' },
+        { id: 'ink', bg: '#111008', accent: '#e0b84e' },
+        { id: 'noir', bg: '#0a0a0a', accent: '#ffffff' },
+        { id: 'midnight', bg: '#0b0c0e', accent: '#f2761f' }
+      ];
+      var COLOUR_TOKENS = [
+        { token: 'bg', label: 'BG' },
+        { token: 'sidebar', label: 'Rail' },
+        { token: 'surface', label: 'Card' },
+        { token: 'text', label: 'Text' },
+        { token: 'muted', label: 'Muted' },
+        { token: 'accent', label: 'Accent' },
+        { token: 'line', label: 'Line' }
+      ];
+      var THEME_DEFAULTS = {
+        blush: { bg: '#fff7fb', sidebar: '#ffe8f1', surface: '#ffffff', text: '#3a2430', muted: '#9a6b7e', accent: '#e85a8c', line: '#e8d0da' },
+        sunrise: { bg: '#fff8f0', sidebar: '#ffe8d2', surface: '#ffffff', text: '#2c1a0e', muted: '#9a6b45', accent: '#ff7a45', line: '#ecd8c4' },
+        paper: { bg: '#faf9f5', sidebar: '#f2efe5', surface: '#ffffff', text: '#262117', muted: '#6b6355', accent: '#bf6a4d', line: '#ddd6c8' },
+        glacier: { bg: '#eef3f8', sidebar: '#e2ebf3', surface: '#ffffff', text: '#142033', muted: '#5b6d82', accent: '#1d4e89', line: '#cfd9e4' },
+        sand: { bg: '#f6efe4', sidebar: '#efe4d2', surface: '#fffaf2', text: '#2a1c12', muted: '#7a6352', accent: '#c45c26', line: '#e0d2c0' },
+        grove: { bg: '#102117', sidebar: '#163024', surface: '#1c3a2c', text: '#e8f6e4', muted: '#8fb89a', accent: '#c5e86a', line: '#2a4a36' },
+        ocean: { bg: '#061820', sidebar: '#0b2430', surface: '#123040', text: '#e6f7ff', muted: '#7aa8b8', accent: '#2ec4b6', line: '#1a4050' },
+        aurora: { bg: '#071422', sidebar: '#0b1c30', surface: '#10263c', text: '#e7f6ff', muted: '#7fa4bc', accent: '#3ee0c5', line: '#16344c' },
+        coral: { bg: '#1a1214', sidebar: '#24181b', surface: '#2c1e22', text: '#fdecee', muted: '#c49aa0', accent: '#ff6b6b', line: '#3a282c' },
+        plum: { bg: '#1a1020', sidebar: '#261530', surface: '#321c40', text: '#f6eaff', muted: '#b08cc0', accent: '#c77dff', line: '#3c2848' },
+        ink: { bg: '#111008', sidebar: '#1a1810', surface: '#221f14', text: '#f4ead0', muted: '#b3a57a', accent: '#e0b84e', line: '#332e1c' },
+        noir: { bg: '#0a0a0a', sidebar: '#141414', surface: '#1c1c1c', text: '#f5f5f5', muted: '#8a8a8a', accent: '#ffffff', line: '#2a2a2a' },
+        midnight: { bg: '#0b0c0e', sidebar: '#101114', surface: '#16171b', text: '#f3f3f1', muted: '#9a9ba1', accent: '#f2761f', line: '#2a2b30' }
+      };
+
+      function applyTheme(name) {
+        var s = screens[current];
+        if (!s) return;
+        var src = polishSource(sourceEl.value || s.source || '');
+        if (/data-theme=["'][a-z]+["']/.test(src)) {
+          src = src.replace(/data-theme=["'][a-z]+["']/g, 'data-theme="' + name + '"');
+        } else if (/<Page(?=[\s>/])/.test(src)) {
+          src = src.replace(/<Page(?=[\s>/])/, '<Page data-theme="' + name + '"');
+        } else {
+          status('No Page root for theme', true);
+          return;
+        }
+        sourceEl.value = src;
+        s.source = src;
+        paintStudio();
+        renderLive();
+        status('Theme → ' + name + ' (pink/white = blush) — Save when ready');
+      }
+
+      function applyColour(token, hex) {
+        if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(hex)) {
+          status('Hex looks wrong', true);
+          return;
+        }
+        applyPageVar('--color-' + token, hex);
+        status('Set --color-' + token + ' — Save when ready');
+      }
+
+      function applyPageVar(cssVar, value) {
+        var s = screens[current];
+        if (!s) return;
+        var src = sourceEl.value || s.source || '';
+        var pair = '"' + cssVar + '":"' + value + '"';
+        var m = src.match(/<Page(\s[^>]*)?>/);
+        if (!m) { status('No Page root', true); return; }
+        var open = m[0];
+        var abs = src.indexOf(open);
+        var key = '"' + cssVar + '"';
+        if (/style=\{\{/.test(open)) {
+          if (open.indexOf(key) >= 0) {
+            open = open.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:\\s*"[^"]*"'), pair);
+          } else {
+            open = open.replace(/style=\{\{/, 'style={{' + pair + ', ');
+          }
+        } else if (/\/>$/.test(open)) {
+          open = open.replace(/\/>$/, ' style={{' + pair + '}} />');
+        } else {
+          open = open.replace(/>$/, ' style={{' + pair + '}}>');
+        }
+        src = src.slice(0, abs) + open + src.slice(abs + m[0].length);
+        sourceEl.value = src;
+        s.source = src;
+        renderLive();
+      }
+
+      function polishSource(src) {
+        var out = src || '';
+        // Nav items must be ghost/nav — solid accent made the rail look broken.
+        out = out.replace(
+          /<Button(?![^>]*variant=)([^>]*onClick=\{\(\)\s*=>\s*navigate\("[^"]+"\)\}[^>]*)>/g,
+          '<Button variant="nav"$1>'
+        );
+        out = out.replace(
+          /<Button(\s+variant="[^"]*")?(\s+onClick=\{\(\)\s*=>\s*navigate\("[^"]+"\)\})/g,
+          function (_m, _v, click) {
+            return '<Button variant="nav"' + click;
+          }
+        );
+        // <LOCATION> is a placeholder, not a component. Babel stops the preview.
+        out = out.replace(/<\/?([A-Z][A-Z0-9_]*)\b[^>]*?\/?>/g, function (m, name) {
+          return m.charAt(1) === '/' ? '' : name;
+        });
+        return out;
+      }
+
+      function applyMotion(cls) {
+        var s = screens[current];
+        if (!s) return;
+        var src = ensureStudioHelpers(polishSource(sourceEl.value || s.source || ''));
+        var snippet = '<div className="' + cls + '" style={{marginBottom:12}}><Badge>Motion on</Badge></div>';
+        var next = injectSnippet(src, s.name, snippet);
+        sourceEl.value = next;
+        s.source = next;
+        renderLive();
+        status('Motion ' + cls + ' — Save when ready');
+      }
+
+      function paintStudio() {
+        var themesEl = host.querySelector('#ue-themes');
+        var coloursEl = host.querySelector('#ue-colours');
+        var typeEl = host.querySelector('#ue-type');
+        var layoutEl = host.querySelector('#ue-layout');
+        if (!themesEl || !coloursEl) return;
+        var active = currentTheme();
+        themesEl.innerHTML = THEME_SWATCHES.map(function (t) {
+          return '<button type="button" class="uied-swatch' + (t.id === active ? ' on' : '') +
+            '" data-theme="' + t.id + '" title="' + t.id + '" style="background:linear-gradient(135deg,' +
+            t.bg + ' 55%,' + t.accent + ' 55%)"><span>' + t.id + '</span></button>';
+        }).join('');
+        var defaults = THEME_DEFAULTS[active] || THEME_DEFAULTS.midnight;
+        coloursEl.innerHTML = COLOUR_TOKENS.map(function (c) {
+          var hex = defaults[c.token] || '#ffffff';
+          return '<label class="uied-colorchip">' + c.label +
+            '<input type="color" data-token="' + c.token + '" value="' + hex + '">' +
+            '<input type="text" data-token-hex="' + c.token + '" value="' + hex + '" maxlength="9" spellcheck="false">' +
+            '</label>';
+        }).join('');
+        if (typeEl) {
+          typeEl.innerHTML =
+            '<label class="uied-lay">Body font<select data-lay="--font-sans">' +
+              '<option value="Ubuntu, Liberation Sans, system-ui, sans-serif">Ubuntu</option>' +
+              '<option value="Georgia, Times New Roman, serif">Georgia</option>' +
+              '<option value="Palatino Linotype, Book Antiqua, Palatino, serif">Palatino</option>' +
+              '<option value="ui-monospace, SFMono-Regular, Menlo, monospace">Mono</option>' +
+              '<option value="Segoe UI, Helvetica Neue, Arial, sans-serif">Segoe</option>' +
+              '<option value="system-ui, -apple-system, sans-serif">System</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Display font<select data-lay="--font-display">' +
+              '<option value="var(--font-sans)">Same as body</option>' +
+              '<option value="Georgia, Times New Roman, serif">Georgia</option>' +
+              '<option value="Palatino Linotype, Book Antiqua, Palatino, serif">Palatino</option>' +
+              '<option value="Ubuntu, Liberation Sans, system-ui, sans-serif">Ubuntu</option>' +
+              '<option value="ui-monospace, SFMono-Regular, Menlo, monospace">Mono</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Text size<select data-lay-preset="type">' +
+              '<option value="xs">XS</option><option value="s">S</option>' +
+              '<option value="m" selected>M</option><option value="l">L</option><option value="xl">XL</option>' +
+            '</select></label>';
+        }
+        if (layoutEl) {
+          layoutEl.innerHTML =
+            '<label class="uied-lay">Controls<select data-lay-preset="control">' +
+              '<option value="xs">XS — tiny</option><option value="s">S — compact</option>' +
+              '<option value="m" selected>M — default</option><option value="l">L — roomy</option>' +
+              '<option value="xl">XL — large</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Corners<select data-lay="--radius">' +
+              '<option value="0px">Sharp</option><option value="4px">Soft 4</option>' +
+              '<option value="8px" selected>8</option><option value="12px">12</option>' +
+              '<option value="20px">Pillish</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Density<select data-lay="--space-md">' +
+              '<option value="10px">Tight</option><option value="16px" selected>Normal</option>' +
+              '<option value="24px">Roomy</option><option value="32px">Airy</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Sidebar<select data-lay="--sidebar-w">' +
+              '<option value="180px">Narrow</option><option value="220px" selected>Normal</option>' +
+              '<option value="280px">Wide</option><option value="320px">XL</option>' +
+            '</select></label>' +
+            '<label class="uied-lay">Field width<select data-lay="--field-w">' +
+              '<option value="18rem">Narrow</option><option value="28rem" selected>Normal</option>' +
+              '<option value="36rem">Wide</option><option value="100%">Full</option>' +
+            '</select></label>';
+        }
+      }
+
+      var TYPE_PRESETS = {
+        xs: { '--type-base': '0.8rem', '--type-h1': '1.35rem', '--type-label': '0.68rem' },
+        s: { '--type-base': '0.88rem', '--type-h1': '1.55rem', '--type-label': '0.72rem' },
+        m: { '--type-base': '0.95rem', '--type-h1': 'clamp(1.55rem,2.4vw,2.2rem)', '--type-label': '0.78rem' },
+        l: { '--type-base': '1.05rem', '--type-h1': 'clamp(1.8rem,2.8vw,2.5rem)', '--type-label': '0.82rem' },
+        xl: { '--type-base': '1.15rem', '--type-h1': 'clamp(2rem,3.2vw,2.8rem)', '--type-label': '0.88rem' }
+      };
+      var CONTROL_PRESETS = {
+        xs: { '--control-h': '28px', '--control-pad': '0.25rem 0.55rem' },
+        s: { '--control-h': '34px', '--control-pad': '0.4rem 0.75rem' },
+        m: { '--control-h': '40px', '--control-pad': '0.55rem 1rem' },
+        l: { '--control-h': '48px', '--control-pad': '0.7rem 1.2rem' },
+        xl: { '--control-h': '56px', '--control-pad': '0.85rem 1.4rem' }
+      };
+
+      var studio = host.querySelector('#ue-studio');
+      if (studio) {
+        paintStudio();
+        studio.addEventListener('click', function (e) {
+          var sw = e.target.closest('[data-theme]');
+          if (sw) {
+            e.preventDefault();
+            applyTheme(sw.getAttribute('data-theme'));
+            return;
+          }
+          var motion = e.target.closest('[data-motion]');
+          if (motion) {
+            e.preventDefault();
+            applyMotion(motion.getAttribute('data-motion'));
+            return;
+          }
+          var item = e.target.closest('[data-kind]');
+          if (item) {
+            e.preventDefault();
+            addBlock(item.getAttribute('data-kind'));
+          }
+        });
+        studio.addEventListener('change', function (e) {
+          var el = e.target;
+          if (!el) return;
+          if (el.getAttribute('data-token')) {
+            var hexIn = studio.querySelector('[data-token-hex="' + el.getAttribute('data-token') + '"]');
+            if (hexIn) hexIn.value = el.value;
+            applyColour(el.getAttribute('data-token'), el.value);
+            return;
+          }
+          if (el.getAttribute('data-token-hex')) {
+            var tok = el.getAttribute('data-token-hex');
+            var colorIn = studio.querySelector('input[type=color][data-token="' + tok + '"]');
+            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(el.value) && colorIn) colorIn.value = el.value;
+            applyColour(tok, el.value);
+            return;
+          }
+          if (el.getAttribute('data-lay')) {
+            applyPageVar(el.getAttribute('data-lay'), el.value);
+            status('Layout updated — Save when ready');
+            return;
+          }
+          if (el.getAttribute('data-lay-preset') === 'type') {
+            var tp = TYPE_PRESETS[el.value] || TYPE_PRESETS.m;
+            Object.keys(tp).forEach(function (k) { applyPageVar(k, tp[k]); });
+            status('Type size ' + el.value.toUpperCase() + ' — Save when ready');
+            return;
+          }
+          if (el.getAttribute('data-lay-preset') === 'control') {
+            var cp = CONTROL_PRESETS[el.value] || CONTROL_PRESETS.m;
+            Object.keys(cp).forEach(function (k) { applyPageVar(k, cp[k]); });
+            status('Control size ' + el.value.toUpperCase() + ' — Save when ready');
+          }
+        });
+        studio.addEventListener('input', function (e) {
+          var el = e.target;
+          if (el && el.getAttribute('data-token') && el.type === 'color') {
+            var hexIn = studio.querySelector('[data-token-hex="' + el.getAttribute('data-token') + '"]');
+            if (hexIn) hexIn.value = el.value;
+            applyColour(el.getAttribute('data-token'), el.value);
+          }
+        });
+      }
+
+      // Close + chrome bindings
       host.querySelector('#ue-close').addEventListener('click', close);
       var saveBtn = host.querySelector('#ue-save');
       if (saveBtn) saveBtn.addEventListener('click', save);
       var askBtn = host.querySelector('#ue-ask');
       if (askBtn) askBtn.addEventListener('click', function () {
+        if (previewMode) setPreview(false);
+        var rail = host.querySelector('#ue-studio-rail');
         var row = host.querySelector('#ue-askrow');
         if (!row) return;
-        var open = row.classList.toggle('open');
-        askBtn.classList.toggle('on', open);
-        if (open) {
-          var input = host.querySelector('#ue-prompt');
-          if (input) input.focus();
+        if (rail && rail.classList.contains('collapsed')) {
+          rail.classList.remove('collapsed');
+          var tog = host.querySelector('#ue-studio-toggle');
+          if (tog) { tog.textContent = '⟨'; tog.title = 'Collapse studio'; }
+          try { localStorage.setItem('ue-studio-collapsed', '0'); } catch (_e) {}
         }
+        row.classList.add('open');
+        askBtn.classList.add('on');
+        var input = host.querySelector('#ue-prompt');
+        if (input) input.focus();
       });
+
+      var studioToggle = host.querySelector('#ue-studio-toggle');
+      var studioRail = host.querySelector('#ue-studio-rail');
+      if (studioToggle && studioRail) {
+        try {
+          if (localStorage.getItem('ue-studio-collapsed') === '1') {
+            studioRail.classList.add('collapsed');
+            studioToggle.textContent = '⟩';
+            studioToggle.title = 'Expand studio';
+          }
+        } catch (_e) {}
+        studioToggle.addEventListener('click', function () {
+          var collapsed = studioRail.classList.toggle('collapsed');
+          studioToggle.textContent = collapsed ? '⟩' : '⟨';
+          studioToggle.title = collapsed ? 'Expand studio' : 'Collapse studio';
+          try { localStorage.setItem('ue-studio-collapsed', collapsed ? '1' : '0'); } catch (_e2) {}
+        });
+      }
       var askGo = host.querySelector('#ue-ask-go');
       if (askGo) askGo.addEventListener('click', ask);
       var promptEl = host.querySelector('#ue-prompt');
@@ -5277,14 +6456,47 @@
       wrap.appendChild(bubble);
       box.appendChild(wrap);
       box.scrollTop = box.scrollHeight;
+      return wrap;
+    }
+
+    function addPendingBubble(steps) {
+      var wrap = addChatBubble('assistant', '');
+      wrap.firstChild.innerHTML = '<span class="chat-typing"><i></i><i></i><i></i></span><span class="chat-typing-text"></span>';
+      var label = wrap.firstChild.lastChild;
+      var i = 0;
+      label.textContent = steps[0];
+      var timer = setInterval(function () {
+        if (i < steps.length - 1) label.textContent = steps[++i];
+      }, 4000);
+      var remove = wrap.remove.bind(wrap);
+      wrap.remove = function () { clearInterval(timer); remove(); };
+      return wrap;
     }
 
     document.getElementById('start-intake-btn').addEventListener('click', function () {
+      var startBtn = this;
       document.getElementById('intake-error').classList.remove('visible');
       if (!canStartRequirement(me)) {
         showIntakeError('Only the requester can start a requirement.');
         return;
       }
+      startBtn.disabled = true;
+      chatDone = false;
+      document.getElementById('intake-idle').style.display = 'none';
+      document.getElementById('intake-chat').style.display = '';
+      document.getElementById('chat-messages').innerHTML = '';
+      var freshInput = document.getElementById('chat-input');
+      var freshSendBtn = document.getElementById('chat-send-btn');
+      freshInput.disabled = true;
+      freshSendBtn.disabled = true;
+      freshInput.placeholder = 'Type your reply...';
+      freshInput.value = '';
+      var pending = addPendingBubble([
+        'Starting your intake assistant…',
+        'Reading the intake guidelines…',
+        'Preparing the first question…',
+        'Still working — free models can take a few seconds…',
+      ]);
       fetch(window.API_BASE + '/api/artifacts/chat/start', {
         method: 'POST',
         credentials: 'include',
@@ -5295,23 +6507,17 @@
         .then(function (result) {
           if (!result.ok) throw new Error(result.body.error || 'Could not start intake');
           currentChatArtifactId = result.body.artifactId;
-          chatDone = false;
-          document.getElementById('intake-idle').style.display = 'none';
-          document.getElementById('intake-chat').style.display = '';
-          document.getElementById('chat-messages').innerHTML = '';
-          // A previous session (or one closed without finishing) can leave
-          // the composer disabled with a stale placeholder — always start a
-          // fresh session with a clean, usable composer.
-          var freshInput = document.getElementById('chat-input');
-          var freshSendBtn = document.getElementById('chat-send-btn');
+          pending.remove();
+          addChatBubble('assistant', result.body.reply);
           freshInput.disabled = false;
           freshSendBtn.disabled = false;
-          freshInput.placeholder = 'Type your reply...';
-          freshInput.value = '';
-          addChatBubble('assistant', result.body.reply);
           freshInput.focus();
         })
-        .catch(function (err) { showIntakeError(err.message); });
+        .catch(function (err) {
+          resetIntakeWidget();
+          showIntakeError(err.message);
+        })
+        .then(function () { startBtn.disabled = false; });
     });
 
     function resetIntakeWidget() {
@@ -5336,6 +6542,14 @@
       function render() {
         document.getElementById('modal-body').innerHTML =
           requirementContentHtml(artifact.content || {}) +
+          '<div class="field" style="margin:0;">' +
+            '<label for="review-ai-input">Ask the AI to change something</label>' +
+            '<textarea id="review-ai-input" rows="2" placeholder="e.g. Add the loan rules: 14-day loans, max 3 books per member. Replace the owner placeholder with ISBN."></textarea>' +
+            '<div style="display:flex; gap:0.55rem; align-items:center; margin-top:0.45rem; flex-wrap:wrap;">' +
+              '<button class="btn secondary" id="review-ai-btn" type="button">Apply with AI</button>' +
+              '<span id="review-ai-status" style="font-size:0.82rem;color:var(--text-faint);"></span>' +
+            '</div>' +
+          '</div>' +
           '<div style="display:flex; gap:0.55rem;">' +
             '<button class="btn" id="review-send-btn" type="button">Send requirement</button>' +
             '<button class="btn secondary" id="review-edit-btn" type="button">Edit</button>' +
@@ -5345,6 +6559,41 @@
             '<div class="progress-bar-track"><div class="progress-bar-fill" id="review-progress-fill"></div></div>' +
           '</div>' +
           '<p class="chat-summary-note" id="review-note"></p>';
+
+        document.getElementById('review-ai-btn').addEventListener('click', function () {
+          var aiBtn = this;
+          var input = document.getElementById('review-ai-input');
+          var status = document.getElementById('review-ai-status');
+          var instruction = input.value.trim();
+          if (!instruction) { input.focus(); return; }
+          aiBtn.disabled = true;
+          document.getElementById('review-send-btn').disabled = true;
+          document.getElementById('review-edit-btn').disabled = true;
+          status.style.color = 'var(--text-faint)';
+          status.textContent = 'The AI is updating the report…';
+          fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/scope-revise', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instruction: instruction, title: artifact.title, content: artifact.content || {} }),
+          })
+            .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+            .then(function (result) {
+              if (!result.ok) throw new Error(result.body.error || 'The AI could not update the report');
+              artifact.title = result.body.title || artifact.title;
+              artifact.content = result.body.content || artifact.content;
+              render();
+              var s = document.getElementById('review-ai-status');
+              s.textContent = 'Updated — check the changes above, then Send.';
+            })
+            .catch(function (err) {
+              status.style.color = 'var(--danger, #b42318)';
+              status.textContent = err.message;
+              aiBtn.disabled = false;
+              document.getElementById('review-send-btn').disabled = false;
+              document.getElementById('review-edit-btn').disabled = false;
+            });
+        });
 
         document.getElementById('review-edit-btn').addEventListener('click', function () {
           openEditModal(artifact, {
@@ -5471,6 +6720,11 @@
       input.value = '';
       input.disabled = true;
       sendBtn.disabled = true;
+      var pending = addPendingBubble([
+        'Reading your answer…',
+        'Thinking about the next question…',
+        'Still working — free models can take a few seconds…',
+      ]);
 
       fetch(window.API_BASE + '/api/artifacts/chat/' + currentChatArtifactId + '/message', {
         method: 'POST',
@@ -5480,6 +6734,7 @@
       })
         .then(function (res) { return res.json().then(function (body) { return { status: res.status, ok: res.ok, body: body }; }); })
         .then(function (result) {
+          pending.remove();
           if (!result.ok) {
             var err = new Error(result.body.error || 'Something went wrong');
             err.status = result.status;
@@ -5491,13 +6746,20 @@
             renderChatSummaryBlock(result.body.artifact);
             input.placeholder = 'Session complete';
           } else {
-            addChatBubble('assistant', result.body.reply);
+            var reply = result.body.reply || '';
+            // Never surface a dumped/truncated scope_report JSON blob as a chat turn.
+            if (/^\s*[`{]/.test(reply) && /("|')(title|in_scope|type|users)\1/i.test(reply)) {
+              addChatBubble('assistant', 'Locking the summary from your answers — if nothing else to add, reply "looks good".');
+            } else {
+              addChatBubble('assistant', reply);
+            }
             input.disabled = false;
             sendBtn.disabled = false;
             input.focus();
           }
         })
         .catch(function (err) {
+          pending.remove();
           // 404/403 mean the session itself is gone (deleted, or someone
           // else's) — retrying against it will just 404 forever, so recover
           // straight to a fresh session instead of leaving the composer
@@ -5598,6 +6860,22 @@
       document.getElementById('modal-title').textContent = 'Auto Code Generation';
 
       var teamReport = (artifact.teamReports || []).find(function (t) { return t.team === me.department; });
+      if (!teamReport && artifact.phase1) {
+        teamReport = (artifact.teamReports || []).find(function (t) { return t.team === 'development'; })
+          || {
+            team: me.department || 'development',
+            objective: 'Assemble app from Gate 3 screens',
+            architecture: artifact.architectureText || '',
+            techStack: [
+              { layer: 'frontend', choice: (artifact.stackProfile && artifact.stackProfile.frontend) || 'React' },
+              { layer: 'api', choice: (artifact.stackProfile && artifact.stackProfile.api) || 'Express' },
+              { layer: 'database', choice: (artifact.stackProfile && artifact.stackProfile.database) || 'PostgreSQL' },
+            ],
+            plan: (artifact.tickets || []).slice(0, 8).map(function (t) {
+              return { phase: t.id || '', description: t.title || '' };
+            }),
+          };
+      }
       if (!teamReport) {
         document.getElementById('modal-body').innerHTML = '<p class="modal-empty">No team work package found for your department.</p>';
         document.getElementById('modal-overlay').classList.add('open');
@@ -5680,7 +6958,16 @@
         // necessarily whatever was named earlier in the requirement (that
         // list is a recommendation to the client, not a commitment about
         // which scanner runs against the generated code).
-        var securityToolsHtml = ['Semgrep OSS — SAST + secrets scanning', 'SonarQube Community Edition — code-quality & security analysis'].map(function (label) {
+        var securityToolsHtml = [
+          'Gitleaks — secrets',
+          'Bandit — Python sinks',
+          'eslint-plugin-security — JS sinks',
+          'Opengrep — pattern / SQL concat',
+          'Trivy — deps / images',
+          'Checkov — IaC + migrations',
+          'Syft — SBOM',
+          'ScanCode — license / copyleft',
+        ].map(function (label) {
           return '<div class="codegen-file-preview-item"><span class="fi-icon">🛡</span>' + escapeHtml(label) + '</div>';
         }).join('');
 
@@ -5773,6 +7060,9 @@
     var ideCanEdit = false;
     var ideCurrentCodeGenId = null;
     var ideSecurity = null;
+    var ideCurrentArtifact = null;
+    var ideCompareMode = false;
+    var ideSelectFileFn = null;
 
     function closeIdePanel() {
       if (idePollingInterval) { clearInterval(idePollingInterval); idePollingInterval = null; }
@@ -5782,6 +7072,151 @@
       ideAllFiles = {};
       ideOpenTabs = [];
       ideSecurity = null;
+      ideCurrentArtifact = null;
+      ideCompareMode = false;
+      ideSelectFileFn = null;
+      var cmp = document.getElementById('ide-compare-btn');
+      if (cmp) cmp.style.display = 'none';
+    }
+
+    function pathMatchesReportPattern(pattern, path) {
+      if (!pattern || !path) return false;
+      var pat = String(pattern);
+      var p = String(path);
+      if (pat.indexOf('**') !== -1) {
+        var prefix = pat.replace(/\/?\*\*.*$/, '');
+        return p === prefix || p.indexOf(prefix + '/') === 0 || p.indexOf('/' + prefix + '/') !== -1;
+      }
+      if (pat.indexOf('*') !== -1) {
+        var re = new RegExp(
+          '^' + pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*') + '$'
+        );
+        return re.test(p) || re.test(p.split('/').pop());
+      }
+      return p === pat || p.endsWith('/' + pat) || p.indexOf('/' + pat + '/') !== -1;
+    }
+
+    function compareCodeToReport(artifact, filePaths) {
+      var paths = (filePaths || []).map(String);
+      var made = [];
+      var missing = [];
+      var claimed = {};
+
+      function markClaimed(list) {
+        (list || []).forEach(function (f) { claimed[f] = true; });
+      }
+
+      asArray(artifact.ui && artifact.ui.screens).forEach(function (screen) {
+        var name = String((screen && screen.name) || screen || '').trim();
+        if (!name) return;
+        var hit = paths.filter(function (p) {
+          var base = p.split('/').pop() || '';
+          return base.toLowerCase().indexOf(name.toLowerCase()) !== -1
+            || p.toLowerCase().indexOf('/' + name.toLowerCase()) !== -1;
+        });
+        var row = { kind: 'screen', id: name, label: name, files: hit };
+        if (hit.length) { made.push(row); markClaimed(hit); }
+        else missing.push(row);
+      });
+
+      asArray(artifact.tickets).forEach(function (ticket) {
+        if (!ticket) return;
+        var id = String(ticket.id || '').trim();
+        var title = String(ticket.title || id || 'ticket').trim();
+        var expected = asArray(ticket.paths);
+        var hit = [];
+        expected.forEach(function (pat) {
+          paths.forEach(function (p) {
+            if (pathMatchesReportPattern(pat, p) && hit.indexOf(p) === -1) hit.push(p);
+          });
+        });
+        if (!hit.length && id) {
+          hit = paths.filter(function (p) { return p.indexOf(id) !== -1; });
+        }
+        var row = {
+          kind: 'ticket',
+          id: id,
+          label: (id ? id + ' — ' : '') + title,
+          files: hit,
+          expected: expected,
+        };
+        if (hit.length) { made.push(row); markClaimed(hit); }
+        else missing.push(row);
+      });
+
+      getVisibleTeamReports(artifact).forEach(function (report) {
+        asArray(report.screens).forEach(function (name) {
+          name = String(name || '').trim();
+          if (!name) return;
+          var already = made.concat(missing).some(function (r) {
+            return r.kind === 'screen' && r.id === name;
+          });
+          if (already) return;
+          var hit = paths.filter(function (p) {
+            return (p.split('/').pop() || '').toLowerCase().indexOf(name.toLowerCase()) !== -1;
+          });
+          var row = { kind: 'package-screen', id: name, label: (report.team || 'stream') + ': ' + name, files: hit };
+          if (hit.length) { made.push(row); markClaimed(hit); }
+          else missing.push(row);
+        });
+      });
+
+      return {
+        made: made,
+        missing: missing,
+        coveredFiles: Object.keys(claimed).length,
+        totalFiles: paths.length,
+      };
+    }
+
+    function renderIdeComparePanel(artifact) {
+      var paths = Object.keys(ideAllFiles);
+      var result = compareCodeToReport(artifact, paths);
+      var area = document.getElementById('ide-code-area');
+      function itemsHtml(list, emptyText) {
+        if (!list.length) return '<p class="ide-compare-empty">' + escapeHtml(emptyText) + '</p>';
+        return list.map(function (item) {
+          var files = asArray(item.files);
+          var expected = asArray(item.expected);
+          var fileBits = files.length
+            ? files.map(function (f) {
+                return '<button type="button" class="file-link" data-open-path="' + escapeAttr(f) + '">' + escapeHtml(f) + '</button>';
+              }).join('<br>')
+            : (expected.length
+                ? '<span class="files">expected: ' + escapeHtml(expected.join(', ')) + '</span>'
+                : '<span class="files">no matching file in merged tree</span>');
+          return '<div class="ide-compare-item">' +
+            '<span class="kind">' + escapeHtml(item.kind) + '</span>' +
+            '<span class="label">' + escapeHtml(item.label) + '</span>' +
+            '<div class="files">' + fileBits + '</div>' +
+            '</div>';
+        }).join('');
+      }
+      area.innerHTML =
+        '<div class="ide-compare-panel">' +
+          '<h3>Code vs split / BRD plan</h3>' +
+          '<p class="ide-compare-meta">' +
+            escapeHtml(String(result.made.length)) + ' delivered · ' +
+            escapeHtml(String(result.missing.length)) + ' missing · ' +
+            escapeHtml(String(result.coveredFiles)) + '/' + escapeHtml(String(result.totalFiles)) +
+            ' files map to report items' +
+          '</p>' +
+          '<div class="ide-compare-section made"><h4>✓ Made from the report</h4>' +
+            itemsHtml(result.made, 'Nothing from the report matched the tree yet.') +
+          '</div>' +
+          '<div class="ide-compare-section missing"><h4>✕ Missing from the report</h4>' +
+            itemsHtml(result.missing, 'Nothing missing — every report item has code.') +
+          '</div>' +
+        '</div>';
+      area.querySelectorAll('[data-open-path]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          ideCompareMode = false;
+          var cmpBtn = document.getElementById('ide-compare-btn');
+          if (cmpBtn) cmpBtn.textContent = '⇄ Compare to report';
+          if (ideSelectFileFn) ideSelectFileFn(btn.getAttribute('data-open-path'));
+        });
+      });
+      document.getElementById('ide-issues-drawer').style.display = 'none';
     }
 
     function updateSecurityPill(sec) {
@@ -5806,6 +7241,42 @@
       }
     }
 
+    function openMergedBuildIde(artifact) {
+      var overlay = document.getElementById('modal-overlay');
+      document.getElementById('modal-title').textContent = (artifact.title || 'Requirement') + ' — Merged build';
+      document.getElementById('modal-body').innerHTML =
+        '<p class="codegen-stage-note">Loading assembled product from <code>build/' +
+        escapeHtml(artifact._id) + '</code>…</p>';
+      if (overlay) overlay.classList.add('open');
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 45000) : null;
+      fetch(window.API_BASE + '/api/artifacts/' + encodeURIComponent(artifact._id) + '/merged-code', {
+        credentials: 'include',
+        signal: ctrl ? ctrl.signal : undefined,
+      })
+        .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+        .then(function (result) {
+          if (!result.ok) throw new Error(result.body.error || 'Merged build not available');
+          if (overlay) overlay.classList.remove('open');
+          var id = result.body.codeGenId;
+          if (!id) throw new Error('Merged build job missing');
+          openCodeGenIdePanel(
+            artifact,
+            id,
+            result.body.modelLabel || ('build/' + artifact._id + ' — merged'),
+            'merged'
+          );
+        })
+        .catch(function (err) {
+          var msg = err && err.name === 'AbortError'
+            ? 'Timed out loading merged build. Close and try again.'
+            : (err.message || 'Merged build failed to load');
+          document.getElementById('modal-body').innerHTML =
+            '<p class="error-banner visible">' + escapeHtml(msg) + '</p>';
+        })
+        .finally(function () { if (timer) clearTimeout(timer); });
+    }
+
     function openCodeGenIdePanel(artifact, codeGenId, modelLabel, department) {
       // Reset state
       ideActiveFile = null;
@@ -5813,6 +7284,9 @@
       ideOpenTabs = [];
       ideCurrentCodeGenId = codeGenId;
       ideSecurity = null;
+      ideCurrentArtifact = artifact || null;
+      ideCompareMode = false;
+      ideSelectFileFn = null;
       ideCanEdit = !me.isClient && me.tierId === 'tech' && me.department === (department || me.department);
 
       document.getElementById('ide-save-btn').style.display = ideCanEdit ? '' : 'none';
@@ -5822,6 +7296,17 @@
       document.getElementById('ide-ai-fix-btn').style.display = 'none';
       document.getElementById('ide-security-pill').style.display = 'none';
       document.getElementById('ide-issues-drawer').style.display = 'none';
+      var compareBtn = document.getElementById('ide-compare-btn');
+      var showCompare = !!(artifact && (
+        department === 'merged'
+        || artifact.awaitingGate === 5
+        || (artifact.teamReports && artifact.teamReports.length)
+        || (artifact.tickets && artifact.tickets.length)
+      ));
+      if (compareBtn) {
+        compareBtn.style.display = showCompare ? '' : 'none';
+        compareBtn.textContent = '⇄ Compare to report';
+      }
 
       var overlay = document.getElementById('ide-overlay');
       document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module';
@@ -6015,6 +7500,11 @@
       function selectFile(path) {
         var fileData = ideAllFiles[path];
         if (!fileData) return;
+        if (ideCompareMode) {
+          ideCompareMode = false;
+          var cmpBtn = document.getElementById('ide-compare-btn');
+          if (cmpBtn) cmpBtn.textContent = '⇄ Compare to report';
+        }
         ideActiveFile = path;
 
         if (ideOpenTabs.indexOf(path) === -1) ideOpenTabs.push(path);
@@ -6057,6 +7547,7 @@
           : (fileData.findings || []);
         displayFileContent(path, fileData.content || '', curFindings);
       }
+      ideSelectFileFn = selectFile;
 
       // Decoupled from displayFileContent on purpose — that function fully
       // replaces #ide-code-area's innerHTML on every call (editable and
@@ -6282,6 +7773,23 @@
       document.getElementById('ide-demo-btn').onclick = function () {
         openUatSandboxWindow(codeGenId);
       };
+      document.getElementById('ide-compare-btn').onclick = function () {
+        if (!ideCurrentArtifact) return;
+        if (ideCompareMode) {
+          ideCompareMode = false;
+          this.textContent = '⇄ Compare to report';
+          if (ideActiveFile && ideSelectFileFn) ideSelectFileFn(ideActiveFile);
+          else {
+            document.getElementById('ide-code-area').innerHTML =
+              '<div class="ide-placeholder"><span class="ide-placeholder-icon">📄</span><span>Select a file to view</span></div>';
+          }
+          return;
+        }
+        ideCompareMode = true;
+        this.textContent = '← Back to code';
+        renderIdeComparePanel(ideCurrentArtifact);
+        logLine('Compared merged tree to BRD screens + tickets + split report.', 'done');
+      };
 
       // ── Save File button ──
       document.getElementById('ide-save-btn').onclick = function () {
@@ -6309,8 +7817,8 @@
         if (!editor || !ideActiveFile) return;
         var btn = this;
         btn.disabled = true;
-        btn.textContent = 'Scanning (1. Tests → 2. Semgrep → 3. SonarQube)…';
-        logLine('Saving ' + ideActiveFile + ' and running 3-stage security scan...', '');
+        btn.textContent = 'Scanning (8 Phase 4 scanners)…';
+        logLine('Saving ' + ideActiveFile + ' and re-running Phase 4 scanners...', '');
 
         fetch(window.API_BASE + '/api/codegen/' + codeGenId + '/file', {
           method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },

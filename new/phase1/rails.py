@@ -40,6 +40,30 @@ def screen_input(text: str) -> str:
     return mask_personal_data(text.strip())
 
 
+def looks_like_aborted_scope(text: str) -> bool:
+    """True when the model tried to emit a scope_report (often truncated) as prose/JSON junk.
+
+    Free models cut mid-object; without this check the truncated blob was shown as the
+    next chat question and the Review modal never opened.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, count=1, flags=re.I)
+    if not raw.lstrip().startswith("{"):
+        return False
+    lower = raw.lower()
+    return (
+        '"scope_report"' in lower
+        or '"in_scope"' in lower
+        or '"inscope"' in lower.replace("_", "")
+        or ('"title"' in lower and '"users"' in lower)
+        or ('"title"' in lower and '"current_state"' in lower)
+        or ('"title"' in lower and '"in_scope"' in lower)
+    )
+
+
 def parse_agent_output(raw: str) -> dict[str, Any]:
     text = (raw or "").strip()
     if not text:
@@ -55,13 +79,17 @@ def parse_agent_output(raw: str) -> dict[str, Any]:
             return _question_from_prose(text)
         try:
             data, _ = json.JSONDecoder().raw_decode(text[start:])
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            if looks_like_aborted_scope(text):
+                raise OutputRefused("truncated or invalid scope_report JSON") from exc
             return _question_from_prose(text)
     data = _normalise_agent_json(data)
     kind = data.get("type")
     if kind == "question":
         if not str(data.get("text") or "").strip():
             raise OutputRefused("question has no text")
+        if looks_like_aborted_scope(str(data.get("text") or "")):
+            raise OutputRefused("question text is a dumped scope_report, not a question")
         return data
     if kind == "scope_report":
         data["in_scope"] = as_string_list(data.get("in_scope"))
@@ -82,6 +110,8 @@ def parse_agent_output(raw: str) -> dict[str, Any]:
         return data
     if kind:
         raise OutputRefused(f"unknown agent output type {kind!r}")
+    if looks_like_aborted_scope(text):
+        raise OutputRefused("scope-shaped JSON without a usable type")
     return _question_from_prose(text)
 
 
@@ -89,6 +119,8 @@ def _question_from_prose(text: str) -> dict[str, str]:
     clipped = " ".join((text or "").split())
     if not clipped:
         raise OutputRefused("agent output is not JSON")
+    if looks_like_aborted_scope(clipped):
+        raise OutputRefused("refusing to surface raw scope JSON as a question")
     if len(clipped) > 400:
         clipped = clipped[:397].rsplit(" ", 1)[0] + "…"
     return {"type": "question", "text": clipped}

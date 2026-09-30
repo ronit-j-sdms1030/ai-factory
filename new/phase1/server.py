@@ -15,6 +15,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from phase1 import directory, webhook
+from phase1 import codegen as codegen_jobs
 from phase1.compat_api import CompatibilityAPI
 from phase1.service import service_from_env
 from phase4 import runtime_db
@@ -149,6 +150,34 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                 if path == "/api/auth/me":
                     actor = compatibility.authenticate(self.headers)
                     return self._json(200, compatibility.user_payload(actor))
+                if path == "/api/codegen/models":
+                    compatibility.authenticate(self.headers)
+                    return self._json(200, codegen_jobs.models())
+                if path.startswith("/api/codegen/by-artifact/"):
+                    compatibility.authenticate(self.headers)
+                    artifact_id = path.rsplit("/", 1)[-1]
+                    row = {}
+                    try:
+                        row = platform.store.get(artifact_id) or {}
+                    except Exception:
+                        row = {}
+                    return self._json(200, codegen_jobs.by_artifact(artifact_id, row=row))
+                if path.startswith("/api/codegen/") and path.endswith("/status"):
+                    compatibility.authenticate(self.headers)
+                    code_gen_id = path.split("/")[3]
+                    payload = codegen_jobs.status(code_gen_id)
+                    if payload is None:
+                        return self._json(404, {"error": "code generation job not found"})
+                    return self._json(200, payload)
+                if path.startswith("/api/codegen/") and path.rstrip("/").endswith("/file"):
+                    compatibility.authenticate(self.headers)
+                    code_gen_id = path.split("/")[3]
+                    query = parse_qs(parsed.query)
+                    file_path = (query.get("path") or [""])[0]
+                    payload = codegen_jobs.get_file(code_gen_id, file_path)
+                    if payload is None:
+                        return self._json(404, {"error": "file not found"})
+                    return self._json(200, payload)
                 if path == "/api/usage":
                     actor = compatibility.authenticate(self.headers)
                     if actor.get("isClient"):
@@ -194,6 +223,20 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                     return self._json(
                         200, {"artifact": compatibility.artifact(run, viewer=actor)}
                     )
+                if (
+                    path.startswith("/api/artifacts/")
+                    and path.endswith("/merged-code")
+                ):
+                    compatibility.authenticate(self.headers)
+                    rid = path.split("/")[3]
+                    run = platform.get(rid)
+                    git = getattr(platform, "git", None)
+                    if git is None and hasattr(platform, "_direct"):
+                        git = platform._direct().git
+                    payload = codegen_jobs.ensure_merged_preview(
+                        rid, git=git, row=run
+                    )
+                    return self._json(200, payload)
                 if path.startswith("/api/artifacts/") and path.endswith("/brd"):
                     compatibility.authenticate(self.headers)
                     rid = path.split("/")[3]
@@ -220,7 +263,15 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                     compatibility.authenticate(self.headers)
                     rid = path.split("/")[3]
                     run = platform.get(rid)
-                    return self._json(200, {"screens": list(run.get("screens") or [])})
+                    from phase2.jsx_gate import neutralize_placeholder_tags
+
+                    screens = []
+                    for screen in list(run.get("screens") or []):
+                        item = dict(screen)
+                        if item.get("source"):
+                            item["source"] = neutralize_placeholder_tags(str(item["source"]))
+                        screens.append(item)
+                    return self._json(200, {"screens": screens})
                 if path == "/api/me":
                     return self._json(200, self._actor(parsed=parsed))
                 if path == "/api/directory":
@@ -318,6 +369,24 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                         {"ok": True},
                         headers={"Set-Cookie": compatibility.clear_cookie()},
                     )
+                if path.startswith("/api/codegen/") and path.endswith("/start"):
+                    actor = compatibility.authenticate(self.headers)
+                    artifact_id = path.split("/")[3]
+                    try:
+                        row = platform.get(artifact_id)
+                    except KeyError:
+                        return self._json(404, {"error": "Artifact not found"})
+                    if actor.get("isClient"):
+                        return self._json(
+                            403, {"error": "Only internal roles can generate code"}
+                        )
+                    result = codegen_jobs.start(
+                        artifact_id,
+                        row=row,
+                        actor=actor,
+                        model=str((data or {}).get("model") or ""),
+                    )
+                    return self._json(202, result)
                 if path == "/api/artifacts/chat/start":
                     actor = compatibility.authenticate(self.headers)
                     compatibility.ensure_can_start_intake(actor)
@@ -367,6 +436,29 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
                     if len(parts) == 5:
                         rid, action = parts[3], parts[4]
                         current = platform.get(rid)
+                        if action == "scope-revise":
+                            compatibility.ensure_owner(current, actor)
+                            return self._json(
+                                200,
+                                platform.revise_scope_draft(
+                                    rid,
+                                    actor,
+                                    str(data.get("instruction") or ""),
+                                    str(data.get("title") or ""),
+                                    dict(data.get("content") or {}),
+                                ),
+                            )
+                        if action == "brd-revise":
+                            compatibility.ensure_brd_editor(current, actor)
+                            return self._json(
+                                200,
+                                platform.revise_brd_draft(
+                                    rid,
+                                    actor,
+                                    str(data.get("instruction") or ""),
+                                    str(data.get("content") or ""),
+                                ),
+                            )
                         if action == "submit":
                             compatibility.ensure_owner(current, actor)
                             current = platform.edit_scope(
@@ -495,6 +587,17 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
             except json.JSONDecodeError:
                 return self._json(400, {"error": "invalid json"})
             try:
+                if path.startswith("/api/codegen/") and path.rstrip("/").endswith("/file"):
+                    actor = compatibility.authenticate(self.headers)
+                    code_gen_id = path.split("/")[3]
+                    payload = codegen_jobs.put_file(
+                        code_gen_id,
+                        str((data or {}).get("path") or ""),
+                        str((data or {}).get("content") or ""),
+                    )
+                    if payload is None:
+                        return self._json(404, {"error": "file not found"})
+                    return self._json(200, payload)
                 if path.startswith("/api/artifacts/") and path.endswith("/brd"):
                     actor = compatibility.authenticate(self.headers)
                     rid = path.split("/")[3]

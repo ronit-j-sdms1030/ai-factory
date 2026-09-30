@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import json
 import re
 
 import connectors
@@ -154,7 +155,7 @@ class Phase1:
         body["state"] = req.state
         body["scope_text"] = self._artefact_text(req, "scope")
         body["brd_text"] = self._artefact_text(req, "brd")
-        body["architecture_text"] = self._artefact_text(req, "design")
+        body["architecture_text"] = body.get("architecture_text") or self._artefact_text(req, "design")
         body["plan_text"] = self._artefact_text(req, "plan")
         body["stack_profile"] = body.get("stack_profile")
         body["screens"] = list(body.get("screens") or [])
@@ -235,7 +236,7 @@ class Phase1:
             model=agent_settings.model_for(self.root, "intake"),
             agent="intake",
             requirement_id=requirement_id,
-            max_tokens=2048,
+            max_tokens=4096,
             **(
                 {"tools": intake_call["tools"], "execute_tool": intake_call["execute_tool"]}
                 if intake_call.get("tools")
@@ -254,21 +255,30 @@ class Phase1:
         else:
             raw = completion
             provenance = PROVENANCE_INTAKE
+        def _scope_from_chat() -> dict[str, Any]:
+            return rails.scope_from_conversation(
+                body["messages"],
+                request_text=str(body.get("request_text") or ""),
+            )
+
         try:
             parsed = rails.parse_agent_output(raw)
         except (TypeError, rails.OutputRefused):
-            if budget.at_call_cap() or budget.must_close():
-                parsed = rails.scope_from_conversation(
-                    body["messages"],
-                    request_text=str(body.get("request_text") or ""),
-                )
+            # Enough answers already + model dumped/truncated a scope_report → close
+            # from the transcript instead of pasting JSON into the chat bubble.
+            if (
+                budget.at_call_cap()
+                or budget.must_close()
+                or (budget.may_close() and rails.looks_like_aborted_scope(str(raw or "")))
+            ):
+                parsed = _scope_from_chat()
             else:
                 retry_kwargs: dict[str, Any] = {
                     "skill": intake_call["skill"],
                     "model": agent_settings.model_for(self.root, "intake"),
                     "agent": "intake",
                     "requirement_id": requirement_id,
-                    "max_tokens": 1024,
+                    "max_tokens": 4096,
                 }
                 if intake_call.get("tools"):
                     retry_kwargs["tools"] = intake_call["tools"]
@@ -298,16 +308,26 @@ class Phase1:
                 try:
                     parsed = rails.parse_agent_output(raw)
                 except rails.OutputRefused:
-                    parsed = {
-                        "type": "question",
-                        "text": "Say that in one short answer: who uses this, and what happens today without the system?",
-                    }
+                    if budget.may_close():
+                        parsed = _scope_from_chat()
+                    else:
+                        parsed = {
+                            "type": "question",
+                            "text": "Say that in one short answer: who uses this, and what happens today without the system?",
+                        }
         body["budget"]["calls"] = budget.calls
+        if parsed.get("type") == "question" and rails.looks_like_aborted_scope(
+            str(parsed.get("text") or "")
+        ):
+            if budget.may_close():
+                parsed = _scope_from_chat()
+            else:
+                parsed = {
+                    "type": "question",
+                    "text": "What else must be true for this to succeed in production?",
+                }
         if parsed.get("type") == "question" and budget.must_close():
-            parsed = rails.scope_from_conversation(
-                body["messages"],
-                request_text=str(body.get("request_text") or ""),
-            )
+            parsed = _scope_from_chat()
             extras = list(parsed.get("open_questions") or [])
             extras.append("Intake hit the 10-call cap; remaining gaps stay as open questions.")
             parsed["open_questions"] = extras[:6]
@@ -398,6 +418,143 @@ class Phase1:
         self._save(body, event="scope_edited", at=self.clock())
         return self.get(requirement_id)
 
+    _SCOPE_LIST_KEYS = (
+        "inScope",
+        "outOfScope",
+        "functionalRequirements",
+        "nonFunctionalRequirements",
+        "assumptions",
+        "openQuestions",
+    )
+    _SCOPE_TEXT_KEYS = ("summary", "users", "currentState")
+
+    def revise_scope_draft(
+        self,
+        requirement_id: str,
+        editor: dict[str, Any],
+        instruction: str,
+        title: str,
+        report: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Model rewrite of the pre-send scope report. Nothing is committed; Send does that."""
+        body = self._load(requirement_id)
+        req = R.Requirement.load(body["requirement"])
+        if req.awaiting != 1 or "scope" not in req.artefacts:
+            raise R.TransitionRefused(f"{requirement_id} is not at Gate 1")
+        if not instruction.strip():
+            raise ValueError("instruction is required")
+        keys = self._SCOPE_TEXT_KEYS + self._SCOPE_LIST_KEYS
+        current = {"title": title, **{k: report.get(k) for k in keys}}
+        transcript = "\n".join(
+            f"{m.get('role')}: {m.get('content')}"
+            for m in body.get("messages") or []
+            if m.get("role") in {"user", "assistant"}
+        )[-6000:]
+        completion = self.llm.complete(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You revise a requirement scope report. Apply the change the requester asks for, "
+                        "keep everything else as it is, and never invent facts the conversation does not support. "
+                        "Reply with one JSON object only, no markdown, with exactly these keys: title, "
+                        + ", ".join(keys)
+                        + ". List keys are arrays of short strings; the others are strings."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Intake conversation:\n{transcript}\n\n"
+                        f"Current report:\n{json.dumps(current, indent=1)}\n\n"
+                        f"Change requested:\n{instruction.strip()}"
+                    ),
+                },
+            ],
+            skill="",
+            model=agent_settings.model_for(self.root, "intake"),
+            agent="intake",
+            requirement_id=requirement_id,
+            max_tokens=2048,
+        )
+        raw = completion.text if isinstance(completion, ModelCompletion) else str(completion)
+        text = raw.strip()
+        fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, re.I)
+        if fenced:
+            text = fenced.group(1).strip()
+        start = text.find("{")
+        try:
+            data, _ = json.JSONDecoder().raw_decode(text[start:] if start >= 0 else text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("the model did not return a usable report, try rephrasing") from exc
+        if not isinstance(data, dict):
+            raise ValueError("the model did not return a usable report, try rephrasing")
+        revised = dict(report)
+        for key in self._SCOPE_TEXT_KEYS:
+            if isinstance(data.get(key), str) and data[key].strip():
+                revised[key] = data[key].strip()
+        for key in self._SCOPE_LIST_KEYS:
+            if isinstance(data.get(key), list):
+                revised[key] = [str(item).strip() for item in data[key] if str(item).strip()]
+        new_title = str(data.get("title") or "").strip() or title
+        return {"title": new_title, "content": revised}
+
+    def revise_brd_draft(
+        self,
+        requirement_id: str,
+        editor: dict[str, Any],
+        instruction: str,
+        content: str,
+    ) -> dict[str, Any]:
+        """Model rewrite of the Gate 2 BRD markdown. Nothing is committed; Save does that."""
+        body = self._load(requirement_id)
+        req = R.Requirement.load(body["requirement"])
+        if req.awaiting != 2 or "brd" not in req.artefacts:
+            raise R.TransitionRefused(f"{requirement_id} is not at Gate 2")
+        if not instruction.strip():
+            raise ValueError("instruction is required")
+        current = (content or body.get("brd_text") or self._artefact_text(req, "brd") or "").strip()
+        if not current:
+            raise ValueError("BRD content is empty")
+        completion = self.llm.complete(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You revise a Business Requirements Document in Markdown. "
+                        "Apply only the change the editor asks for. Keep every other "
+                        "section, heading, requirement id, and acceptance criterion as it is. "
+                        "Do not invent facts. Reply with the full revised BRD markdown only — "
+                        "no code fence, no preamble."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Current BRD:\n{current[:16000]}\n\n"
+                        f"Change requested:\n{instruction.strip()}"
+                    ),
+                },
+            ],
+            skill="",
+            model=agent_settings.model_for(self.root, "brd"),
+            agent="brd",
+            requirement_id=requirement_id,
+            max_tokens=4096,
+        )
+        raw = completion.text if isinstance(completion, ModelCompletion) else str(completion)
+        text = (raw or "").strip()
+        if not text:
+            raise ValueError("the model did not return a usable BRD, try rephrasing")
+        # Only unwrap when the whole reply is one outer fence — never strip
+        # mermaid/code fences that belong inside the BRD body.
+        wrapped = re.match(r"^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$", text, re.I)
+        if wrapped:
+            text = wrapped.group(1).strip()
+        if len(text) < 40:
+            raise ValueError("the model did not return a usable BRD, try rephrasing")
+        return {"content": text}
+
     def edit_brd(self, requirement_id: str, editor: dict[str, Any], content: str) -> dict[str, Any]:
         body = self._load(requirement_id)
         req = R.Requirement.load(body["requirement"])
@@ -467,6 +624,21 @@ class Phase1:
             import gate_engine
 
             raise gate_engine.GateRefused(verdict.reason or "gate policy refused decision")
+        # Flowchart: critical/high (or failed build loop) blocks Gate 5 merge.
+        # Senior engineer may still request_changes to send work back into the loop.
+        if gate == 5 and outcome == "approve":
+            import gate_engine
+
+            build = body.get("build") or {}
+            findings_board = build.get("findings") or {}
+            blocking = list(build.get("blocking") or []) or list(
+                findings_board.get("blocking") or []
+            )
+            if build.get("ok") is False or blocking:
+                raise gate_engine.GateRefused(
+                    "Gate 5 blocked: build loop left critical/high findings "
+                    "(or CI/scan/review/adversary failed). Request changes to rebuild."
+                )
         decision = req.decide(
             gate,
             outcome,
@@ -504,21 +676,39 @@ class Phase1:
 
         if outcome == "approve" and decision.satisfied:
             self.git.merge_to_main(branch, f"approve gate {gate} for {requirement_id}")
-            if gate == 1:
-                self._write_brd_from_main(req, body)
-            elif gate == 2:
-                self._write_design(req, body)
-            elif gate == 3:
-                self._write_plan(req, body)
-            elif gate == 4:
-                self._write_build(req, body)
-            elif gate == 5:
-                self._merge_build(req, body)
-                self._write_uat(req, body)
-            elif gate == 6:
-                self._write_release(req, body)
+            try:
+                if gate == 1:
+                    self._write_brd_from_main(req, body)
+                elif gate == 2:
+                    # Architecture only — screens wait until BA signs Gate 3.
+                    self._write_design(req, body, refresh="architecture")
+                elif gate == 3:
+                    self._write_plan(req, body)
+                elif gate == 4:
+                    self._write_build(req, body)
+                elif gate == 5:
+                    self._merge_build(req, body)
+                    self._write_uat(req, body)
+                elif gate == 6:
+                    self._write_release(req, body)
+            except Exception as exc:
+                # Gate clearance is already on the requirement. Persist a visible
+                # failure so Gate 3 does not look like "BRD only" with no architecture.
+                body["design_progress"] = {
+                    "status": "error",
+                    "label": f"Post-gate generation failed: {type(exc).__name__}: {exc}"[:280],
+                    "gate": gate,
+                }
+                body["requirement"] = req.dump()
+                self._save(body, event="gate_write_failed", at=self.clock(), extra={"gate": gate})
+                raise
             self._arm_sla(body, req, req.awaiting)
             body["escalated"] = False
+        elif outcome == "approve" and gate == 3 and not decision.satisfied:
+            # Architect → BA → UI. After BA signs, materialise screens for UI/UX.
+            roles = {str(r).lower() for r in (actor.get("roles") or [])}
+            if "business_analyst" in roles and not body.get("screens"):
+                self._write_screens_for_ui_review(req, body)
         elif outcome in {"revise", "request_changes", "reject"}:
             if gate == 1:
                 body["messages"] = []
@@ -856,6 +1046,19 @@ class Phase1:
         if tools:
             kwargs["tools"] = tools
             kwargs["execute_tool"] = execute_tool
+
+        def _failed(exc: BaseException) -> str:
+            from phase1 import usage_ledger
+
+            usage_ledger.record_failure(
+                self.root,
+                agent=agent,
+                requirement_id=requirement_id,
+                model=str(kwargs.get("model") or ""),
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return ""
+
         try:
             completion = self.llm.complete(messages, **kwargs)
         except TypeError:
@@ -867,10 +1070,12 @@ class Phase1:
                 kwargs.pop("requirement_id", None)
                 try:
                     completion = self.llm.complete(messages, **kwargs)
-                except Exception:
-                    return ""
-        except Exception:
-            return ""
+                except Exception as exc:
+                    return _failed(exc)
+            except Exception as exc:
+                return _failed(exc)
+        except Exception as exc:
+            return _failed(exc)
         if isinstance(completion, ModelCompletion):
             return str(completion.text or "")
         return str(completion or "")
@@ -908,8 +1113,12 @@ class Phase1:
                 {
                     "role": "system",
                     "content": (
-                        "Return the full BRD markdown only. Keep a '## Page behaviour' "
-                        "section with '- **Name**: description' lines and '###' requirement headings."
+                        "Return the full BRD markdown only. Keep '## Page behaviour' as a "
+                        "flat unique list of '- **ScreenName**: description' bullets — that "
+                        "section is the only screen inventory. Keep '###' requirement "
+                        "headings in Functional requirements for acceptance criteria only. "
+                        "Never paste '- **Screen**: …' bullets under a ### requirement "
+                        "(that duplicates Gate 3 screens)."
                     ),
                 },
                 {"role": "user", "content": drafted[:14000]},
@@ -922,8 +1131,8 @@ class Phase1:
         import re
 
         if raw and re.search(r"Page behaviour", raw, re.I) and "### " in raw:
-            return raw
-        return drafted
+            return brd.normalize_screen_inventory(raw)
+        return brd.normalize_screen_inventory(drafted)
 
     def _critique_brd(self, requirement_id: str, drafted: str, skill: str) -> list[str]:
         raw = self._invoke_llm(
@@ -1027,6 +1236,7 @@ class Phase1:
         product_theme = ui_agent.pick_theme(brd_text)
         for index, page in enumerate(pages, start=1):
             name = coverage.component_name(page, used)
+            role = ui_agent.screen_role(name, page)
             report(index, name)
             raw = self._invoke_llm(
                 [
@@ -1039,32 +1249,37 @@ class Phase1:
                             + name
                             + ". "
                             + name
-                            + " returns ( <Page><Sidebar>brand + one nav Button per roster "
-                            "screen</Sidebar><div>h1, fields, table, one accent Button</div>"
-                            "</Page> ). Screens are one connected app: each nav Button is "
+                            + " returns ( <Page data-theme=\""
+                            + product_theme
+                            + "\"><Sidebar>brand + one nav Button per roster "
+                            "screen</Sidebar><div>…main…</div></Page> ). "
+                            "Screen role for THIS screen: "
+                            + role
+                            + ". "
+                            + ui_agent.layout_contract(role)
+                            + " "
+                            "Screens are one connected app: each nav Button is "
                             "<Button onClick={() => navigate(\"ScreenName\")}>Short label</Button> "
-                            "(navigate is a host global), the current screen is marked with "
-                            "var(--color-accent), and in-page actions that open another screen "
-                            "call navigate too. Only roster screens in the sidebar. "
+                            "(navigate is a host global), mark the current screen with "
+                            "fontWeight 700 + underline (never accent text on accent Button), "
+                            "and in-page jumps call navigate too. "
+                            "Only roster screens in the sidebar. "
                             "Use only "
                             + jsx_gate.TOKEN_HINT
                             + ". "
-                            "Look: a distinct named theme for this product ("
-                            + jsx_gate.THEME_HINT
-                            + "); this product uses data-theme=\""
-                            + product_theme
-                            + "\" on every screen, left sidebar + full canvas, surface cards, CSS "
-                            "transitions. Do not clone Stark Factory chrome onto every "
-                            "app. React JSX only — no Figma. Follow the UI skill: real "
-                            "fields/actions from the BRD, concrete table headers, product "
-                            "microcopy, no lorem or emoji icons."
+                            "Do NOT stamp the same form+table layout on every screen — "
+                            "follow the role contract above. Concrete product microcopy "
+                            "from the BRD. No lorem or emoji icons. "
+                            + jsx_gate.PLACEHOLDER_RULE
                         ),
                     },
                     {
                         "role": "user",
                         "content": (
-                            f"{name}: {page.get('description') or page.get('id')}\n"
-                            "Roster (every screen, in sidebar order): "
+                            f"Screen: {name}\n"
+                            f"Role: {role}\n"
+                            f"Purpose: {page.get('description') or page.get('id')}\n"
+                            "Roster (sidebar order): "
                             + ", ".join(roster)
                             + ".\n\n"
                             + brd_text[:4000]
@@ -1074,7 +1289,7 @@ class Phase1:
                 skill=skill,
                 agent="ui",
                 requirement_id=requirement_id,
-                max_tokens=2500,
+                max_tokens=3200,
                 tools=tools,
                 execute_tool=execute_tool,
             )
@@ -1282,7 +1497,9 @@ class Phase1:
         skill_registry.require(bundle.content, "brd")
         drafted = brd.draft_brd(rid, scope_md, self.git.brd_template(), ids, skill=bundle.content)
         drafted = self._refine_brd(rid, drafted, bundle.content)
+        drafted = brd.normalize_screen_inventory(drafted)
         drafted = brd.append_findings(drafted, self._critique_brd(rid, drafted, bundle.content))
+        drafted = brd.normalize_screen_inventory(drafted)
         sha = self._commit_brd(
             req,
             drafted,
@@ -1353,6 +1570,7 @@ class Phase1:
             f"design {rid}",
             author="design-agent",
             email="design@local",
+            delete=self._orphan_ui_paths(rid, built.get("screens") or []),
         )
         req.record_artefact("design", sha, **PROVENANCE_DESIGN)
         body["requirement"] = req.dump()
@@ -1367,6 +1585,66 @@ class Phase1:
         body["preview_url"] = built.get("preview_url") or preview_agent.url(rid)
         body["design_progress"] = None
         self._arm_sla(body, req, 3)
+
+    def _write_screens_for_ui_review(self, req: R.Requirement, body: dict[str, Any]) -> None:
+        """Generate screens after BA signs — keep the design artefact SHA stable.
+
+        Architect and BA already signed the architecture commit. Replacing that
+        artefact would vacate their signatures; screens therefore update body +
+        git files only.
+        """
+        rid = req.id
+        brd_text = body.get("brd_text") or self._artefact_text(req, "brd")
+        skill_text = self.git.design_system()
+        ui_skill = self._bundle_skill("ui", skill_text)
+        ui_model = self._ui_model(rid, brd_text, ui_skill)
+        built = design_agent.build(
+            rid,
+            brd_text,
+            skill_text,
+            root=self.git.root,
+            extra_pages=ui_model["pages"],
+            architect_note="",
+            screen_sources=ui_model["sources"],
+            refresh="ui",
+            prior_architecture=body.get("architecture_text") or self._artefact_text(req, "design"),
+            prior_decision=body.get("architecture_decision"),
+        )
+        if built.get("clarification"):
+            body["design_question"] = built["clarification"]
+            return
+        self.git.commit_files(
+            f"design/{rid}",
+            built["files"],
+            f"screens {rid}",
+            author="design-agent",
+            email="design@local",
+            delete=self._orphan_ui_paths(rid, built["screens"]),
+        )
+        body["screens"] = built["screens"]
+        body["coverage"] = built["coverage"]
+        body["preview_host"] = built.get("preview_host") or preview_agent.host()
+        body["preview_url"] = built.get("preview_url") or preview_agent.url(rid)
+        body["design_question"] = None
+        body["design_progress"] = None
+        if built.get("report"):
+            body["design_report"] = built["report"]
+        # Never call record_artefact here — that would mint a new design SHA and
+        # vacate Architect/BA Gate 3 signatures (UX would see the card with no Approve).
+        body["phase"] = self._phase(req)
+        body["awaiting"] = req.awaiting
+
+    def _orphan_ui_paths(self, requirement_id: str, screens: list[dict[str, Any]]) -> list[str]:
+        """JSX files left from older duplicate screen mints (LoginScreen2, …)."""
+        keep = {str(s.get("name") or "") for s in screens if s.get("name")}
+        ui_dir = self.git.root / f"requirements/{requirement_id}/design/ui"
+        if not ui_dir.is_dir():
+            return []
+        orphans: list[str] = []
+        for path in ui_dir.glob("*.jsx"):
+            if path.stem not in keep:
+                orphans.append(f"requirements/{requirement_id}/design/ui/{path.name}")
+        return orphans
 
     def _write_plan(self, req: R.Requirement, body: dict[str, Any]) -> None:
         rid = req.id
@@ -1454,6 +1732,7 @@ class Phase1:
         body["build"] = {
             "sandbox": built["sandbox"],
             "scans": built["scans"],
+            "pipeline": built.get("pipeline") or {},
             "engine": built["engine"],
             "engines": built.get("engines") or [],
             "ok": built.get("ok", True),
@@ -1462,6 +1741,14 @@ class Phase1:
             "context": built.get("context") or {},
             "findings": built.get("findings") or {},
         }
+        # Demo IDE status page: stream jobs start here so TL sees progress
+        # right after Gate 4 clears — Gate 5 then merges the scanned build.
+        try:
+            from phase1 import codegen as codegen_jobs
+
+            body["codegen"] = codegen_jobs.start_after_gate4(rid, body)
+        except Exception as exc:
+            body["codegen"] = {"error": f"{type(exc).__name__}: {exc}"[:200]}
         self._arm_sla(body, req, 5)
 
     def _merge_build(self, req: R.Requirement, body: dict[str, Any]) -> None:
@@ -1521,7 +1808,11 @@ class Phase1:
 
     def preview_document(self, requirement_id: str) -> str:
         body = self.get(requirement_id)
-        return preview_agent.document(requirement_id, list(body.get("screens") or []))
+        return preview_agent.document(
+            requirement_id,
+            list(body.get("screens") or []),
+            brd_text=str(body.get("brd_text") or ""),
+        )
 
     def edit_screen(
         self,
@@ -1547,16 +1838,17 @@ class Phase1:
         if not found:
             raise KeyError(name)
         files = {f"requirements/{requirement_id}/design/ui/{name}.jsx": source}
-        sha = self.git.commit_files(
+        # Keep the design artefact SHA stable — Gate 3 Arch/BA signatures bind to it.
+        self.git.commit_files(
             f"design/{requirement_id}",
             files,
             f"edit screen {name}",
             author=str(editor.get("name") or editor.get("id")),
             email=str(editor.get("email") or f"{editor.get('id')}@entra.local"),
         )
-        req.record_artefact("design", sha, **PROVENANCE_DESIGN)
-        body["requirement"] = req.dump()
         body["screens"] = screens
+        body["phase"] = self._phase(req)
+        body["awaiting"] = req.awaiting
         self._save(body, event="screen_edited", at=self.clock(), extra={"name": name})
         return self.get(requirement_id)
 
@@ -1623,27 +1915,35 @@ class Phase1:
             {
                 "role": "system",
                 "content": (
-                    "Rewrite this one React screen. JSX only. No markdown fence. "
+                    "You are a world-class product designer rewriting one React screen. "
+                    "JSX only. No markdown fence. "
                     + _HOST_HELPERS_RULE
                     + f"Return function {name} plus any small sub-components it calls. "
                     f"{name} returns ( <Page data-theme=\"…\"><Sidebar>…</Sidebar><div>…</div></Page> ). "
-                    "One h1. Balanced braces. No raw hex colours. "
-                    f"Use only {jsx_gate.TOKEN_HINT}. "
+                    "One h1. Balanced braces. Prefer named themes; hex only as "
+                    "--color-* overrides on Page style. "
+                    f"Use {jsx_gate.TOKEN_HINT}. Themes: {jsx_gate.THEME_HINT}. "
                     + theme_rule
-                    + "Keep the design polished on light and dark themes: buttons use "
-                    "var(--color-accent) with var(--color-bg) text, inputs sit on "
-                    "var(--color-surface) with a 1px var(--color-line) border. "
+                    + "Design like Canva-grade marketing UI: clear hierarchy, generous "
+                    "whitespace, one focal Hero or Image inset, Card surfaces, Badge chips, "
+                    "Button variants (solid|ghost|outline|soft), and subtle motion "
+                    "(.motion-rise|.motion-fade|.motion-slide or Framer Motion). "
+                    "Pink/white → data-theme=\"blush\". Light pastel → blush|sunrise|paper. "
+                    "Dark luxury → noir|plum|midnight. "
+                    "Keep buttons legible (accent fill + bg text, or ghost/outline). "
                     "Screens are one connected app: the Sidebar has one nav Button per "
                     "roster screen, <Button onClick={() => navigate(\"ScreenName\")}>Short "
                     "label</Button> (navigate is a host global), current screen marked with "
-                    "var(--color-accent). In-page actions that open another screen call "
+                    "fontWeight 700 + underline (never accent-coloured text on the accent "
+                    "Button — that hides the label). In-page actions that open another screen call "
                     "navigate. Only roster screens in the sidebar. "
                     "If the instruction says reimagine, redesign, restyle, change the scene, "
                     "or change the theme: pick a DIFFERENT data-theme than the current source, "
-                    "change the layout (hero, split, cards — not the same stacked form), "
+                    "change the layout (hero, split, cards, photo inset — not the same stacked form), "
                     "and rewrite the copy. A lookalike of the current screen is a failure. "
-                    "CSS transitions allowed. React JSX only, no Figma. "
-                    f"The screen function MUST be named {name}."
+                    "React JSX only, no Figma. "
+                    + jsx_gate.PLACEHOLDER_RULE
+                    + f" The screen function MUST be named {name}."
                 ),
             },
             {
@@ -1731,7 +2031,7 @@ _HOST_HELPERS_RULE = (
     "onClick), Field and Table, plus every theme's CSS variables. Do not define "
     "them, do not write <style> tags, CSS strings or theme maps; style with inline "
     "style={{...}} using var(--color-*) tokens. Keep it under 120 lines: long answers "
-    "get cut off and replaced by a template. "
+    "get cut off and replaced by a role-specific template. "
     "Loaded libraries (globals, or import them normally): LucideReact icons, "
     "Recharts charts, Motion (framer-motion: motion, AnimatePresence), dayjs. "
     "No other packages. "

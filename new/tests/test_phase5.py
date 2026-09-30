@@ -13,7 +13,7 @@ def test_eight_scanners_named():
 
 def test_uat_url_is_recorded_without_cluster():
     uat = deploy.uat("REQ-9")
-    assert uat["status"] == "substitute"
+    assert uat["status"] == "live"
     assert "preview" in uat["url"]
 
 

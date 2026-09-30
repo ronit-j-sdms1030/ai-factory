@@ -45,6 +45,66 @@ def finish_intake(p1: Phase1, rid: str) -> dict:
     return result
 
 
+def test_ai_revises_the_draft_scope_without_committing(p1):
+    run = p1.submit(directory.actor("u-requester"), "full_governance", "Book meeting rooms.")
+    rid = run["requirement"]["id"]
+    finish_intake(p1, rid)
+    sha = p1.get(rid)["requirement"]["artefacts"]["scope"]["sha"]
+    seen = {}
+
+    class Reviser:
+        def complete(self, messages, *, skill, model=None, **_kwargs):
+            seen["prompt"] = messages[-1]["content"]
+            return "```json\n" + json.dumps(
+                {"title": "Room booking", "inScope": ["Book a room", "Cancel a booking"], "summary": "No double bookings."}
+            ) + "\n```"
+
+    p1.llm = Reviser()
+    draft = {"summary": "Old", "inScope": ["Book a room"], "outOfScope": ["Native app"]}
+    out = p1.revise_scope_draft(rid, directory.actor("u-requester"), "Add cancelling", "Rooms", draft)
+    assert "Add cancelling" in seen["prompt"]
+    assert out["title"] == "Room booking"
+    assert out["content"]["inScope"] == ["Book a room", "Cancel a booking"]
+    assert out["content"]["outOfScope"] == ["Native app"]
+    assert p1.get(rid)["requirement"]["artefacts"]["scope"]["sha"] == sha
+
+
+def test_ai_scope_revision_needs_gate_1(p1):
+    run = p1.submit(directory.actor("u-requester"), "full_governance", "Book meeting rooms.")
+    with pytest.raises(Exception, match="not at Gate 1"):
+        p1.revise_scope_draft(run["requirement"]["id"], directory.actor("u-requester"), "x", "t", {})
+
+
+def test_ai_revises_the_brd_without_committing(p1):
+    run = p1.submit(directory.actor("u-requester"), "full_governance", "Book meeting rooms.")
+    rid = run["requirement"]["id"]
+    finish_intake(p1, rid)
+    p1.decide(rid, directory.actor("u-po"), "approve")
+    sha = p1.get(rid)["requirement"]["artefacts"]["brd"]["sha"]
+    draft = p1.get(rid)["brd_text"]
+    seen = {}
+
+    class Reviser:
+        def complete(self, messages, *, skill, model=None, **_kwargs):
+            seen["prompt"] = messages[-1]["content"]
+            return draft + "\n\n## AI note\nLoan duration confirmed at 14 days.\n"
+
+    p1.llm = Reviser()
+    out = p1.revise_brd_draft(
+        rid, directory.actor("u-bo"), "Confirm loan duration is 14 days", draft
+    )
+    assert "Confirm loan duration" in seen["prompt"]
+    assert "AI note" in out["content"]
+    assert p1.get(rid)["requirement"]["artefacts"]["brd"]["sha"] == sha
+    assert p1.get(rid)["brd_text"] == draft
+
+
+def test_ai_brd_revision_needs_gate_2(p1):
+    run = p1.submit(directory.actor("u-requester"), "full_governance", "Book meeting rooms.")
+    with pytest.raises(Exception, match="not at Gate 2"):
+        p1.revise_brd_draft(run["requirement"]["id"], directory.actor("u-bo"), "x", "# BRD")
+
+
 class TestSubmitAndIntake:
     def test_submit_asks_the_first_question(self, p1):
         run = p1.submit(directory.actor("u-requester"), "full_governance", "Book meeting rooms.")
@@ -86,6 +146,36 @@ class TestSubmitAndIntake:
         assert run["phase"] == "intake"
         assert run["question"]
         assert "scope" not in run["requirement"]["artefacts"]
+
+    def test_truncated_scope_json_closes_to_gate_1_not_chat_json(self, tmp_path):
+        class Script:
+            def __init__(self) -> None:
+                self.n = 0
+
+            def complete(self, messages, *, skill, model=None, **_kwargs):
+                self.n += 1
+                if self.n <= 4:
+                    return json.dumps(
+                        {"type": "question", "text": f"Need detail number {self.n}?"}
+                    )
+                return (
+                    '{ "title": "Community Library Loan Manager", '
+                    '"users": "Library Staff (3)", '
+                    '"current_state": "Spreadsheet.", '
+                    '"in_scope": [ "Staff manage members", "Staff manage books…'
+                )
+
+        p1 = Phase1(tmp_path / "trunc", llm=Script())
+        run = p1.submit(directory.actor("u-requester"), "full_governance", "Library loans.")
+        rid = run["requirement"]["id"]
+        for i in range(3):
+            out = p1.turn(rid, f"Answer {i}")
+            assert out["phase"] == "intake"
+            assert not str(out.get("question") or "").lstrip().startswith("{")
+        done = p1.turn(rid, "Finalize please")
+        assert done["phase"] == "awaiting_gate_1"
+        assert done["requirement"]["artefacts"]["scope"]["sha"]
+        assert not str(done.get("question") or "").lstrip().startswith("{")
 
     def test_ten_calls_force_the_scope_report(self, p1):
         class NeverDone:
@@ -152,7 +242,8 @@ class TestGates:
         assert second["state"] == "open"
         assert second["awaiting"] == 3
         assert second["stack_profile"]["id"] in {"node", "python"}
-        assert second["screens"]
+        # Screens wait until BA signs Gate 3 — architecture only after Gate 2.
+        assert second["screens"] == []
 
     def test_revise_reopens_intake(self, p1):
         rid = self._scoped(p1)
@@ -269,6 +360,37 @@ def test_prose_and_fenced_json_still_parse():
     assert prose["type"] == "question"
     assert "desk" in prose["text"]
 
+
+def test_truncated_scope_json_is_refused_not_shown_as_a_question():
+    from phase1.rails import OutputRefused, looks_like_aborted_scope
+
+    blob = (
+        '{ "title": "Community Library Loan Manager", '
+        '"users": "Library Staff (3) and Library Members (approx. 1,200)", '
+        '"current_state": "Book loans are tracked in a spreadsheet.", '
+        '"in_scope": [ "Staff management of member records including name, member ID, and email.", '
+        '"Staff management of the book catalog including title, author,…'
+    )
+    assert looks_like_aborted_scope(blob)
+    with pytest.raises(OutputRefused):
+        parse_agent_output(blob)
+
+
+def test_question_wrapping_a_scope_dump_is_refused():
+    from phase1.rails import OutputRefused
+
+    with pytest.raises(OutputRefused):
+        parse_agent_output(
+            json.dumps(
+                {
+                    "type": "question",
+                    "text": (
+                        '{ "title": "Community Library Loan Manager", '
+                        '"users": "Staff", "in_scope": ["Loans"] }'
+                    ),
+                }
+            )
+        )
 
 def test_github_review_on_a_ticket_branch_names_the_requirement():
     payload = json.dumps(

@@ -4,6 +4,33 @@ from phase4 import product, runtime_db
 from phase4.build import materialise
 
 
+def test_parse_entities_ignores_gherkin_and_screen_blurbs():
+    brd = """
+## Requirements
+- **Source:** approved scope, in-scope item 1.
+- **Acceptance criteria:**
+- **LoginScreen**: Secure single authentication entry point.
+- **StaffDashboard**: Overview panel for loans.
+
+## Data model
+- **User / Member / Staff:** id, name, email, role (staff/member), password_hash, created_at
+- **Book:** id, title, author, isbn, status (available, on_loan, unavailable), created_at
+- **Loan:** id, book_id, member_id, checked_out_at, due_date, returned_at, status (active, returned, overdue), created_at
+- **ImportLog:** id, imported_by, file_name, records_processed, status, created_at
+"""
+    entities = product.parse_entities(brd)
+    names = [name for name, _ in entities]
+    assert names == ["User", "Book", "Loan", "ImportLog"]
+    book_fields = dict(entities)["Book"]
+    assert book_fields == ["id", "title", "author", "isbn", "status", "created_at"]
+    server = product.express_server("REQ-0001", entities)
+    assert "approved scope" not in server
+    assert "books:" in server
+    assert "loans:" in server
+    assert "const approved" not in server
+    assert "body.approved" not in server
+
+
 def test_assemble_includes_ai_inside_the_same_app():
     screens = [{"name": "BookRoom", "source": "function BookRoom() { return <main />; }\n"}]
     files = product.assemble("REQ-0099", brd_text="- **Room:** id, name\n", screens=screens)

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from phase2 import jsx_gate, ui
+from phase2 import coverage, jsx_gate, ui
 
 SKILL = (Path(__file__).resolve().parent.parent / "skills/design-system.skill.md").read_text()
 
@@ -57,22 +57,60 @@ def test_model_rewrite_is_gated():
     jsx_gate.compile_jsx("Screen", out)
 
 
-def test_fallback_emits_factory_shell():
+def test_component_name_does_not_mint_numeric_duplicates():
+    used: set[str] = set()
+    first = coverage.component_name({"id": "LoginScreen", "description": "sign in"}, used)
+    second = coverage.component_name({"id": "Login Screen", "description": "auth again"}, used)
+    assert first == "LoginScreen"
+    assert second == "LoginScreen"
+    assert "LoginScreen2" not in used
+
+
+def test_fallback_layouts_differ_by_screen_role():
     brd = (
         "## Page behaviour\n"
-        "- StaffCanBook: pick a room and a slot\n"
-        "- FacilitiesCan: approve a hold\n"
-        "\n"
-        "### Capability\n"
+        "- LoginScreen: staff sign in with work email\n"
+        "- StaffDashboard: loan counts and overdue chart\n"
+        "- CatalogueManagement: browse and search the catalogue\n"
+        "- LoanManagement: check out books to members\n"
+        "- MemberProfileView: member profile detail\n"
+        "- MemberPortal: member portal home\n"
+        "- DataImportView: CSV catalogue import\n"
     )
     built = ui.build_screens(brd, SKILL)
-    first = built["screens"][0]["source"]
-    second = built["screens"][1]["source"]
-    assert "function Sidebar" in first
-    assert "data-theme=" in first
-    assert built["screens"][0]["name"] in second
-    jsx_gate.compile_jsx(built["screens"][0]["name"], first)
-    assert jsx_gate.conform(first, SKILL) == []
+    by_name = {s["name"]: s["source"] for s in built["screens"]}
+    assert "<Table" not in by_name["LoginScreen"]
+    assert "Sign in" in by_name["LoginScreen"]
+    assert "Needs attention" in by_name["StaffDashboard"]
+    assert "Results" in by_name["CatalogueManagement"]
+    assert "New loan" in by_name["LoanManagement"]
+    assert "<Table" not in by_name["MemberProfileView"]
+    assert "Quick actions" in by_name["MemberPortal"]
+    assert "Preview mapping" in by_name["DataImportView"]
+    # Layout fingerprints must not all collapse to one shell.
+    fingerprints = {
+        name: ("Table" in src, "Sign in" in src, "Needs attention" in src, "New loan" in src)
+        for name, src in by_name.items()
+    }
+    assert len(set(fingerprints.values())) >= 4
+    for screen in built["screens"]:
+        jsx_gate.compile_jsx(screen["name"], screen["source"])
+        assert jsx_gate.conform(screen["source"], SKILL) == []
+
+
+def test_screen_role_classifies_library_pages():
+    assert ui.screen_role("LoginScreen", {"description": "Auth entry"}) == "auth"
+    assert ui.screen_role("StaffDashboard", {"description": "Counts and chart"}) == "dashboard"
+    assert ui.screen_role("MemberPortal", {"description": "Member portal home"}) == "portal"
+    assert ui.screen_role("DataImportView", {"description": "CSV import"}) == "import"
+    # "author" must not trip the auth needle
+    assert (
+        ui.screen_role(
+            "CatalogueManagement",
+            {"description": "searchable table (title, author, ISBN, status)"},
+        )
+        == "catalog"
+    )
 
 
 def test_adopt_renames_last_screen_function():
@@ -125,6 +163,30 @@ def test_unknown_theme_is_rejected():
     )
     failures = jsx_gate.conform(source, SKILL)
     assert any("theme" in item for item in failures)
+
+
+def test_placeholder_tags_are_plain_text_for_every_screen():
+    brd = "## Page behaviour\n- AgencyHome: show the agency\n"
+    proposed = (
+        "function AgencyHome() {\n"
+        "  return (\n"
+        '    <Page data-theme="sand" style={{background:"var(--color-bg)"}}>\n'
+        "      <h1>About <LOCATION> and Heritage</h1>\n"
+        "      <span><LOCATIONS> Travels</span>\n"
+        '      <Button type="button">Go</Button>\n'
+        "    </Page>\n"
+        "  );\n"
+        "}\n"
+    )
+    built = ui.build_screens(brd, SKILL, sources={"AgencyHome": proposed})
+    source = built["screens"][0]["source"]
+    assert "<LOCATION" not in source
+    assert "<LOCATIONS" not in source
+    assert "LOCATION" in source
+    assert "LOCATIONS" in source
+    assert "<Button" in source
+    assert "<Page" in source
+    jsx_gate.compile_jsx(built["screens"][0]["name"], source)
 
 
 def test_compile_accepts_sanitized_page_copy_with_unbalanced_parens():

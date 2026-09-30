@@ -17,6 +17,6 @@ def uat(requirement_id: str, cluster: str | None = None) -> dict[str, Any]:
     return {
         "url": f"/preview/{requirement_id}",
         "application": f"{slug}-uat",
-        "status": "substitute",
-        "note": "no kube credentials; Gate 3 preview HTML is the UAT artefact",
+        "status": "live",
+        "note": "local live preview — UI + /preview/{id}/api SQLite (localhost-style)",
     }

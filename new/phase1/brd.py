@@ -96,6 +96,135 @@ def _fill(template: str, values: dict[str, str]) -> str:
     return out
 
 
+# Screen inventory lines: "- **LoginScreen**: staff signs in"
+_PAGE_BULLET = re.compile(r"^[-*]\s+\*{0,2}([^*:\n]+?)\*{0,2}\s*:\s*(.+)$")
+_PAGE_SECTION = re.compile(r"^##(?:\s+\d+\.)?\s+Page behaviour\b", re.I)
+_H2 = re.compile(r"^##\s+")
+_H3 = re.compile(r"^###\s+")
+_GHERKIN_LABELS = frozenset({"given", "when", "then", "and", "but", "source"})
+
+
+def _fold_page(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
+def _is_screen_token(name: str) -> bool:
+    """PascalCase component ids — not Given/When/Source acceptance labels."""
+    token = (name or "").strip()
+    if not token or _fold_page(token) in _GHERKIN_LABELS:
+        return False
+    return bool(re.fullmatch(r"[A-Z][A-Za-z0-9]+", token))
+
+
+def normalize_screen_inventory(brd: str) -> str:
+    """One screen list lives in ``## Page behaviour`` — nowhere else.
+
+    LLM refine and some templates paste ``- **Screen**: …`` under each
+    ``### REQ-…`` block. Downstream then minted LoginScreen2 / LoanManagement3.
+    Strip those nested copies and dedupe the §11 inventory for every BRD.
+    """
+    if not (brd or "").strip():
+        return brd
+
+    lines = brd.splitlines(keepends=True)
+    inventory: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    in_page = False
+    under_h3_in_page = False
+    for line in lines:
+        stripped = line.strip()
+        if _PAGE_SECTION.match(stripped):
+            in_page = True
+            under_h3_in_page = False
+            continue
+        if _H2.match(stripped) and not _PAGE_SECTION.match(stripped):
+            in_page = False
+            under_h3_in_page = False
+            continue
+        if in_page and _H3.match(stripped):
+            under_h3_in_page = True
+            continue
+        if not in_page or under_h3_in_page:
+            continue
+        match = _PAGE_BULLET.match(stripped)
+        if not match:
+            continue
+        name, desc = match.group(1).strip(), match.group(2).strip()
+        key = _fold_page(name)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        inventory.append((name, desc))
+    inventory_keys = set(seen)
+
+    out: list[str] = []
+    in_page = False
+    under_h3 = False
+    inventory_emitted = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if _PAGE_SECTION.match(stripped):
+            in_page = True
+            under_h3 = False
+            inventory_emitted = False
+            out.append(line)
+            i += 1
+            continue
+        if _H2.match(stripped) and not _PAGE_SECTION.match(stripped):
+            if in_page and not inventory_emitted:
+                for name, desc in inventory:
+                    out.append(f"- **{name}**: {desc}\n")
+                inventory_emitted = True
+            in_page = False
+            under_h3 = False
+            out.append(line)
+            i += 1
+            continue
+        if _H3.match(stripped):
+            under_h3 = True
+            if in_page:
+                i += 1
+                while i < len(lines):
+                    nxt = lines[i].strip()
+                    if _H2.match(nxt):
+                        break
+                    if _H3.match(nxt):
+                        i += 1
+                        continue
+                    i += 1
+                continue
+            out.append(line)
+            i += 1
+            continue
+
+        match = _PAGE_BULLET.match(stripped)
+        if match:
+            name = match.group(1).strip()
+            key = _fold_page(name)
+            if in_page and not under_h3:
+                # Rebuild from collected inventory once; skip raw bullets.
+                if not inventory_emitted:
+                    for inv_name, inv_desc in inventory:
+                        out.append(f"- **{inv_name}**: {inv_desc}\n")
+                    inventory_emitted = True
+                i += 1
+                continue
+            if under_h3 and (
+                key in inventory_keys or _is_screen_token(name)
+            ):
+                i += 1
+                continue
+        out.append(line)
+        i += 1
+
+    if in_page and not inventory_emitted:
+        for name, desc in inventory:
+            out.append(f"- **{name}**: {desc}\n")
+    return "".join(out)
+
+
 def _clip(text: str, limit: int = 180) -> str:
     text = " ".join((text or "").strip().split())
     if len(text) <= limit:
@@ -181,7 +310,18 @@ def _entities(blob: str) -> list[tuple[str, list[str]]]:
             ("CorrectionRequest", ["id", "employee_id", "status", "decided_by"]),
             ("TimesheetExport", ["id", "period", "created_at"]),
         ]
-    if any(k in text for k in ("book", "room", "slot")):
+    # Library / catalogue before generic "book a room" heuristic.
+    if any(
+        k in text
+        for k in ("library", "catalogue", "catalog", "isbn", "overdue", "check out", "checkout")
+    ):
+        return [
+            ("User", ["id", "name", "email", "role", "password_hash", "created_at"]),
+            ("Book", ["id", "title", "author", "isbn", "status", "created_at"]),
+            ("Loan", ["id", "book_id", "member_id", "checked_out_at", "due_date", "returned_at", "status", "created_at"]),
+            ("ImportLog", ["id", "imported_by", "file_name", "records_processed", "status", "created_at"]),
+        ]
+    if any(k in text for k in ("room", "slot", "meeting room", "book a room", "booking")):
         return [
             ("User", ["id", "name", "email"]),
             ("Room", ["id", "name"]),
@@ -314,7 +454,7 @@ def draft_brd(
         or "- People use a browser on a phone or laptop.",
         "open_questions": "\n".join(f"- {q}" for q in questions) or "- None.",
     }
-    return _fill(template, values)
+    return normalize_screen_inventory(_fill(template, values))
 
 
 def critique(brd: str, *, skill: str = "") -> list[str]:
@@ -323,6 +463,24 @@ def critique(brd: str, *, skill: str = "") -> list[str]:
     findings = list(data.get("findings") or [])
     if not re.search(r"acceptance criteria", brd, re.I):
         findings.append("Acceptance criteria are missing — a later QA pass cannot be written.")
+    # Nested screen bullets under ### REQ mint duplicate Gate 3 screens.
+    in_req = False
+    for line in (brd or "").splitlines():
+        stripped = line.strip()
+        if _PAGE_SECTION.match(stripped):
+            in_req = False
+            continue
+        if _H2.match(stripped):
+            in_req = bool(re.match(r"^##(?:\s+\d+\.)?\s+Functional requirements\b", stripped, re.I))
+            continue
+        if in_req and _H3.match(stripped):
+            continue
+        if in_req and _PAGE_BULLET.match(stripped):
+            findings.append(
+                "Screen inventory lines appear under ### requirements — "
+                "keep '- **Screen**: …' only in ## Page behaviour."
+            )
+            break
     return findings
 
 

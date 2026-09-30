@@ -30,10 +30,17 @@ Do not stamp Stark Factory orange-on-black onto every product.
   `Button` per roster screen calling `navigate("ScreenName")`) + main column
   full remaining width. Screens connect through the sidebar and in-page
   buttons, like a real app — no top tab strip.
-- Main: real fields/actions, concrete table headers, product microcopy.
-- Login: same shell; main is one surface card.
-- Vary composition with the domain (booking grid, clinical list, retail
-  catalog) — not the same stacked form every time.
+- Pick a **role** per screen from the BRD page line and vary composition:
+  - auth — centred sign-in card; no data table
+  - dashboard — KPI cards + short attention list
+  - catalog — search row + results table
+  - loan / checkout — split form + active loans
+  - detail / profile — identity card, not a status grid
+  - portal — quick actions + personal activity
+  - import / export — file/period controls + mapping or history table
+- Main: real fields/actions, concrete table headers when a table belongs,
+  product microcopy from the BRD.
+- Never stamp the same form+table shell onto every screen.
 
 ## Anti-slop
 

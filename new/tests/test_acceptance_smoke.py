@@ -119,7 +119,11 @@ def test_canonical_frontend_has_desktop_and_mobile_static_contracts():
     assert "password123" in login
     assert "openBrdEditorModal" in app
     assert "Approve merge" in app
+    assert "openMergedBuildIde" in app
+    assert "Compare to report" in app
+    assert "compareCodeToReport" in app
     assert "Approve UAT" in app
+    assert "View UAT" in app
     assert "Approve release" in app
     compose = Path(__file__).resolve().parents[1] / "deploy/docker-compose.yml"
     assert "PHASE1_DEV_MODE" in compose.read_text(encoding="utf-8")

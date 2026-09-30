@@ -82,3 +82,37 @@ def test_later_gates_record_remaining_agent_usage(tmp_path: Path):
     p1.decide(rid, directory.actor("u-rm"), "approve")
     agents = {row["agent"] for row in usage_ledger.dashboard(tmp_path)["byAgent"]}
     assert "monitor" in agents
+
+
+def test_failed_gate_agent_calls_still_appear_on_spend(tmp_path: Path):
+    row = usage_ledger.record_failure(
+        tmp_path,
+        agent="brd",
+        requirement_id="REQ-0002",
+        model="freellm/auto",
+        error="RuntimeError: model freellm/auto rejected (502)",
+    )
+    assert row["ok"] is False
+    assert row["agent"] == "brd"
+    board = usage_ledger.dashboard(tmp_path)
+    assert board["recorded"]["calls"] == 1
+    assert board["byAgent"][0]["agent"] == "brd"
+    assert board["history"][0]["ok"] is False
+
+
+def test_invoke_llm_records_failure_when_model_raises(tmp_path: Path):
+    class Boom:
+        def complete(self, messages, *, skill, model=None, **_kwargs):
+            raise RuntimeError("model freellm/auto rejected (502)")
+
+    p1 = Phase1(tmp_path, llm=Boom())
+    text = p1._invoke_llm(
+        [{"role": "user", "content": "draft"}],
+        skill="brd rules",
+        agent="brd",
+        requirement_id="REQ-0002",
+    )
+    assert text == ""
+    board = usage_ledger.dashboard(tmp_path)
+    assert board["byAgent"][0]["agent"] == "brd"
+    assert board["history"][0]["ok"] is False
