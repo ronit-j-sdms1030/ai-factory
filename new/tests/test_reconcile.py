@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from phase1 import directory
 from phase1.platform import Phase1
 from tests.test_phase3 import reach_plan, sign_gate_4
 

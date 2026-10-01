@@ -14,10 +14,6 @@ from phase3 import trace
 from stack_profiles import StackProfile
 
 
-def _capabilities(brd_text: str) -> list[tuple[str, str]]:
-    return [(row["id"], row["title"]) for row in trace.requirements(brd_text)]
-
-
 def _needs_overlap(blob: str) -> bool:
     return any(token in blob for token in ("overlap", "double-book", "double book", "exclusion"))
 

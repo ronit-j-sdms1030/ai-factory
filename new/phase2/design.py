@@ -9,7 +9,6 @@ from typing import Any
 
 from phase2 import architect, contract as product_contract, coverage, preview, ui
 import stack_profiles
-from stack_profiles import StackProfile
 import skill_registry
 
 

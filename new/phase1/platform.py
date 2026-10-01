@@ -1628,7 +1628,6 @@ class Phase1:
             requirement_id=requirement_id,
             max_tokens=3500,
         )
-        import re
 
         if brd.refine_keeps_structure(drafted, raw):
             return brd.normalize_screen_inventory(raw)
@@ -2579,27 +2578,6 @@ class Phase1:
                     {"role": "user", "content": fix},
                 ]
         raise jsx_gate.CompileFailed(last_error)
-
-    def answer_design(
-        self, requirement_id: str, actor: dict[str, Any], message: str
-    ) -> dict[str, Any]:
-        body = self._load(requirement_id)
-        req = R.Requirement.load(body["requirement"])
-        originator = req.originator or {}
-        if actor.get("id") != originator.get("id"):
-            raise PermissionError("only the originator can answer a design clarification")
-        if not body.get("design_question"):
-            raise R.TransitionRefused(f"{requirement_id} has no open design question")
-        appendix = f"\n\n## Clarification\n\n**Q:** {body['design_question']}\n\n**A:** {message}\n"
-        brd_text = (body.get("brd_text") or self._artefact_text(req, "brd")) + appendix
-        sha = self._commit_brd(req, brd_text, actor)
-        req.record_artefact("brd", sha, **PROVENANCE_BRD)
-        body["requirement"] = req.dump()
-        body["brd_text"] = brd_text
-        body["design_question"] = None
-        self._write_design(req, body)
-        self._save(body, event="design_clarified", at=self.clock())
-        return self.get(requirement_id)
 
 
 _HOST_HELPERS_RULE = (

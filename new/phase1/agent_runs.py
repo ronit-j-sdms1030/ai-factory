@@ -74,14 +74,3 @@ def tests_from_model(
         out[2]["critical"] = True
     return out
 
-
-def screen_sources_from_model(data: dict[str, Any]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for item in data.get("screens") or []:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        source = str(item.get("source") or "").strip()
-        if name and source:
-            out[name] = source
-    return out

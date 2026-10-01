@@ -295,20 +295,12 @@ def execute_fetch_tool(
         return str(exc)
 
 
-def ui_craft_index() -> list[dict[str, str]]:
-    return craft_index("ui")
-
-
 def ui_prompt(*, root: Path | None = None) -> str:
     return fetch_prompt("ui", root=root)
 
 
 def ui_tools() -> list[dict[str, object]]:
     return fetch_tools("ui")
-
-
-def read_ui_craft(name: str, *, root: Path | None = None) -> str:
-    return read_craft("ui", name, root=root)
 
 
 def execute_ui_tool(name: str, args: dict[str, object], *, root: Path | None = None) -> str:

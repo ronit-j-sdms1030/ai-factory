@@ -7,7 +7,6 @@ requirement cannot be "covered" in one place and missing in another.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 import department_routing as routing
 from phase2 import architect

@@ -171,27 +171,6 @@ def render(decision: dict[str, Any], *, note: str = "") -> str:
     return body
 
 
-def architecture_markdown(
-    requirement_id: str,
-    brd_text: str,
-    profile: StackProfile,
-    pages: list[dict[str, str]],
-    *,
-    skill: str = "",
-) -> str:
-    del pages
-    decision = decide(requirement_id, brd_text, skill=skill)
-    if profile and profile.id != decision["profile"]["id"]:
-        decision["profile"] = profile.dump()
-    decision["brd_excerpt"] = (brd_text or "").split("## Open questions", 1)[0].strip()
-    return render(decision)
-
-
-def adr_overlap(requirement_id: str, profile: StackProfile) -> str:
-    dumped = profile.dump() if isinstance(profile, StackProfile) else profile
-    return _adr_integrity(requirement_id, dumped, [], True)["body"]
-
-
 def dump_report(architecture: str, profile: StackProfile, decision: dict[str, Any] | None = None) -> dict[str, Any]:
     decision = decision or {}
     return {

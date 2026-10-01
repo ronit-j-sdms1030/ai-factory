@@ -344,10 +344,8 @@ class CompatibilityAPI:
         viewer_roles = set((viewer or {}).get("roles") or [])
         gate_progress = self._gate_progress(row, viewer)
         signed = gate_progress["viewerHasSigned"]
-        gate_2_roles = {"business_owner", "client_tech_lead"}
         gate_3_roles = {"architect", "ui_ux", "business_analyst"}
         gate_4_roles = {"tech_lead", "stream_lead"}
-        can_gate_2 = awaiting == 2 and bool(viewer_roles & gate_2_roles) and not signed
         next_gate3 = self._next_ordered_role(row, 3) if awaiting == 3 else None
         can_gate_3 = (
             awaiting == 3

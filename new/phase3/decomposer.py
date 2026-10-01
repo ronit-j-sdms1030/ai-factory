@@ -18,14 +18,6 @@ from phase3 import trace
 from stack_profiles import StackProfile
 
 
-def _trace_ids(brd_text: str) -> list[str]:
-    return [row["id"] for row in trace.requirements(brd_text)]
-
-
-def _capabilities(brd_text: str) -> list[tuple[str, str]]:
-    return [(row["id"], row["title"]) for row in trace.requirements(brd_text)]
-
-
 def _paths(department: str, title: str, profile: StackProfile) -> list[str]:
     node = profile.id == "node"
     lowered = title.lower()

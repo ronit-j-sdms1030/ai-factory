@@ -48,7 +48,3 @@ class DeterministicBRDLLM:
                 ],
             }
         )
-
-
-def intake_llm() -> LLM:
-    return DeterministicIntakeLLM()

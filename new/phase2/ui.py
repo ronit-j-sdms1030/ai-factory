@@ -963,16 +963,6 @@ def gated_source(name: str, source: str, skill_text: str) -> str:
     return source
 
 
-def apply_instruction(name: str, source: str, instruction: str, skill_text: str) -> str:
-    """Deterministic fallback when no model rewrite is available."""
-    updated = source
-    if "</h1>" in source:
-        updated = source.replace("</h1>", f"</h1>\n      <p>{_safe_jsx_text(instruction)}</p>", 1)
-    else:
-        updated = source + f"\n// {instruction}\n"
-    return gated_source(name, updated, skill_text)
-
-
 def apply_model_rewrite(
     name: str,
     proposed: str,

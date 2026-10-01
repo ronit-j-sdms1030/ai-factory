@@ -68,7 +68,6 @@ def test_gate_3_writes_plan_tickets_and_tests(tmp_path: Path):
         assert "ai" in teams
         assert ai["department"] == "ai"
         assert any(path.startswith("src/ai") or path.startswith("app/ai") for path in ai["paths"])
-    titles = " ".join(ticket["title"] for ticket in run["tickets"])
     assert any(ticket.get("screen") for ticket in run["tickets"])
     assert any(case.get("criterion") == "ui" and "reachable" in case["name"] for case in run["tests"])
 

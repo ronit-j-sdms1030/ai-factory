@@ -58,15 +58,6 @@ def graph(files: dict[str, str]) -> dict[str, Any]:
     }
 
 
-def symbols(files: dict[str, str], name: str) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    for path, content in files.items():
-        for match in _SYMBOL.finditer(content or ""):
-            if match.group(1) == name:
-                found.append({"path": path, "symbol": name, "at": match.start()})
-    return found
-
-
 def edit_symbol(files: dict[str, str], name: str, replacement: str) -> dict[str, Any]:
     """Replace one function/class span. Whole-file rewrite is refused."""
     pattern = re.compile(

@@ -632,8 +632,6 @@ def make_handler(platform, *, dev_mode: bool = False, event_hub: EventHub | None
 
                     if not settings_pages.may_edit(actor):
                         return self._json(403, {"error": "only Product Owner or Business Owner can change models"})
-                    from phase1 import agent_settings
-
                     stored = agent_settings.set_models(
                         platform.root,
                         dict(data.get("models") or {}),

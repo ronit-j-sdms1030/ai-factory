@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs
 
 # Form fields the BRD never listed still get a column, so a Save keeps every input.
 _SAFE_COL = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
@@ -111,12 +109,3 @@ def parse_preview_api(path: str) -> tuple[str, str, str] | None:
     item_id = parts[4] if len(parts) > 4 else ""
     return rid, resource, item_id
 
-
-def read_json_body(raw: bytes) -> dict[str, Any]:
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw.decode("utf-8"))
-        return data if isinstance(data, dict) else {}
-    except json.JSONDecodeError:
-        return {key: values[-1] for key, values in parse_qs(raw.decode("utf-8")).items()}

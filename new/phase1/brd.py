@@ -389,10 +389,6 @@ def _ui_screens(items: list[str], out_of_scope: list[str]) -> list[tuple[str, st
     return screens
 
 
-def _page_entries(items: list[str]) -> list[tuple[str, str]]:
-    return _ui_screens(items, [])
-
-
 def _page_lines(items: list[str], out_of_scope: list[str] | None = None) -> str:
     return "\n".join(
         f"- **{name}**: {desc}" for name, desc in _ui_screens(items, out_of_scope or [])

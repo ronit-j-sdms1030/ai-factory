@@ -4,19 +4,13 @@ node_modules/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-backend/.semgrep-venv/
-backend/.runtime/
-new/.runtime/
-new/.venv/
-new/.pytest_cache/
+.venv/
+build/
+*.egg-info/
 
 # Requirement data stays out of the factory repo: run state, generated apps, pipeline output
 *.sqlite
-**/.runtime/
-**/.semgrep-venv/
-**/.langgraph_api/
-old/
-
+.runtime/
 
 # JetBrains IDE
 .idea/
