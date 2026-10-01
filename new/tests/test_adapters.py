@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import re
@@ -241,6 +242,18 @@ def test_presidio_contract_uses_anonymized_result(monkeypatch):
         "urllib.request.urlopen", lambda req, timeout: Response(next(replies))
     )
     assert PresidioPrivacy("http://analyzer", "http://anonymizer").screen("Ada") == "<PERSON>"
+
+
+def test_presidio_keeps_the_word_today(monkeypatch):
+    replies = iter(
+        [
+            [{"entity_type": "DATE_TIME", "start": 0, "end": 5, "score": 0.8}],
+        ]
+    )
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda req, timeout: Response(next(replies))
+    )
+    assert PresidioPrivacy("http://analyzer", "http://anonymizer").screen("today") == "today"
 
 
 @pytest.mark.parametrize(
@@ -489,4 +502,122 @@ def test_github_falls_back_to_governance_repo_when_create_is_refused(tmp_path, m
     repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
     puts = [url for method, url in calls if method == "PUT"]
     assert puts and all("/repos/acme/gov/" in url for url in puts)
+
+
+def test_repo_name_includes_the_product_title(monkeypatch):
+    monkeypatch.setenv("GITHUB_REPO", "ai-factory-governance")
+    monkeypatch.setenv("GITHUB_REPO_PER_REQUIREMENT", "true")
+    from phase1.catalog import github_repo_name
+
+    assert github_repo_name("REQ-0001", "Travel Company") == "travel-company-req-0001"
+    assert github_repo_name("REQ-0001", "Community Library Loan Manager") == (
+        "community-library-loan-manager-req-0001"
+    )
+    assert github_repo_name("REQ-0001", "") == "ai-factory-governance-req-0001"
+
+
+def test_github_names_the_repo_after_the_product(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    calls = []
+
+    def urlopen(req, timeout=15):
+        method, url = req.get_method(), req.full_url
+        calls.append((method, url, req.data))
+        if method == "GET" and (
+            url.endswith("/repos/acme/book-meeting-rooms-req-0007")
+            or url.endswith("/repos/acme/gov-req-0007")
+        ):
+            raise RuntimeError("GitHub API GET : 404 missing")
+        if method == "GET" and url.endswith("/user"):
+            return Response({"login": "acme"})
+        if method == "POST" and url.endswith("/user/repos"):
+            return Response({"name": "book-meeting-rooms-req-0007"})
+        if method == "GET" and url.endswith("/git/ref/heads/main"):
+            return Response({"object": {"sha": "abc"}})
+        if method == "GET" and "/contents/" in url:
+            raise RuntimeError("GitHub API GET /contents: 404 missing")
+        if method == "POST" and url.endswith("/git/refs"):
+            return Response({"ref": "refs/heads/brd/REQ-0007"})
+        return Response({"commit": {"sha": "def"}})
+
+    monkeypatch.setattr("phase1.adapters.repository.request.urlopen", urlopen)
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.init()
+    repo.note_title("REQ-0007", "Book meeting rooms")
+    repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
+    created = [data for method, url, data in calls if method == "POST" and url.endswith("/user/repos")]
+    assert created and b"book-meeting-rooms-req-0007" in created[0]
+    puts = [url for method, url, _data in calls if method == "PUT"]
+    assert puts and all("/repos/acme/book-meeting-rooms-req-0007/" in url for url in puts)
+
+
+def test_github_renames_an_id_only_repo_once_the_title_is_known(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    patched = {}
+
+    def urlopen(req, timeout=15):
+        method, url = req.get_method(), req.full_url
+        if method == "GET" and url.endswith("/repos/acme/book-meeting-rooms-req-0007"):
+            raise RuntimeError("GitHub API GET : 404 missing")
+        if method == "GET" and url.endswith("/repos/acme/gov-req-0007"):
+            return Response({"name": "gov-req-0007"})
+        if method == "PATCH" and url.endswith("/repos/acme/gov-req-0007"):
+            patched["body"] = req.data
+            return Response({"name": "book-meeting-rooms-req-0007"})
+        return Response({})
+
+    monkeypatch.setattr("phase1.adapters.repository.request.urlopen", urlopen)
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.note_title("REQ-0007", "Book meeting rooms")
+    repo._ensure_repo(repo.repo_for("scope/REQ-0007"))
+    assert patched and b"book-meeting-rooms-req-0007" in patched["body"]
+
+
+def test_github_readme_lands_on_the_named_repo_from_a_main_commit(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    puts = []
+
+    def urlopen(req, timeout=15):
+        method, url = req.get_method(), req.full_url
+        if method == "PUT" and "/contents/" in url:
+            puts.append((url, req.data))
+            return Response({"commit": {"sha": "def"}})
+        if method == "GET" and url.endswith("/repos/acme/library-req-0001"):
+            return Response({"name": "library-req-0001", "default_branch": "main"})
+        if method == "GET" and "git/ref/heads/main" in url:
+            return Response({"object": {"sha": "abc"}})
+        if method == "GET" and "/contents/" in url:
+            raise RuntimeError("GitHub API GET /contents: 404 missing")
+        if method == "GET" and url.endswith("/repos/acme/gov"):
+            return Response({"default_branch": "main"})
+        return Response({"commit": {"sha": "def"}})
+
+    monkeypatch.setattr("phase1.adapters.repository.request.urlopen", urlopen)
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.init()
+    repo.note_title("REQ-0001", "Library")
+    readme = "# Library\n\nGate 3 — Design\n"
+    repo.commit_files(
+        "main",
+        {"requirements/REQ-0001/README.md": readme},
+        "status",
+        author="a",
+        email="a@x",
+    )
+    home = [item for item in puts if item[0].endswith("/repos/acme/library-req-0001/contents/README.md")]
+    assert home
+    body = json.loads(home[-1][1].decode())
+    assert "Gate 3" in base64.b64decode(body["content"]).decode()
 

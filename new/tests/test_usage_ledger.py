@@ -64,7 +64,15 @@ def test_gate_writes_record_brd_architect_and_ui_usage(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_design(p1)
     agents = {row["agent"] for row in usage_ledger.dashboard(tmp_path)["byAgent"]}
-    assert {"brd", "architect", "ui"} <= agents
+    # Gate 2 writes the BRD and a deterministic architecture. The UI model runs
+    # when the business analyst signs and screens are materialised.
+    assert "brd" in agents
+    from phase1 import directory
+
+    p1.decide(rid, directory.actor("u-arch"), "approve")
+    p1.decide(rid, directory.actor("u-ba"), "approve")
+    agents = {row["agent"] for row in usage_ledger.dashboard(tmp_path)["byAgent"]}
+    assert "ui" in agents
     req_rows = usage_ledger.dashboard(tmp_path)["byRequirement"]
     assert any(row["requirementId"] == rid for row in req_rows)
 

@@ -3,9 +3,35 @@
 from __future__ import annotations
 
 import json
+import re
 from urllib import request
 
 from phase1 import rails
+
+# "today" is a product word, not a personal date. Presidio otherwise writes <DATE_TIME>.
+_RELATIVE_WHEN = re.compile(
+    r"^(today|tomorrow|yesterday|tonight|now|daily|weekly|weekday|weekend)$",
+    re.I,
+)
+
+
+def _drop_relative_dates(text: str, findings: object) -> list:
+    if not isinstance(findings, list):
+        return []
+    kept = []
+    for item in findings:
+        if not isinstance(item, dict):
+            kept.append(item)
+            continue
+        kind = str(item.get("entity_type") or "").upper()
+        if kind in {"DATE_TIME", "DATE"}:
+            start = int(item.get("start") or 0)
+            end = int(item.get("end") or 0)
+            span = (text or "")[start:end].strip()
+            if _RELATIVE_WHEN.fullmatch(span):
+                continue
+        kept.append(item)
+    return kept
 
 
 class LocalPrivacy:
@@ -44,6 +70,9 @@ class PresidioPrivacy:
             f"{self.analyzer_url}/analyze",
             {"text": clean, "language": self.language},
         )
+        findings = _drop_relative_dates(clean, findings)
+        if not findings:
+            return clean
         result = self._post(
             f"{self.anonymizer_url}/anonymize",
             {"text": clean, "analyzer_results": findings},

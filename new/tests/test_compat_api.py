@@ -216,7 +216,8 @@ def test_intake_gate1_gate2_and_brd_edit_flow(compat_server):
     assert gate2["artifact"]["currentStage"] == "pending_approval"
     assert gate2["artifact"]["currentApprovalIndex"] == 2
     assert gate2["artifact"]["phase2"] is True
-    assert gate2["artifact"]["ui"]["screens"]
+    # Screens are written when the business analyst signs, not at the Gate 2 lock.
+    assert not (gate2["artifact"].get("ui") or {}).get("screens")
     assert gate2["artifact"].get("architectureText") or (
         (gate2["artifact"].get("detailedReport") or {}).get("architecture")
     )
@@ -234,11 +235,29 @@ def test_intake_gate1_gate2_and_brd_edit_flow(compat_server):
     )
     assert arch_view["artifact"]["awaitingGate"] == 3
 
+    status, g3a, _ = request(
+        compat_server,
+        "POST",
+        f"/api/artifacts/{rid}/approveUi",
+        {},
+        cookie=architect,
+    )
+    assert status == 200
+    ba = login(compat_server, "ba@client.example")
+    status, g3b, _ = request(
+        compat_server,
+        "POST",
+        f"/api/artifacts/{rid}/approveUi",
+        {},
+        cookie=ba,
+    )
+    assert status == 200
+    ux = login(compat_server, "ux@client.example")
     status, screens, _ = request(
         compat_server,
         "GET",
         f"/api/artifacts/{rid}/ui/screens",
-        cookie=architect,
+        cookie=ux,
     )
     assert status == 200
     assert screens["screens"]
@@ -250,32 +269,15 @@ def test_intake_gate1_gate2_and_brd_edit_flow(compat_server):
             "name": screens["screens"][0]["name"],
             "source": screens["screens"][0]["source"],
         },
-        cookie=architect,
-    )
-    assert status == 200
-    status, g3a, _ = request(
-        compat_server,
-        "POST",
-        f"/api/artifacts/{rid}/approveUi",
-        {},
-        cookie=architect,
-    )
-    assert status == 200
-    ux = login(compat_server, "ux@client.example")
-    request(
-        compat_server,
-        "POST",
-        f"/api/artifacts/{rid}/approveUi",
-        {},
         cookie=ux,
     )
-    ba = login(compat_server, "ba@client.example")
+    assert status == 200
     status, g3, _ = request(
         compat_server,
         "POST",
         f"/api/artifacts/{rid}/approveUi",
         {},
-        cookie=ba,
+        cookie=ux,
     )
     assert status == 200
     assert g3["artifact"]["currentStage"] == "pending_approval"

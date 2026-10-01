@@ -13,6 +13,13 @@ from phase4 import ci as phase4_ci
 from tests.test_phase3 import reach_plan, sign_gate_4
 
 
+def test_sql_concat_rule_ignores_a_path_and_flags_a_query():
+    from phase4.scanners import sql_concat_line
+
+    assert sql_concat_line("export function path() { return '/api/' + resource; }") is False
+    assert sql_concat_line('db.exec("SELECT * FROM rooms WHERE id=" + id)') is True
+
+
 def test_gate_4_starts_an_allowlisted_build(tmp_path: Path):
     p1 = Phase1(tmp_path)
     rid = reach_plan(p1)
@@ -141,7 +148,11 @@ def test_local_uat_and_release_gates_complete_the_run(tmp_path: Path):
     assert p1.git.exists(f"requirements/{rid}/release/kyverno.yaml", "main")
     assert p1.git.exists(f"requirements/{rid}/release/flagd.json", "main")
     catalog = p1.catalog()
-    assert any(item["metadata"]["title"] == rid for item in catalog)
+    assert any(
+        (item.get("metadata") or {}).get("name") == rid.lower()
+        or ((item.get("metadata") or {}).get("annotations") or {}).get("governed.io/requirement") == rid
+        for item in catalog
+    )
     cr = p1.submit_change_request(
         directory.actor("u-requester"), rid, "latency regression", "api timeout"
     )

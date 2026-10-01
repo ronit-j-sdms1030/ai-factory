@@ -4702,6 +4702,11 @@
         var html = '<h4>' + escapeHtml(picked.tag || 'element') +
             '<span class="uied-tagline">' + (free ? 'free position' : 'in layout') + '</span></h4>' +
           '<p class="uied-ins-hint">' + escapeHtml((picked.text || picked.id || '').slice(0, 48)) + '</p>' +
+          (function () {
+            var editable = J.elementText(sourceEl.value || '', picked.id);
+            if (editable == null) return '';
+            return '<div class="uied-ins-row"><label>Text</label><input data-pick-text="1" value="' + escapeAttr(editable) + '"></div>';
+          })() +
           (free ? '<button type="button" id="ue-pick-putback" class="primary" style="margin-bottom:0.6rem">Put back in layout</button>' : '') +
           '<div class="uied-act-grid" style="margin:0 0 0.7rem">' +
             '<button type="button" data-pick-act="up">↑ Move up</button>' +
@@ -4737,6 +4742,24 @@
             else if (act === 'del') deletePicked();
           });
         });
+        var textBox = ins.querySelector('[data-pick-text]');
+        if (textBox) {
+          textBox.addEventListener('input', function () {
+            var id = picked && picked.id;
+            if (!id) return;
+            var before = sourceEl.value || '';
+            var next = J.setElementText(before, id, textBox.value);
+            if (!next || next === before) return;
+            checkpoint('text:' + id);
+            setSrc(current, next);
+            picked.text = textBox.value;
+            updateDirtyUi();
+          });
+          textBox.addEventListener('change', function () {
+            renderLive();
+            status('Updated text — Save when ready');
+          });
+        }
         Array.prototype.forEach.call(ins.querySelectorAll('[data-pick]'), function (el) {
           function apply() {
             var key = el.getAttribute('data-pick');
@@ -4908,6 +4931,8 @@
 
       function currentTheme() {
         var palettes = ['midnight','aurora','paper','grove','coral','ink','glacier','sand','blush','noir','ocean','sunrise','plum'];
+        var fromPage = J.themeOf(sourceEl.value || (screens[current] && screens[current].source) || '');
+        if (fromPage && palettes.indexOf(fromPage) >= 0) return fromPage;
         var themeMatch = String(sourceEl.value || '').match(/data-theme=["']([a-z]+)["']/);
         if (themeMatch && palettes.indexOf(themeMatch[1]) >= 0) return themeMatch[1];
         for (var si = 0; si < screens.length; si++) {
@@ -5350,20 +5375,20 @@
         if (kind === 'Card') {
           return has('Card')
             ? '<Card motion="motion-rise"><h2 style={{fontSize:16, margin:0}}>Card title</h2><p style={{margin:"8px 0 0"}}>Supporting copy.</p></Card>'
-            : '<div class="ds-card motion-rise"><h2 style="font-size:16px;margin:0">Card title</h2><p style="margin:8px 0 0">Supporting copy.</p></div>';
+            : '<div className="ds-card motion-rise"><h2 style={{fontSize:16, margin:0}}>Card title</h2><p style={{margin:"8px 0 0"}}>Supporting copy.</p></div>';
         }
         if (kind === 'Badge') {
-          return has('Badge') ? '<Badge>Live</Badge>' : '<span class="ds-badge">Live</span>';
+          return has('Badge') ? '<Badge>Live</Badge>' : '<span className="ds-badge">Live</span>';
         }
         if (kind === 'Hero') {
           return has('Hero')
             ? '<Hero motion="motion-rise"><Badge>Featured</Badge><h2 style={{marginTop:12}}>Hero headline</h2><p>Short supporting line.</p><Button variant="solid">Primary action</Button></Hero>'
-            : '<section class="ds-hero motion-rise"><span class="ds-badge">Featured</span><h2 style="margin-top:12px">Hero headline</h2><p>Short supporting line.</p><button type="button">Primary action</button></section>';
+            : '<section className="ds-hero motion-rise"><span className="ds-badge">Featured</span><h2 style={{marginTop:12}}>Hero headline</h2><p>Short supporting line.</p><button type="button">Primary action</button></section>';
         }
         if (kind === 'Image') {
           return has('Image')
             ? '<Image alt="" caption="Photo inset" ratio="16 / 9" motion="motion-fade" />'
-            : '<figure class="ds-inset motion-fade" style="aspect-ratio:16/9"><div style="height:100%;min-height:160px;background:linear-gradient(135deg,var(--color-surface),var(--color-sidebar))"></div><figcaption>Photo inset</figcaption></figure>';
+            : '<figure className="ds-inset motion-fade" style={{aspectRatio:"16 / 9"}}><div style={{height:"100%", minHeight:160, background:"linear-gradient(135deg,var(--color-surface),var(--color-sidebar))"}}></div><figcaption>Photo inset</figcaption></figure>';
         }
         return '<p>New text</p>';
       }
@@ -5400,24 +5425,8 @@
         }
 
         function findCloseTag(html, openIdx) {
-          var tagMatch = html.slice(openIdx).match(/^<([A-Za-z][A-Za-z0-9]*)\b/);
-          if (!tagMatch) return -1;
-          var tag = tagMatch[1];
-          var i = openIdx;
-          var depth = 0;
-          var re = new RegExp('<\\/?' + tag + '\\b[^>]*>', 'g');
-          re.lastIndex = openIdx;
-          var m;
-          while ((m = re.exec(html))) {
-            if (m[0][1] === '/') {
-              depth -= 1;
-              if (depth === 0) return m.index;
-            } else if (!/\/>$/.test(m[0])) {
-              depth += 1;
-            }
-            if (m.index === openIdx && depth === 0) depth = 1;
-          }
-          return -1;
+          var span = J.elementSpan(html, openIdx);
+          return span && span.closeStart >= 0 ? span.closeStart : -1;
         }
 
         // Main column = first <div> after </Sidebar> (or after <Sidebar/>…</Sidebar>)
@@ -5460,16 +5469,15 @@
         var jsx = returnJsxRange(body);
         if (!jsx) return src;
         var slice = body.slice(jsx.start, jsx.end);
-        var hit = slice.match(/<form(\s[^>]*?)?>/)
-          || slice.match(/<(div|main|section)(\s[^>]*?)?>/)
-          || slice.match(/<Page(\s[^>]*?)?>/);
+        var hit = /<(form|div|main|section|Page)(?=[\s>/])/.exec(slice);
         if (!hit) return src;
-        var abs = range.start + jsx.start + slice.indexOf(hit[0]);
-        var open = hit[0].replace(/\sdata-align="[^"]*"/, '');
-        if (kind) {
-          open = open.replace(/>$/, ' data-align="' + kind + '">');
-        }
-        return src.slice(0, abs) + open + src.slice(abs + hit[0].length);
+        var abs = range.start + jsx.start + hit.index;
+        var oe = J.openTagEnd(src, abs);
+        if (oe < 0) return src;
+        if (src[oe - 1] === '/') return src;
+        var open = src.slice(abs, oe + 1).replace(/\sdata-align="[^"]*"/, '');
+        if (kind) open = open.replace(/>$/, ' data-align="' + kind + '">');
+        return src.slice(0, abs) + open + src.slice(oe + 1);
       }
 
       function alignRules(kind) {
@@ -5871,13 +5879,19 @@
         if (go && go.disabled) return;
         status('Asking the UI agent…');
         if (go) go.disabled = true;
+        var focus = '';
+        if (picked && picked.id) {
+          focus = '\n\nChange this element only if it is the subject of the instruction: <' +
+            (picked.tag || 'element') + '> "' + String(picked.text || '').slice(0, 80) +
+            '". Keep the rest of the screen.';
+        }
         fetch(window.API_BASE + '/api/artifacts/' + artifact._id + '/ui/screen/agent', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: screens[current].name,
-            instruction: text,
-            source: sourceEl.value,
+            instruction: text + focus,
+            source: J.normalize(polishSource(sourceEl.value || '')),
             theme: currentTheme(),
           }),
         })
@@ -6064,13 +6078,18 @@
       function applyMotion(cls) {
         var s = screens[current];
         if (!s) return;
+        if (picked && knownInSource(picked.id)) {
+          var id = picked.id;
+          if (editSource('motion:' + cls, function (src) { return J.setMotion(src, id, cls); },
+            'Motion ' + cls.replace('motion-', '') + ' on the selection — Save when ready')) return;
+        }
         var src = ensureStudioHelpers(polishSource(sourceEl.value || s.source || ''));
         var snippet = '<div className="' + cls + '" style={{marginBottom:12}}><Badge>Motion on</Badge></div>';
         var next = injectSnippet(src, s.name, snippet);
         checkpoint('motion:' + Date.now());
         setSrc(current, next);
         renderLive();
-        status('Motion ' + cls + ' — Save when ready');
+        status('Motion ' + cls.replace('motion-', '') + ' — Save when ready');
       }
 
       function paintStudio() {
@@ -6241,12 +6260,21 @@
             if (applyPageVars(cp, 'control')) status('Control size ' + el.value.toUpperCase() + ' on ' + scopeText() + ' — Save when ready');
           }
         });
+        function paintColourLive(token, hex) {
+          try {
+            var doc = frame.contentDocument;
+            if (!doc) return;
+            doc.querySelectorAll('[data-theme], html, body').forEach(function (node) {
+              node.style.setProperty('--color-' + token, hex);
+            });
+          } catch (_e) {}
+        }
         studio.addEventListener('input', function (e) {
           var el = e.target;
           if (el && el.getAttribute('data-token') && el.type === 'color') {
             var hexIn = studio.querySelector('[data-token-hex="' + el.getAttribute('data-token') + '"]');
             if (hexIn) hexIn.value = el.value;
-            applyColour(el.getAttribute('data-token'), el.value);
+            paintColourLive(el.getAttribute('data-token'), el.value);
           }
         });
       }

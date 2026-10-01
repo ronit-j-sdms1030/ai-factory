@@ -8,6 +8,7 @@ import re
 import sys
 from urllib import error, request
 
+from phase1.catalog import github_repo_name
 from phase1.gitrepo import GovernanceRepo
 
 _REQ_ID = re.compile(r"REQ-\d+", re.I)
@@ -51,9 +52,9 @@ class GitHubAppRepository(LocalGitRepository):
     """Local working tree plus GitHub App branch/commit/PR/merge primitives.
 
     With ``per_requirement`` every ``REQ-nnnn`` branch lives in its own private
-    repo named after the requirement: ``<repo>-req-nnnn`` (e.g.
-    ``ai-factory-governance-req-0001``), created on first commit. Branches
-    without a requirement id (skills, settings) stay in the governance repo.
+    repo named after the product: ``travel-company-req-0001``. Until a title
+    exists the fallback is ``<repo>-req-nnnn``. Branches without a requirement
+    id (skills, settings) stay in the governance repo.
     """
 
     def __init__(
@@ -75,6 +76,14 @@ class GitHubAppRepository(LocalGitRepository):
         self._default_branches: dict[str, str] = {}
         self._known_repos: set[str] = {repo}
         self._refused: set[str] = set()
+        self._titles: dict[str, str] = {}
+
+    def note_title(self, requirement_id: str, title: str) -> None:
+        """Remember the product name so the GitHub repo is not only the id."""
+        clean = str(title or "").strip()
+        found = _REQ_ID.search(requirement_id or "")
+        if clean and found:
+            self._titles[found.group(0).upper()] = clean
 
     def repo_for(self, branch: str) -> str:
         if not self.per_requirement:
@@ -82,8 +91,17 @@ class GitHubAppRepository(LocalGitRepository):
         found = _REQ_ID.search(branch or "")
         if not found:
             return self.repo
-        name = f"{self.repo}-{found.group(0).lower()}"
+        rid = found.group(0).upper()
+        name = github_repo_name(
+            rid, self._titles.get(rid, ""), base=self.repo, per_requirement=True
+        )
         return self.repo if name in self._refused else name
+
+    def _legacy_repo(self, requirement_id: str) -> str:
+        found = _REQ_ID.search(requirement_id or "")
+        if not found:
+            return ""
+        return f"{self.repo}-{found.group(0).lower()}"
 
     def _call(self, method: str, url: str, payload: dict | None = None):
         req = request.Request(
@@ -113,33 +131,57 @@ class GitHubAppRepository(LocalGitRepository):
     def _ensure_repo(self, repo: str) -> None:
         if repo in self._known_repos:
             return
+        found = _REQ_ID.search(repo or "")
+        requirement = found.group(0).upper() if found else repo.upper()
+        title = self._titles.get(requirement, "")
+        description = (
+            f"{title} ({requirement})" if title else f"Requirement {requirement}"
+        )
         try:
             self._api("GET", "", repo=repo)
         except RuntimeError as exc:
             if ": 404 " not in str(exc):
                 raise
-            me = self._call("GET", f"{self.api_url}/user")
-            create = (
-                f"{self.api_url}/user/repos"
-                if str(me.get("login") or "").lower() == self.owner.lower()
-                else f"{self.api_url}/orgs/{self.owner}/repos"
-            )
-            requirement = repo[len(self.repo) + 1 :].upper() if repo.startswith(self.repo + "-") else repo.upper()
-            try:
-                self._call(
-                    "POST",
-                    create,
-                    {
-                        "name": repo,  # always …-req-nnnn — named after the requirement
-                        "private": True,
-                        "auto_init": True,
-                        "description": f"Requirement {requirement} — governed product artefacts",
-                        "homepage": f"http://127.0.0.1:5173/preview/{requirement}",
-                    },
+            legacy = self._legacy_repo(requirement)
+            renamed = False
+            if legacy and legacy != repo:
+                try:
+                    self._api("GET", "", repo=legacy)
+                    self._api(
+                        "PATCH",
+                        "",
+                        {
+                            "name": repo,
+                            "description": f"{description} — governed product artefacts",
+                        },
+                        repo=legacy,
+                    )
+                    renamed = True
+                except RuntimeError as rename_exc:
+                    if ": 404 " not in str(rename_exc) and not self._already_there(rename_exc):
+                        raise
+            if not renamed:
+                me = self._call("GET", f"{self.api_url}/user")
+                create = (
+                    f"{self.api_url}/user/repos"
+                    if str(me.get("login") or "").lower() == self.owner.lower()
+                    else f"{self.api_url}/orgs/{self.owner}/repos"
                 )
-            except RuntimeError as create_exc:
-                if not self._already_there(create_exc):
-                    raise
+                try:
+                    self._call(
+                        "POST",
+                        create,
+                        {
+                            "name": repo,
+                            "private": True,
+                            "auto_init": True,
+                            "description": f"{description} — governed product artefacts",
+                            "homepage": f"http://127.0.0.1:5173/preview/{requirement}",
+                        },
+                    )
+                except RuntimeError as create_exc:
+                    if not self._already_there(create_exc):
+                        raise
         self._known_repos.add(repo)
 
     def _base_branch(self, repo: str | None = None) -> str:
@@ -231,6 +273,7 @@ class GitHubAppRepository(LocalGitRepository):
                     raise
         for path, content in files.items():
             self.commit_remote_file(branch, path, content, message)
+        self._publish_root_readme(branch, files)
         return sha
 
     def merge_to_main(self, branch: str, message: str) -> str:
@@ -249,22 +292,58 @@ class GitHubAppRepository(LocalGitRepository):
             )
             if pulls:
                 number = int(pulls[0]["number"])
-        if number is None:
-            return sha
-        try:
-            self.merge_pull_request(number, message, repo=repo)
-        except RuntimeError as exc:
-            text = str(exc).lower()
-            # GitHub returns 405/409 when the PR is dirty or already merged.
-            # Local merge already landed; do not fail gate clearance for that.
-            if (
-                "409" not in str(exc)
-                and "405" not in str(exc)
-                and "not mergeable" not in text
-                and "merge conflict" not in text
-            ):
-                raise
+        if number is not None:
+            try:
+                self.merge_pull_request(number, message, repo=repo)
+            except RuntimeError as exc:
+                text = str(exc).lower()
+                # GitHub returns 405/409 when the PR is dirty or already merged.
+                # Local merge already landed; do not fail gate clearance for that.
+                if (
+                    "409" not in str(exc)
+                    and "405" not in str(exc)
+                    and "not mergeable" not in text
+                    and "merge conflict" not in text
+                ):
+                    raise
+        self._publish_root_readme(branch, {})
         return sha
+
+    def _readme_ids(self, branch: str, files: dict[str, str]) -> list[str]:
+        """Requirement ids named by the branch or by paths in the commit."""
+        ids: list[str] = []
+        found = _REQ_ID.search(branch or "")
+        if found:
+            ids.append(found.group(0).upper())
+        for path in files:
+            match = re.search(r"requirements/(REQ-\d+)/", str(path), re.I)
+            if match:
+                rid = match.group(1).upper()
+                if rid not in ids:
+                    ids.append(rid)
+        return ids
+
+    def _publish_root_readme(self, branch: str, files: dict[str, str]) -> None:
+        """The GitHub repo home page is README.md, not a nested path."""
+        if not self.per_requirement:
+            return
+        for rid in self._readme_ids(branch, files):
+            content = files.get(f"requirements/{rid}/README.md", "")
+            if not content:
+                path = self.root / f"requirements/{rid}/README.md"
+                if path.is_file():
+                    content = path.read_text(encoding="utf-8")
+            if not content:
+                continue
+            repo = self.repo_for(f"scope/{rid}")
+            if repo == self.repo or repo in self._refused:
+                continue
+            try:
+                self._ensure_repo(repo)
+                self._ensure_base(repo)
+                self._put_file(repo, "main", "README.md", content, "Update requirement status")
+            except RuntimeError as exc:
+                print(f"[github] README for {repo} was not updated: {exc}", file=sys.stderr)
 
     def create_branch(self, branch: str, *, base: str | None = None) -> str:
         repo = self.repo_for(branch)
@@ -317,7 +396,8 @@ class GitHubAppRepository(LocalGitRepository):
         if not self.per_requirement:
             return []
         prefix = f"{self.repo}-req-"
-        found = set(r for r in self._known_repos if r.startswith(prefix))
+        named = re.compile(r"-req-\d+$", re.I)
+        found = set(r for r in self._known_repos if r.startswith(prefix) or named.search(r))
         try:
             me = self._call("GET", f"{self.api_url}/user")
             listing = (
@@ -327,7 +407,8 @@ class GitHubAppRepository(LocalGitRepository):
             )
             for row in self._call("GET", listing) or []:
                 name = str(row.get("name") or "")
-                if name.startswith(prefix):
+                desc = str(row.get("description") or "").lower()
+                if name.startswith(prefix) or (named.search(name) and "governed" in desc):
                     found.add(name)
         except RuntimeError:
             pass

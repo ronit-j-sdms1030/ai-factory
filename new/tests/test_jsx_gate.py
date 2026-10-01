@@ -155,6 +155,32 @@ def test_rewrite_repairs_tokenless_form_and_adds_sidebar():
     assert jsx_gate.conform(out, SKILL) == []
 
 
+def test_make_it_blush_forces_that_theme():
+    source = (
+        'function Page(props) { return <main className="page" data-theme={props["data-theme"] || "grove"}>{props.children}</main>; }\n'
+        'function Screen() { return ( <Page data-theme="grove"><h1>Hi</h1></Page> ); }\n'
+    )
+    forced = ui.keep_theme(source, "grove", "make it blush")
+    assert 'data-theme="blush"' in forced
+    assert 'data-theme="grove"' not in forced
+    pinned = ui.keep_theme(source, "grove", "add a date field")
+    assert 'data-theme="grove"' in pinned
+    assert 'data-theme="blush"' not in pinned
+    pink = ui.keep_theme(source, "grove", "make it pink")
+    assert 'data-theme="blush"' in pink
+    assert 'data-theme="grove"' not in pink
+
+
+def test_generated_page_uses_the_theme_prop_and_does_not_repeat_the_nav_label():
+    brd = "## Page behaviour\n- RoomList: list the rooms\n"
+    built = ui.build_screens(brd, SKILL)
+    source = built["screens"][0]["source"]
+    assert 'props["data-theme"]' in source
+    assert "<p>Room List</p>" not in source
+    assert ">Room List<" in source
+    jsx_gate.compile_jsx("RoomList", source)
+
+
 def test_unknown_theme_is_rejected():
     source = (
         'function Page(props) { return <main data-theme="neon" style={{background:"var(--color-bg)"}}>{props.children}</main>; }\n'

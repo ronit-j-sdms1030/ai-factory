@@ -144,8 +144,8 @@ def pick_theme(brd_text: str) -> str:
 
 
 def _brand_label(page: dict[str, str]) -> str:
-    raw = _safe_jsx_text(page.get("id") or "App")
-    return raw[:28] or "App"
+    raw = str(page.get("id") or "App")
+    return screen_label(raw) or "App"
 
 
 def screen_label(name: str) -> str:
@@ -180,12 +180,14 @@ def _shell(
     theme_name = theme if theme in jsx_gate.ALLOWED_THEMES else "midnight"
     brand_text = _safe_jsx_text(brand) or "App"
     nav = nav_buttons(roster, current=name)
+    # The nav already shows this label. A second <p> made the sidebar read it twice.
+    labels = {screen_label(item).casefold() for item in roster}
+    brand_line = "" if brand_text.casefold() in labels else f"        <p>{brand_text}</p>\n"
     return f'''{_factory_helpers(theme_name)}function {name}() {{
   return (
     <Page data-theme="{theme_name}">
       <Sidebar>
-        <p>{brand_text}</p>
-        {nav}
+{brand_line}        {nav}
       </Sidebar>
       <div style={{{{flex:1, padding:"var(--space-md)"}}}}>
 {main}
@@ -422,8 +424,10 @@ _PLACEHOLDER_IMG = (
 
 def _factory_helpers(theme: str = "midnight") -> str:
     theme_name = theme if theme in jsx_gate.ALLOWED_THEMES else "midnight"
+    # The screen's <Page data-theme="…"> wins. A hardcoded theme on <main> used to
+    # hide that choice in the studio and the live preview.
     return f'''function Page(props) {{
-  return <main className="page" data-theme="{theme_name}" style={{{{background:"var(--color-bg)", color:"var(--color-text)", fontFamily:"var(--font-sans)", display:"flex", minHeight:"100vh", ...(props.style || {{}})}}}}>{{props.children}}</main>;
+  return <main className="page" data-theme={{props["data-theme"] || "{theme_name}"}} style={{{{background:"var(--color-bg)", color:"var(--color-text)", fontFamily:"var(--font-sans)", display:"flex", minHeight:"100vh", ...(props.style || {{}})}}}}>{{props.children}}</main>;
 }}
 function Sidebar(props) {{
   return <aside className="sidebar" style={{{{background:"var(--color-sidebar)", color:"var(--color-text)", width:"var(--sidebar-w, 220px)", flexShrink:0, padding:"var(--space-md)", borderRight:"1px solid var(--color-line)"}}}}>{{props.children}}</aside>;
@@ -511,23 +515,73 @@ function Image(props) {{
 _RETHEME_WORDS = (
     "reimagin", "redesign", "restyle", "theme", "scene", "palette", "colour", "color", "look",
 )
+# Colour words the prompt maps onto a palette ("make it pink" → blush).
+_COLOUR_THEME = {"pink": "blush", "pastel": "blush", "luxury": "noir", "neon": "aurora"}
+_THEME_NAMES = "|".join(jsx_gate.ALLOWED_THEMES)
+# "make it blush" counts. "make the paper form" does not — paper is also a noun.
+_THEME_ASK = re.compile(
+    rf"\b(?:make\s+it|use|switch\s+to|change\s+to|set\s+to|apply|try)\s+(?:the\s+|a\s+)?({_THEME_NAMES})\b"
+    rf"|\b(?:set|change|switch)\s+(?:the\s+)?theme\s+to\s+({_THEME_NAMES})\b"
+    rf"|\b({_THEME_NAMES})\s+theme\b",
+    re.I,
+)
+
+
+def requested_theme(instruction: str) -> str:
+    """Theme the user named, as in 'make it blush' or 'make it pink'."""
+    match = _THEME_ASK.search(instruction or "")
+    if match:
+        return next(group.lower() for group in match.groups() if group)
+    text = (instruction or "").lower()
+    for word, theme in _COLOUR_THEME.items():
+        if re.search(rf"\b{re.escape(word)}\b", text):
+            return theme
+    return ""
 
 
 def keep_theme(source: str, theme: str, instruction: str) -> str:
-    """Pin data-theme to the screen's current theme unless asked to change it."""
+    """Pin data-theme unless the instruction asks for a different look.
+
+    'make it blush' and 'make it pink' force that palette even when the model
+    forgets. 'add a date field' puts the old theme back.
+    """
+    text = (instruction or "").lower()
+    asked = requested_theme(instruction)
+    if asked in jsx_gate.ALLOWED_THEMES:
+        theme = asked
+    elif any(word in text for word in _RETHEME_WORDS):
+        return source
     if theme not in jsx_gate.ALLOWED_THEMES:
         return source
     if not jsx_gate.THEME_ATTR.search(source or ""):
         return re.sub(r"<Page(?=[\s>/])", f'<Page data-theme="{theme}"', source, count=1)
-    if any(word in (instruction or "").lower() for word in _RETHEME_WORDS):
-        return source
     return jsx_gate.THEME_ATTR.sub(f'data-theme="{theme}"', source)
+
+
+_PAGE_THEME_LITERAL = re.compile(
+    r'(function Page\(props\) \{\s*return <main\b)\s+className="page"\s+data-theme="([a-z]+)"'
+)
+
+
+def _page_reads_theme_prop(text: str) -> str:
+    """Older helpers painted their own data-theme and ignored <Page data-theme>."""
+
+    def swap(match: re.Match[str]) -> str:
+        fallback = match.group(2) if match.group(2) in jsx_gate.ALLOWED_THEMES else "midnight"
+        return (
+            match.group(1)
+            + ' className="page" data-theme={props["data-theme"] || "'
+            + fallback
+            + '"}'
+        )
+
+    return _PAGE_THEME_LITERAL.sub(swap, text or "", count=1)
 
 
 def repair_for_gate(name: str, source: str) -> str:
     """Make a model screen pass conform without another billed call."""
     # Every requirement: <LOCATION>-style placeholders become text before Babel.
-    text = jsx_gate.neutralize_placeholder_tags(source)
+    text = _page_reads_theme_prop(jsx_gate.neutralize_placeholder_tags(source))
     text = ensure_named_screen(name, text)
 
     def _swap_hex(match: re.Match[str]) -> str:
@@ -600,7 +654,6 @@ def ensure_sidebar_shell(
         f"  return (\n"
         f"    <Page data-theme=\"{theme}\">\n"
         f"      <Sidebar>\n"
-        f"        <p>{label}</p>\n"
         f"        {nav}\n"
         f"      </Sidebar>\n"
         f"      <div>{heading}\n"

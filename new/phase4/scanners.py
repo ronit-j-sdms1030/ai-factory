@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -174,17 +175,30 @@ def _run_eslint(root: Path, binary: str) -> list[dict[str, Any]]:
     return out
 
 
+_SQL_WORD = re.compile(r"\b(select|insert|update|delete|drop|union)\b", re.I)
+
+
+def sql_concat_line(text: str) -> bool:
+    """True only when a matched line is building a SQL statement.
+
+    A path such as '/api/' + resource is not SQL. The old rule matched every
+    plus in the file and blocked Gate 5 on a clean build.
+    """
+    return bool(_SQL_WORD.search(text or ""))
+
+
 def _run_opengrep(root: Path, binary: str) -> list[dict[str, Any]]:
-    # Without our own ruleset, run a minimal pattern search for SQL concat.
+    # Match query strings joined with +, not every addition in the program.
     rules = root / "opengrep-rules.yaml"
     rules.write_text(
         "rules:\n"
         "  - id: sql-concat\n"
         "    pattern-either:\n"
-        "      - pattern: $X + $Y\n"
-        "    message: possible string concat near SQL\n"
+        "      - pattern: $Q + $X\n"
+        "      - pattern: $X + $Q\n"
+        "    message: SQL built by string concatenation\n"
         "    languages: [javascript, typescript, python]\n"
-        "    severity: WARNING\n",
+        "    severity: ERROR\n",
         encoding="utf-8",
     )
     proc = _run([binary, "scan", "--config", str(rules), "--json", str(root)], cwd=root)
@@ -195,11 +209,15 @@ def _run_opengrep(root: Path, binary: str) -> list[dict[str, Any]]:
         return []
     out = []
     for item in data.get("results") or []:
+        extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+        snippet = str(extra.get("lines") or extra.get("message") or "")
+        if not sql_concat_line(snippet):
+            continue
         out.append(
             _finding(
                 tool="opengrep",
                 severity="high",
-                detail=str(item.get("check_id") or item.get("extra", {}).get("message") or "opengrep"),
+                detail=str(item.get("check_id") or extra.get("message") or "opengrep"),
                 path=str(item.get("path") or ""),
             )
         )

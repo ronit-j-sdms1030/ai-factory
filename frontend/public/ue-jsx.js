@@ -438,23 +438,126 @@
 
   // ---- page-wide ---------------------------------------------------------
 
-  var THEME_ATTR = /data-theme=["']([a-z]+)["']/;
+  // Host helpers hardcode data-theme on <main>. The screen's own <Page> is the
+  // theme the studio and the agent should read and write.
+  function pageUses(src) {
+    src = String(src || '');
+    var spans = functionSpans(src).filter(function (s) { return HOST.indexOf(s.name) >= 0; });
+    function inHost(pos) {
+      for (var i = 0; i < spans.length; i++) {
+        if (pos > spans[i].start && pos < spans[i].end) return true;
+      }
+      return false;
+    }
+    var re = /<Page(?=[\s>/])/g;
+    var m;
+    var last = -1;
+    while ((m = re.exec(src))) {
+      if (!inHost(m.index)) last = m.index;
+    }
+    return last;
+  }
 
   function themeOf(src) {
-    var m = THEME_ATTR.exec(String(src || ''));
-    return m ? m[1] : '';
+    src = String(src || '');
+    var lt = pageUses(src);
+    if (lt >= 0) {
+      var oe = openTagEnd(src, lt);
+      if (oe > lt) {
+        var tm = /data-theme=["']([a-z]+)["']/.exec(src.slice(lt, oe + 1));
+        if (tm) return tm[1];
+      }
+    }
+    var any = /data-theme=["']([a-z]+)["']/.exec(src);
+    return any ? any[1] : '';
   }
 
   function setTheme(src, theme) {
     src = String(src || '');
-    if (THEME_ATTR.test(src)) return src.replace(/data-theme=["'][a-z]+["']/g, 'data-theme="' + theme + '"');
+    if (/data-theme=["'][a-z]+["']/.test(src)) {
+      return src.replace(/data-theme=["'][a-z]+["']/g, 'data-theme="' + theme + '"');
+    }
     if (/<Page(?=[\s>/])/.test(src)) return src.replace(/<Page(?=[\s>/])/, '<Page data-theme="' + theme + '"');
     return null;
   }
 
   function pageTag(src) {
-    var m = /<Page(?=[\s>/])/.exec(String(src || ''));
-    return m ? m.index : -1;
+    return pageUses(String(src || ''));
+  }
+
+  function setSimpleAttr(src, id, name, value) {
+    var lt = findTag(src, id);
+    if (lt < 0) return null;
+    var oe = openTagEnd(src, lt);
+    if (oe < 0) return null;
+    var safe = String(value == null ? '' : value).replace(/"/g, '');
+    var head = src.slice(lt, oe + 1);
+    var quoted = new RegExp('\\s' + name + '="[^"]*"');
+    if (quoted.test(head)) {
+      return src.slice(0, lt) + head.replace(quoted, ' ' + name + '="' + safe + '"') + src.slice(oe + 1);
+    }
+    if (new RegExp('\\s' + name + '=\\{').test(head)) return null;
+    var selfClose = src[oe - 1] === '/';
+    var cut = selfClose ? oe - 1 : oe;
+    return src.slice(0, cut).replace(/\s*$/, '') + ' ' + name + '="' + safe + '"' + (selfClose ? ' ' : '') + src.slice(cut);
+  }
+
+  function addClass(src, id, cls) {
+    var lt = findTag(src, id);
+    if (lt < 0) return null;
+    var oe = openTagEnd(src, lt);
+    if (oe < 0) return null;
+    var head = src.slice(lt, oe + 1);
+    var m = /\sclassName="([^"]*)"/.exec(head);
+    if (m) {
+      var parts = m[1].split(/\s+/).filter(function (c) { return c && c.indexOf('motion-') !== 0; });
+      parts.push(cls);
+      return src.slice(0, lt) + head.replace(m[0], ' className="' + parts.join(' ') + '"') + src.slice(oe + 1);
+    }
+    if (/\sclassName=\{/.test(head)) return null;
+    var selfClose = src[oe - 1] === '/';
+    var cut = selfClose ? oe - 1 : oe;
+    return src.slice(0, cut).replace(/\s*$/, '') + ' className="' + cls + '"' + (selfClose ? ' ' : '') + src.slice(cut);
+  }
+
+  // Card, Hero, Image and Button take a motion prop. Plain tags take a class.
+  function setMotion(src, id, cls) {
+    if (!/^motion-[a-z]+$/.test(cls || '')) return null;
+    var span = spanById(src, id);
+    if (!span) return null;
+    if (/^(Card|Hero|Image|Button|Badge)$/.test(span.name)) return setSimpleAttr(src, id, 'motion', cls);
+    return addClass(src, id, cls);
+  }
+
+  // Label for a Field, caption for an Image, or the text of a tag with no child tags.
+  function elementText(src, id) {
+    var span = spanById(src, id);
+    if (!span) return null;
+    var head = src.slice(span.start, span.openEnd);
+    if (span.name === 'Field') {
+      var label = /\blabel="([^"]*)"/.exec(head);
+      return label ? label[1] : '';
+    }
+    if (span.name === 'Image') {
+      var cap = /\bcaption="([^"]*)"/.exec(head);
+      return cap ? cap[1] : '';
+    }
+    if (span.selfClosing) return null;
+    var inner = src.slice(span.openEnd, span.closeStart);
+    if (/<[A-Za-z/]/.test(inner)) return null;
+    return inner.replace(/^\s+|\s+$/g, '');
+  }
+
+  function setElementText(src, id, text) {
+    var span = spanById(src, id);
+    if (!span) return null;
+    var safe = String(text == null ? '' : text).replace(/[<>{}]/g, '').slice(0, 120);
+    if (span.name === 'Field') return setSimpleAttr(src, id, 'label', safe);
+    if (span.name === 'Image') return setSimpleAttr(src, id, 'caption', safe);
+    if (span.selfClosing) return null;
+    var inner = src.slice(span.openEnd, span.closeStart);
+    if (/<[A-Za-z/]/.test(inner)) return null;
+    return src.slice(0, span.openEnd) + safe + src.slice(span.closeStart);
   }
 
   function setPageVars(src, vars) {
@@ -488,6 +591,9 @@
     setTheme: setTheme,
     setPageVars: setPageVars,
     pageVars: pageVars,
+    setMotion: setMotion,
+    elementText: elementText,
+    setElementText: setElementText,
     functionSpans: functionSpans
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

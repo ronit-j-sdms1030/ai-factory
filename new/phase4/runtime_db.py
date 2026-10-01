@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
+
+# Form fields the BRD never listed still get a column, so a Save keeps every input.
+_SAFE_COL = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 
 from phase4 import product
 
@@ -25,6 +29,24 @@ def connect(root: Path, requirement_id: str, brd_text: str) -> sqlite3.Connectio
     sql = product.migration_sql(product.parse_entities(brd_text))
     conn.executescript(sql.split("-- down")[0])
     return conn
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection,
+    resource: str,
+    payload: dict[str, Any],
+    allowed: set[str],
+) -> set[str]:
+    """Add a TEXT column for each safe form key the table does not have yet."""
+    existing = set(allowed)
+    for row in conn.execute(f"PRAGMA table_info({resource})").fetchall():
+        existing.add(str(row[1]))
+    for key in payload:
+        if key in existing or not _SAFE_COL.fullmatch(str(key)):
+            continue
+        conn.execute(f"ALTER TABLE {resource} ADD COLUMN {key} TEXT")
+        existing.add(key)
+    return existing
 
 
 def handle(
@@ -61,7 +83,7 @@ def handle(
             payload = dict(body or {})
             ident = str(payload.get("id") or f"{resource}-{int(time.time() * 1000)}")
             payload["id"] = ident
-            allowed = set(tables[resource]) | {"id"}
+            allowed = _ensure_columns(conn, resource, payload, set(tables[resource]) | {"id"})
             cols = [key for key in payload if key in allowed]
             marks = ",".join("?" for _ in cols)
             conn.execute(

@@ -9,27 +9,48 @@ from typing import Any
 _REQ = re.compile(r"REQ-\d+", re.I)
 
 
-def github_repo_name(requirement_id: str, *, base: str | None = None) -> str:
-    """Private product repo is always named after the requirement id."""
-    rid = str(requirement_id or "").strip()
-    found = _REQ.search(rid)
-    slug = found.group(0).lower() if found else rid.lower().replace(" ", "-")
-    root = (base or os.environ.get("GITHUB_REPO") or "ai-factory-governance").strip()
-    if os.environ.get("GITHUB_REPO_PER_REQUIREMENT", "true").lower() in {
+def _per_requirement() -> bool:
+    return os.environ.get("GITHUB_REPO_PER_REQUIREMENT", "true").lower() in {
         "1",
         "true",
         "yes",
         "on",
-    }:
-        return f"{root}-{slug}" if slug and slug not in root else (slug or root)
-    return root
+    }
 
 
-def github_html_url(requirement_id: str) -> str:
+def github_repo_name(
+    requirement_id: str,
+    title: str = "",
+    *,
+    base: str | None = None,
+    per_requirement: bool | None = None,
+) -> str:
+    """Private product repo: ``travel-company-req-0001``, not only ``req-0001``."""
+    rid = str(requirement_id or "").strip()
+    found = _REQ.search(rid)
+    slug = found.group(0).lower() if found else ""
+    root = (base or os.environ.get("GITHUB_REPO") or "ai-factory-governance").strip()
+    per = _per_requirement() if per_requirement is None else per_requirement
+    if not per:
+        return root
+    words = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+    words = re.sub(r"-{2,}", "-", words)
+    if slug and words:
+        suffix = f"-{slug}"
+        words = words[: max(1, 100 - len(suffix))].strip("-")
+        if words:
+            return f"{words}{suffix}"
+    if slug:
+        return f"{root}-{slug}" if slug not in root else slug
+    fallback = rid.lower().replace(" ", "-") or root
+    return fallback
+
+
+def github_html_url(requirement_id: str, title: str = "") -> str:
     owner = (os.environ.get("GITHUB_OWNER") or "").strip()
     if not owner:
         return ""
-    return f"https://github.com/{owner}/{github_repo_name(requirement_id)}"
+    return f"https://github.com/{owner}/{github_repo_name(requirement_id, title)}"
 
 
 def entities(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -45,7 +66,7 @@ def entities(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
             or rid
         )
         preview = f"/preview/{rid}"
-        git_url = github_html_url(rid)
+        git_url = github_html_url(rid, title)
         annotations = {
             "governed.io/requirement": rid,
             "governed.io/phase": str(row.get("phase") or ""),

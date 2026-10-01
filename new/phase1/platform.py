@@ -16,7 +16,7 @@ import skill_registry
 import stack_profiles
 import workflow_templates
 from attestation import ContextInputs
-from phase1 import agent_runs, agent_settings, brd, catalog, rails, reconcile, webhook
+from phase1 import agent_runs, agent_settings, brd, catalog, product_readme, rails, reconcile, webhook
 from phase1.adapters import ModelCompletion, RuntimeAdapters
 from phase1.adapters.signer import LocalHMACSigner
 from phase2 import design as design_agent
@@ -96,6 +96,7 @@ class Phase1:
         self.git = self.adapters.repository
         self.git.init()
         self.store = self.adapters.store
+        self._bind_git_titles()
 
     # ── submit ───────────────────────────────────────────────────────────────
 
@@ -233,11 +234,11 @@ class Phase1:
             # Confirmed: nothing here is a browser app. Do not invent React screens.
             parsed = stack_profiles.outside_only_scope(transcript)
             skill = self.git.skill()
+            body["display_title"] = str(parsed.get("title") or "").strip()
             scope_md = brd.render_scope(requirement_id, parsed)
             sha = self._commit_scope(req, body, scope_md, skill)
             req.record_artefact("scope", sha, **PROVENANCE_INTAKE)
             body["requirement"] = req.dump()
-            body["display_title"] = str(parsed.get("title") or "").strip()
             body["messages"].append({"role": "assistant", "content": json_dumps(parsed)})
             self._arm_sla(body, req, 1)
             self._save(body, event="scope_written", at=self.clock())
@@ -463,11 +464,11 @@ class Phase1:
             "non_functional": list(report.get("nonFunctionalRequirements") or []),
         }
         skill = self.git.skill()
+        body["display_title"] = title.strip()
         content = brd.render_scope(requirement_id, normalized)
         sha = self._commit_scope(req, body, content, skill, editor=editor)
         req.record_artefact("scope", sha, **PROVENANCE_INTAKE)
         body["requirement"] = req.dump()
-        body["display_title"] = title.strip()
         self._save(body, event="scope_edited", at=self.clock())
         return self.get(requirement_id)
 
@@ -718,6 +719,8 @@ class Phase1:
             branch = f"uat/{requirement_id}"
         else:
             branch = f"release/{requirement_id}"
+        body["requirement"] = req.dump()
+        self._readme_source = body
         self.git.commit_files(
             branch,
             {path: json_dumps(envelope)},
@@ -725,7 +728,6 @@ class Phase1:
             author="platform",
             email="platform@local",
         )
-        body["requirement"] = req.dump()
 
         if outcome == "approve" and decision.satisfied:
             self.git.merge_to_main(branch, f"approve gate {gate} for {requirement_id}")
@@ -1027,6 +1029,49 @@ class Phase1:
         path = self.git.root / rel
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
+    def _bind_git_titles(self) -> None:
+        """Later commits reuse the stored product name for the GitHub repo."""
+        git = self.git
+        if getattr(git, "_titles_bound", False):
+            return
+        original = git.commit_files
+
+        def commit_files(branch, files, message, **kwargs):
+            payload = dict(files)
+            ids: list[str] = []
+            found = re.search(r"REQ-\d+", branch or "", re.I)
+            if found:
+                ids.append(found.group(0).upper())
+            for path in files:
+                match = re.search(r"requirements/(REQ-\d+)/", str(path), re.I)
+                if match:
+                    rid = match.group(1).upper()
+                    if rid not in ids:
+                        ids.append(rid)
+            for rid in ids:
+                self._note_repo_title(rid)
+                source = getattr(self, "_readme_source", None)
+                if not source or str((source.get("requirement") or {}).get("id") or "") != rid:
+                    source = self.store.get(rid) or {}
+                payload[f"requirements/{rid}/README.md"] = product_readme.render(rid, source)
+            return original(branch, payload, message, **kwargs)
+
+        git.commit_files = commit_files
+        git._titles_bound = True
+
+    def _note_repo_title(self, requirement_id: str, body: dict[str, Any] | None = None) -> None:
+        note = getattr(self.git, "note_title", None)
+        if not callable(note):
+            return
+        if body is not None:
+            self._readme_source = body
+        title = str((body or {}).get("display_title") or "").strip()
+        if not title:
+            stored = self.store.get(requirement_id) or {}
+            title = str(stored.get("display_title") or "").strip()
+        if title:
+            note(requirement_id, title)
+
     def _arm_sla(self, body: dict[str, Any], req: R.Requirement, gate: int | None) -> None:
         if gate is None:
             body["sla_due"] = None
@@ -1051,6 +1096,8 @@ class Phase1:
             intake_skill.snapshot_path_for(rid, "scope"): skill.content,
         }
         files.update(skill_registry.snapshot_paths(rid, "scope", self.git.bundle("intake")))
+        body["intake_brief"] = product_readme.brief_from_scope(scope_md)
+        self._note_repo_title(rid, body)
         return self.git.commit_files(
             f"scope/{rid}",
             files,

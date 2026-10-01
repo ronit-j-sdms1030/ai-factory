@@ -113,3 +113,55 @@ def test_runtime_db_round_trip(tmp_path):
     status, rows = runtime_db.handle(tmp_path, "REQ-0099", brd, "GET", "rooms")
     assert status == 200
     assert rows[0]["name"] == "A1"
+
+
+def test_runtime_db_keeps_form_fields_outside_the_brd_columns(tmp_path):
+    brd = "- **Room:** id, name\n"
+    status, _created = runtime_db.handle(
+        tmp_path,
+        "REQ-0099",
+        brd,
+        "POST",
+        "rooms",
+        body={"name": "Hall", "room": "A", "date": "2026-10-01", "drop table": "no"},
+    )
+    assert status == 201
+    _status, rows = runtime_db.handle(tmp_path, "REQ-0099", brd, "GET", "rooms")
+    assert rows[0]["name"] == "Hall"
+    assert rows[0]["room"] == "A"
+    assert rows[0]["date"] == "2026-10-01"
+    assert "drop table" not in rows[0]
+
+
+def test_preview_spaces_a_camel_case_sidebar_brand():
+    html = product.frontend_html(
+        "REQ-0099",
+        [{
+            "name": "RoomList",
+            "source": (
+                'function Page(){return null;}\nfunction Sidebar(props){return <aside>{props.children}</aside>;}\n'
+                'function RoomList(){return <Page><Sidebar><p>RoomList</p></Sidebar><h1>Rooms</h1></Page>;}\n'
+            ),
+        }],
+        "/preview/REQ-0099/api",
+    )
+    assert "<p>Room List</p>" in html
+    assert "<p>RoomList</p>" not in html
+
+
+def test_preview_drops_a_sidebar_title_that_repeats_the_nav():
+    html = product.frontend_html(
+        "REQ-0099",
+        [{
+            "name": "RoomList",
+            "source": (
+                'function Page(){return null;}\nfunction Sidebar(props){return <aside>{props.children}</aside>;}\n'
+                'function Button(props){return <button>{props.children}</button>;}\n'
+                'function RoomList(){return <Page><Sidebar><p>RoomList</p>'
+                '<Button>Room List</Button></Sidebar><h1>Rooms</h1></Page>;}\n'
+            ),
+        }],
+        "/preview/REQ-0099/api",
+    )
+    assert "<p>Room List</p>" not in html
+    assert ">Room List</Button>" in html or ">Room List</button>" in html

@@ -118,7 +118,7 @@ def test_dev_mode_explicitly_allows_actor_selection(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        status, run = request(
+        status, denied = request(
             server,
             "POST",
             "/api/runs",
@@ -128,8 +128,20 @@ def test_dev_mode_explicitly_allows_actor_selection(tmp_path):
                 "request": "Book rooms.",
             },
         )
+        assert status == 403
+        assert "requester" in str(denied.get("error") or "").lower()
+        status, run = request(
+            server,
+            "POST",
+            "/api/runs",
+            {
+                "originator_id": "u-requester",
+                "template": "full_governance",
+                "request": "Book rooms.",
+            },
+        )
         assert status == 201
-        assert run["originator"]["id"] == "u-po"
+        assert run["originator"]["id"] == "u-requester"
     finally:
         server.shutdown()
         server.server_close()

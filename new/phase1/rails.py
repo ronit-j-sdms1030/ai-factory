@@ -382,6 +382,15 @@ def shape_scope_report(data: dict[str, Any], *, request_text: str = "") -> dict[
             continue
         in_scope.append(item)
     in_scope = [item for item in in_scope if not is_bootstrap(item)]
+    seen_scope: set[str] = set()
+    unique_scope: list[str] = []
+    for item in in_scope:
+        key = re.sub(r"\s+", " ", item).strip().lower()
+        if not key or key in seen_scope:
+            continue
+        seen_scope.add(key)
+        unique_scope.append(item)
+    in_scope = unique_scope
     if request_text and not is_bootstrap(request_text) and (
         not in_scope or (len(in_scope) <= 2 and any(len(x) > 160 for x in in_scope))
     ):

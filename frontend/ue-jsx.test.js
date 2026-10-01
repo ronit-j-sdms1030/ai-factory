@@ -141,6 +141,49 @@ test('duplicate copies without ids so they get fresh ones', () => {
   assert.strictEqual(new Set(ids).size, ids.length, 'ids stay unique');
 });
 
+test('theme is read from the screen Page, not the helper', () => {
+  const src = `function Page(props) {
+  return <main className="page" data-theme="grove">{props.children}</main>;
+}
+function RoomList() {
+  return <Page data-theme="blush"><h1>Rooms</h1></Page>;
+}
+`;
+  assert.strictEqual(J.themeOf(src), 'blush');
+  const vars = J.setPageVars(src, { '--color-accent': '#112233' });
+  assert.ok(vars.includes('<Page data-theme="blush" style={{"--color-accent":"#112233"}}>'));
+  assert.ok(!/<main className="page" data-theme="grove" style=/.test(vars));
+});
+
+test('an insert target with an arrow in its attributes still closes on the real tag', () => {
+  const src = stamped().replace(
+    '<div data-ue=',
+    '<div onClick={() => navigate("RoomList")} data-ue='
+  );
+  const lt = src.indexOf('<div onClick');
+  const span = J.elementSpan(src, lt);
+  assert.ok(span && span.closeStart > lt);
+  assert.ok(src.slice(span.closeStart, span.end).startsWith('</div>'));
+  assert.ok(!src.slice(lt, span.openEnd).includes('</div>'));
+});
+
+test('motion and text edits stay on the selected element', () => {
+  const src = stamped();
+  const button = idOf(src, 'onClick={() => navigate("NewBooking")}');
+  const moved = J.setMotion(src, button, 'motion-rise');
+  assert.ok(moved.includes('motion="motion-rise"'));
+  const card = idOf(src, '<Card');
+  const titled = J.setElementText(src, card, 'ignored');
+  assert.strictEqual(titled, null, 'a card with children is not a text node');
+  const h1 = idOf(src, '>Rooms</h1>');
+  assert.strictEqual(J.elementText(src, h1), 'Rooms');
+  const renamed = J.setElementText(src, h1, 'Halls');
+  assert.ok(renamed.includes('>Halls</h1>'));
+  const field = idOf(src, '<Field');
+  const labelled = J.setElementText(src, field, 'Starts');
+  assert.ok(labelled.includes('label="Starts"'));
+});
+
 test('theme and page variables apply to a screen', () => {
   const themed = J.setTheme(SCREEN, 'blush');
   assert.strictEqual((themed.match(/data-theme="blush"/g) || []).length, 2);

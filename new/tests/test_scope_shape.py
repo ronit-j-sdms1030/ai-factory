@@ -26,6 +26,19 @@ def test_shape_scope_report_does_not_paste_the_transcript():
     assert "guessing" in shaped["success"]
 
 
+def test_shape_scope_report_drops_repeated_lines():
+    shaped = rails.shape_scope_report(
+        {
+            "type": "scope_report",
+            "title": "Hall diary",
+            "in_scope": ["Staff book a room", "staff book a room", "Staff book a room"],
+            "out_of_scope": ["A phone bot"],
+            "success": "A booking is stored.",
+        }
+    )
+    assert shaped["in_scope"] == ["Staff book a room"]
+
+
 def test_conversation_skips_bootstrap_and_keeps_today():
     today = (
         "Today contractors write their name in a paper book in the site cabin, "

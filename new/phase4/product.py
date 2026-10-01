@@ -205,7 +205,7 @@ def api_module(ticket: dict[str, Any], entities: list[tuple[str, list[str]]]) ->
         f"export const ticket = {tid!r};\n"
         f"export const resource = {resource!r};\n"
         "export const methods = ['GET', 'POST', 'DELETE'];\n"
-        "export function path() { return '/api/' + resource; }\n"
+        "export function path() { return `/api/${resource}`; }\n"
     )
 
 
@@ -215,8 +215,37 @@ def api_py(ticket: dict[str, Any], entities: list[tuple[str, list[str]]]) -> str
     return f"# ticket {tid}\nticket = {tid!r}\nresource = {resource!r}\n"
 
 
+# Sidebar brand is often the screen id (RoomList). Show the words instead.
+_BRAND_P = re.compile(
+    r"(<Sidebar\b[^>]*>\s*<p>)([A-Z][a-z]+(?:[A-Z][A-Za-z0-9]+)+)(</p>)"
+)
+
+
+def _drop_repeated_brand(text: str) -> str:
+    """Drop the sidebar title when it repeats a nav button on the same rail."""
+
+    def repl(match: re.Match[str]) -> str:
+        block = match.group(0)
+        brand = re.search(r"<p>([^<]+)</p>", block)
+        if not brand:
+            return block
+        label = brand.group(1).strip()
+        rest = block.replace(brand.group(0), "", 1)
+        if label and label in rest:
+            return rest
+        return block
+
+    return re.sub(r"<Sidebar\b[^>]*>[\s\S]*?</Sidebar>", repl, text, count=1)
+
+
 def _screen_source(source: str) -> str:
-    return dedupe_host_functions(neutralize_placeholder_tags((source or "").strip()))
+    text = dedupe_host_functions(neutralize_placeholder_tags((source or "").strip()))
+
+    def space_brand(match: re.Match[str]) -> str:
+        words = re.sub(r"([a-z])([A-Z])", r"\1 \2", match.group(2))
+        return match.group(1) + words + match.group(3)
+
+    return _drop_repeated_brand(_BRAND_P.sub(space_brand, text, count=1))
 
 
 def screen_jsx(name: str, source: str) -> str:
@@ -540,11 +569,23 @@ def frontend_html(
       if (/import/i.test(screen)) return "import_logs";
       return Object.keys(window.TABLES || {})[0] || "users";
     };
+    window.fieldScope = function (btn, stage) {
+      var node = btn && btn.parentElement;
+      var stop = stage || document.body;
+      while (node && node !== stop && node !== document.body) {
+        if (node.querySelector && node.querySelector("input,select,textarea")) return node;
+        node = node.parentElement;
+      }
+      return stop || document.getElementById("root") || document;
+    };
     window.collectNearbyFields = function (root) {
       var data = {};
       (root.querySelectorAll("input,select,textarea") || []).forEach(function (el) {
         var key = el.name || el.id || el.getAttribute("aria-label") || el.placeholder || "";
-        key = String(key).trim().toLowerCase().replace(/\s+/g, "_");
+        if (!key && el.parentElement && el.parentElement.tagName === "LABEL") {
+          key = (el.parentElement.textContent || "").replace(el.value || "", "");
+        }
+        key = String(key).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
         if (!key || key === "search") return;
         if (el.type === "password") key = key.indexOf("password") >= 0 ? "password_hash" : key;
         data[key] = el.value;
@@ -581,10 +622,22 @@ def frontend_html(
         if (data.item && !data.title) data.title = data.item;
         if (!data.status) data.status = "available";
       }
+      var cols = (window.TABLES[resource] || []).map(function (c) { return String(c).toLowerCase(); });
+      function fill(target, sources) {
+        if (cols.indexOf(target) < 0 || data[target]) return;
+        sources.forEach(function (source) {
+          if (!data[target] && data[source]) data[target] = data[source];
+        });
+      }
+      fill("name", ["room", "title", "label"]);
+      fill("starts_at", ["date", "start", "starts", "day"]);
+      fill("ends_at", ["end", "ends"]);
+      fill("room_id", ["room"]);
+      fill("user_id", ["name", "user", "staff"]);
       return data;
     };
     window.saveFromUi = function (btn, stage) {
-      var scope = stage || (btn && btn.closest(".preview-stage")) || document.getElementById("root") || document;
+      var scope = window.fieldScope(btn, stage || (btn && btn.closest(".preview-stage")) || document.getElementById("root"));
       var data = window.collectNearbyFields(scope);
       var resource = (btn && btn.getAttribute("data-resource")) || window.inferResource(data);
       // Screen-aware fallback beats weak field matches (member/item/due → loans).
@@ -1024,7 +1077,7 @@ const server = http.createServer(async (req, res) => {{
   json(res, 404, {{ error: "not found" }});
 }});
 server.listen(PORT, "127.0.0.1", () => {{
-  console.log("app {requirement_id} on http://127.0.0.1:" + PORT);
+  console.log(`app {requirement_id} on http://127.0.0.1:${{PORT}}`);
 }});
 """
 

@@ -82,7 +82,8 @@ def test_full_direct_http_flow_reaches_phase_2(tmp_path):
         )
         assert run["phase"] == "awaiting_gate_3"
         assert run["awaiting"] == 3
-        assert run["screens"]
+        assert run["screens"] == []
+        assert run.get("architecture_text") or run.get("architecture")
         assert len(run["attestations"]) == 3
     finally:
         server.shutdown()
