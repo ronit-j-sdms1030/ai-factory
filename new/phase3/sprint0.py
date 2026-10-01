@@ -7,8 +7,11 @@ a STATUS.md that says green.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from stack_profiles import StackProfile
@@ -161,17 +164,25 @@ def _checkov(produced: dict[str, str]) -> list[str]:
     tf = next((c for p, c in produced.items() if p.endswith(".tf")), "")
     if not tf:
         return []
-    completed = subprocess.run(
-        [binary, "-f", "-", "--quiet"],
-        input=tf,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        text = (completed.stdout or completed.stderr or "checkov failed").strip()
-        return [f"checkov: {text.splitlines()[0][:200]}"]
-    return []
+    # Checkov reads files, not stdin: "-f -" crashes its secrets runner and
+    # reported a tool error as a blocking finding.
+    with tempfile.TemporaryDirectory(prefix="sprint0-") as folder:
+        target = Path(folder) / "main.tf"
+        target.write_text(tf)
+        completed = subprocess.run(
+            [binary, "-f", str(target), "--framework", "terraform", "--quiet", "--compact"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    if completed.returncode == 0:
+        return []
+    failed = re.findall(r"Check:\s*(CKV\w*)[^\n]*", completed.stdout or "")
+    if failed:
+        return [f"checkov: {check} failed" for check in dict.fromkeys(failed)]
+    text = (completed.stdout or completed.stderr or "checkov failed").strip()
+    return [f"checkov: {text.splitlines()[-1][:200]}"]
 
 
 def _status(requirement_id: str, profile: StackProfile, status: str, scan: dict[str, Any]) -> str:

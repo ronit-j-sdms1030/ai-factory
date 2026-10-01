@@ -128,24 +128,31 @@ class TestSubmitAndIntake:
         snapshot = intake_skill.snapshot_path_for(rid, "scope")
         assert "capability boundary" in p1.git.read(snapshot, f"scope/{rid}").lower()
 
-    def test_a_report_cannot_close_before_four_questions(self, p1):
+    def test_a_ready_report_closes_without_a_filler_question(self, p1):
         class Eager:
             def complete(self, messages, *, skill, model=None, **_kwargs):
                 return json.dumps(
                     {
                         "type": "scope_report",
-                        "in_scope": ["A web form"],
+                        "title": "Room booking",
+                        "users": "Facilities staff",
+                        "current_state": "Rooms are booked in a spreadsheet.",
+                        "in_scope": [
+                            "Staff sign in",
+                            "Staff book a room",
+                            "Staff see which rooms are free",
+                        ],
                         "out_of_scope": ["Native mobile"],
-                        "success": "It works",
-                        "open_questions": ["Who owns rooms?"],
+                        "success": "Rooms stop being double-booked",
+                        "open_questions": [],
                     }
                 )
 
         eager = Phase1(p1.root / "eager", llm=Eager())
         run = eager.submit(directory.actor("u-requester"), "full_governance", "Book rooms.")
-        assert run["phase"] == "intake"
-        assert run["question"]
-        assert "scope" not in run["requirement"]["artefacts"]
+        assert run["phase"] == "awaiting_gate_1"
+        assert "scope" in run["requirement"]["artefacts"]
+        assert "What else must be true" not in str(run.get("question") or "")
 
     def test_truncated_scope_json_closes_to_gate_1_not_chat_json(self, tmp_path):
         class Script:

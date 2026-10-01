@@ -9,7 +9,7 @@ import pytest
 import department_routing as routing
 from phase1 import directory
 from phase1.platform import Phase1
-from phase3 import decomposer, qa
+from phase3 import decomposer, qa, trace
 from stack_profiles import NODE
 from tests.test_phase2 import reach_design
 
@@ -46,7 +46,11 @@ def test_gate_3_writes_plan_tickets_and_tests(tmp_path: Path):
     assert run["sprint0"]["status"] == "green"
     assert len(run["tickets"]) >= 5
     assert all(ticket["paths"] for ticket in run["tickets"])
-    assert len(run["tests"]) == 8
+    req_ids = [row["id"] for row in trace.requirements(run["brd_text"])]
+    assert req_ids
+    for req_id in req_ids:
+        assert any(case["criterion"] == req_id for case in run["tests"]), req_id
+        assert any(req_id in (t.get("trace") or []) for t in run["tickets"]), req_id
     assert any(case.get("critical") for case in run["tests"])
     assert run["tests"][0]["framework"] == "Vitest"
     assert p1.git.read(f"requirements/{rid}/plan/plan.md", f"plan/{rid}").startswith("# Plan")
@@ -57,12 +61,13 @@ def test_gate_3_writes_plan_tickets_and_tests(tmp_path: Path):
     assert run["team_reports"]
     teams = {row["team"] for row in run["team_reports"]}
     assert "development" in teams
-    assert "ai" in teams
     assert all(row.get("integratesInto") for row in run["team_reports"])
-    assert any(t.get("id", "").endswith("-AI1") for t in run["tickets"])
-    ai = next(t for t in run["tickets"] if t.get("id", "").endswith("-AI1"))
-    assert ai["department"] == "ai"
-    assert any(path.startswith("src/ai") or path.startswith("app/ai") for path in ai["paths"])
+    ai = next((t for t in run["tickets"] if t.get("id", "").endswith("-AI1")), None)
+    assert (ai is not None) == trace.wants_ai(run["brd_text"])
+    if ai is not None:
+        assert "ai" in teams
+        assert ai["department"] == "ai"
+        assert any(path.startswith("src/ai") or path.startswith("app/ai") for path in ai["paths"])
     titles = " ".join(ticket["title"] for ticket in run["tickets"])
     assert any(ticket.get("screen") for ticket in run["tickets"])
     assert any(case.get("criterion") == "ui" and "reachable" in case["name"] for case in run["tests"])
@@ -123,15 +128,36 @@ def test_decomposer_follows_this_brd_not_booking():
     assert "booking" not in titles
     assert any("Employee API" in ticket["title"] for ticket in tickets)
     assert any(ticket.get("screen") == "Timesheet" for ticket in tickets)
-    assert tickets[-1]["id"].endswith("-AI1")
+    assert not any(ticket["id"].endswith("-AI1") for ticket in tickets)
+    for req_id in ("REQ-9-R01", "REQ-9-R02"):
+        assert any(req_id in ticket["trace"] for ticket in tickets[1:]), req_id
+
+
+def test_ai_ticket_only_when_the_brd_asks_for_ai():
+    brd = ATTENDANCE_BRD + "\n### REQ-9-R03 — Recommend a shift from past attendance\n"
+    tickets = decomposer.tickets("REQ-9", brd, [{"name": "Timesheet"}], NODE)
+    ai = next(ticket for ticket in tickets if ticket["id"].endswith("-AI1"))
+    assert ai["department"] == "ai"
+    assert "REQ-9-R03" in ai["trace"]
+
+
+def test_screen_ticket_waits_for_its_record_api_and_owns_its_folder():
+    screens = [{"name": "Timesheet"}]
+    tickets = decomposer.tickets("REQ-9", ATTENDANCE_BRD, screens, NODE)
+    screen = next(ticket for ticket in tickets if ticket.get("screen") == "Timesheet")
+    assert screen["paths"] == ["src/ui/Timesheet/**"]
+    api_paths = [tuple(t["paths"]) for t in tickets if t.get("entity") and not t.get("screen")]
+    assert len(api_paths) == len(set(api_paths))
+    parent = next(t for t in tickets if t["id"] == screen["depends_on"][0])
+    assert parent["title"].endswith("API")
 
 
 def test_qa_uses_approved_screens_and_this_brd():
     screens = [{"name": "Timesheet"}]
     cases = qa.cases(ATTENDANCE_BRD, screens, NODE)
-    assert len(cases) == 8
+    assert [case["criterion"] for case in cases[:2]] == ["REQ-9-R01", "REQ-9-R02"]
     assert any(case.get("critical") for case in cases)
-    assert "Timesheet" in cases[6]["name"]
+    assert any("Timesheet" in case["name"] and case["criterion"] == "ui" for case in cases)
     assert not any("book a room" in case["name"] for case in cases)
     assert not any("overlapping bookings" in case["name"] for case in cases)
 

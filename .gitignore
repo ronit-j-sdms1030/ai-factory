@@ -10,6 +10,13 @@ new/.runtime/
 new/.venv/
 new/.pytest_cache/
 
+# Requirement data stays out of the factory repo: run state, generated apps, pipeline output
+*.sqlite
+**/.runtime/
+**/.semgrep-venv/
+**/.langgraph_api/
+old/
+
 
 # JetBrains IDE
 .idea/

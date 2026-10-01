@@ -86,6 +86,13 @@
   .item-chain { font-size: 0.76rem; color: var(--text-faint); margin-top: 0.6rem; }
   .item-why { font-size: 0.82rem; color: #b3462c; margin-top: 0.55rem; padding: 0.5rem 0.65rem; background: var(--surface-2); border-radius: 6px; }
   .item-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.6rem; }
+  .stage-check { margin-top: 0.6rem; padding: 0.55rem 0.7rem; border-radius: 6px; font-size: 0.8rem; border: 1px solid; }
+  .stage-check.is-ok { border-color: #2f8f5b; color: #22623f; background: rgba(47, 143, 91, 0.08); }
+  .stage-check.is-fail { border-color: #b3462c; color: #8c3320; background: rgba(179, 70, 44, 0.08); }
+  .stage-check-head { font-weight: 600; }
+  .stage-check ul { margin: 0.35rem 0 0; padding-left: 1.1rem; max-height: 9rem; overflow: auto; }
+  .stage-check li { margin: 0.15rem 0; }
+  .stage-check-notes { color: var(--text-muted, #6b6b6b); font-style: italic; }
   .item-badge {
     font-size: 0.72rem; letter-spacing: 0.02em; padding: 0.18rem 0.5rem; border-radius: 999px;
     border: 1px solid var(--accent); color: var(--accent); background: transparent;
@@ -403,6 +410,118 @@
   .md-viewer hr { border: none; border-top: 1px solid var(--line); margin: 1rem 0; }
   .md-viewer .mermaid { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem; overflow-x: auto; margin: 0 0 0.6rem; }
   .md-viewer em { color: var(--text-faint); }
+
+  .modal-overlay.is-compare { z-index: 140; padding: 0.8rem; align-items: stretch; }
+  .modal-overlay.is-compare .modal-panel {
+    max-width: 1180px; width: min(1180px, 100%);
+    height: min(92vh, 980px); max-height: 92vh;
+    margin: auto; display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 18px;
+  }
+  .modal-overlay.is-compare .modal-head { flex-shrink: 0; }
+  .modal-overlay.is-compare .modal-body {
+    flex: 1; min-height: 0; overflow: hidden; padding: 0; gap: 0;
+  }
+  .cov-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--bg); }
+  .cov-split { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .cov-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--surface); }
+  .cov-pane + .cov-pane { border-left: 1px solid var(--line); }
+  .cov-pane-head {
+    flex-shrink: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem;
+    padding: 0.7rem 1rem; border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  .cov-kicker {
+    font-family: var(--font-mono); font-size: 0.66rem; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
+  }
+  .cov-pane-head strong { font-size: 0.92rem; }
+  .cov-hint { font-size: 0.72rem; color: var(--text-faint); }
+  .cov-scroll { flex: 1; min-height: 0; overflow: auto; padding: 1rem 1.1rem 1.4rem; }
+  .cov-req {
+    margin: 0.35rem 0 0.9rem; padding: 0.15rem 0.85rem 0.35rem;
+    border-radius: 12px; border: 1px solid transparent; cursor: pointer;
+    scroll-margin: 0.6rem;
+  }
+  .cov-req.is-met { background: rgba(76, 175, 125, 0.1); border-color: rgba(76, 175, 125, 0.28); }
+  .cov-req.is-gap { background: rgba(226, 104, 90, 0.1); border-color: rgba(226, 104, 90, 0.28); }
+  .cov-req.is-active { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cov-shell.is-filtering .cov-req:not(.is-active) { opacity: 0.45; }
+  .cov-shell.is-filtering .cov-mark:not(.is-active) { opacity: 0.2; }
+  .cov-pill {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    margin: 0.65rem 0 0.2rem; font-family: var(--font-mono); font-size: 0.66rem;
+    font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .cov-req.is-met .cov-pill { color: var(--good); }
+  .cov-req.is-gap .cov-pill { color: var(--bad); }
+  .cov-gaps { margin: 0 0 0.4rem; font-size: 0.8rem; color: var(--bad); }
+  .cov-mark {
+    border-radius: 4px; padding: 0 0.12em; color: inherit;
+    box-decoration-break: clone; -webkit-box-decoration-break: clone;
+  }
+  .cov-mark.is-active { outline: 2px solid var(--text); outline-offset: 1px; }
+  .cov-mark.is-gap-mark { background: rgba(226, 104, 90, 0.28); box-shadow: inset 0 -2px 0 var(--bad); }
+  .cov-mark.tone-0, .cov-tone.tone-0 { background: rgba(76, 175, 125, 0.38); }
+  .cov-mark.tone-1, .cov-tone.tone-1 { background: rgba(191, 106, 77, 0.34); }
+  .cov-mark.tone-2, .cov-tone.tone-2 { background: rgba(70, 130, 180, 0.32); }
+  .cov-mark.tone-3, .cov-tone.tone-3 { background: rgba(196, 154, 42, 0.38); }
+  .cov-mark.tone-4, .cov-tone.tone-4 { background: rgba(120, 90, 170, 0.32); }
+  .cov-mark.tone-5, .cov-tone.tone-5 { background: rgba(38, 148, 148, 0.32); }
+  .cov-tone { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 99px; flex-shrink: 0; }
+  .cov-report {
+    flex-shrink: 0; overflow: visible;
+    border-top: 1px solid var(--line); background: var(--surface);
+    padding: 0.7rem 1rem 0.8rem;
+  }
+  .cov-report-head { display: flex; align-items: center; gap: 0.85rem; margin: 0; flex-wrap: wrap; }
+  .cov-select {
+    font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px;
+    padding: 0.38rem 0.55rem; max-width: 100%;
+  }
+  .cov-pick { flex: 1; min-width: 220px; }
+  .cov-pick-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--text-soft); }
+  .cov-ring {
+    width: 54px; height: 54px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: conic-gradient(var(--good) calc(var(--p) * 1%), var(--line) 0);
+  }
+  .cov-ring b {
+    width: 42px; height: 42px; border-radius: 50%; background: var(--surface);
+    display: grid; place-items: center; font-size: 0.78rem;
+  }
+  .cov-report-head h4 { margin: 0; font-size: 0.95rem; }
+  .cov-report-head p { margin: 0.15rem 0 0; font-size: 0.8rem; color: var(--text-soft); }
+  .cov-report-actions { margin-left: auto; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .cov-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+  :root.theme-client .cov-report .btn,
+  .cov-report .btn {
+    padding: 0.35rem 0.75rem; font-size: 0.75rem; font-weight: 600;
+    box-shadow: none; border-radius: 999px;
+  }
+  .cov-chip {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; text-align: left;
+    min-width: 168px; max-width: 280px; border-radius: 12px; padding: 0.45rem 0.65rem;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    font: inherit; font-size: 0.75rem; cursor: pointer;
+  }
+  .cov-chip .top { display: flex; align-items: center; gap: 0.35rem; width: 100%; }
+  .cov-chip .top .name {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    white-space: normal; overflow: hidden;
+  }
+  .cov-chip > .name { color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .cov-chip .verdict { font-family: var(--font-mono); font-size: 0.66rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+  .cov-chip.is-met { border-color: rgba(76, 175, 125, 0.45); }
+  .cov-chip.is-met .verdict { color: var(--good); }
+  .cov-chip.is-gap { border-color: rgba(226, 104, 90, 0.5); }
+  .cov-chip.is-gap .verdict { color: var(--bad); }
+  .cov-chip.is-active { outline: 2px solid var(--accent); }
+  @media (max-width: 860px) {
+    .cov-split { grid-template-columns: 1fr; }
+    .cov-pane + .cov-pane { border-left: 0; border-top: 1px solid var(--line); }
+    .modal-overlay.is-compare .modal-panel { height: 94vh; }
+  }
 
   .side-nav { display: flex; flex-direction: column; gap: 0.15rem; }
   .side-nav-btn {
@@ -1056,6 +1175,7 @@
       <button class="btn secondary" id="ide-save-btn" type="button" style="display:none;">💾 Save file</button>
       <button class="btn secondary" id="ide-demo-btn" type="button">▶ UI Demo</button>
       <button class="btn secondary" id="ide-compare-btn" type="button" style="display:none;">⇄ Compare to report</button>
+      <button class="btn secondary" id="ide-brd-btn" type="button" style="display:none;">BRD check</button>
       <button class="btn secondary" id="ide-download-btn" type="button" disabled>⬇ Download All</button>
       <button class="btn secondary" id="ide-close-btn" type="button">✕ Close</button>
     </div>
@@ -1120,12 +1240,97 @@
       return 'all';
     }
 
-    function architectureMarkdown(artifact) {
-      var text = (artifact.architectureText || '').trim();
-      if (!text && artifact.detailedReport && artifact.detailedReport.architecture) {
-        text = String(artifact.detailedReport.architecture || '').trim();
+    var STAGE_CHECK_LABELS = {
+      business: 'BRD', architecture: 'architecture', analysis: 'business analysis', screens: 'screens', plan: 'plan',
+      build: 'build', uat: 'UAT', release: 'release'
+    };
+
+    // The server checks each stage against every BRD requirement; this picks
+    // the check for the artefact this viewer is signing right now.
+    function stageCheckFor(artifact) {
+      if (!artifact || !artifact.phase1 || !artifact.stageChecks) return null;
+      var gate = artifact.awaitingGate || 0;
+      var key = null;
+      if (gate === 2) key = 'business';
+      else if (gate === 3) {
+        var lens = gate3Lens(me && me.tierId);
+        key = lens === 'screens' ? 'screens' : (lens === 'business' ? 'analysis' : 'architecture');
       }
-      var lines = ['# Architecture', ''];
+      else if (gate === 4) key = 'plan';
+      else if (gate === 5) key = 'build';
+      else if (gate === 6) key = 'uat';
+      else if (gate === 7) key = 'release';
+      var check = key ? artifact.stageChecks[key] : null;
+      if (!check || typeof check.ok !== 'boolean') return null;
+      return { key: key, label: STAGE_CHECK_LABELS[key] || key, check: check };
+    }
+
+    function stageCheckGapText(found) {
+      if (!found || found.check.ok) return '';
+      var lines = ['The ' + found.label + ' does not satisfy the approved BRD:'];
+      asArray(found.check.rows).forEach(function (row) {
+        if (row.satisfies) return;
+        lines.push('- ' + row.id + ' ' + (row.title || '') + ': ' + asArray(row.gaps).join('; '));
+      });
+      asArray(found.check.problems).forEach(function (problem) { lines.push('- ' + problem); });
+      return lines.join('\n');
+    }
+
+    function renderStageCheck(found) {
+      var box = document.createElement('div');
+      box.className = 'stage-check ' + (found.check.ok ? 'is-ok' : 'is-fail');
+      var head = document.createElement('div');
+      head.className = 'stage-check-head';
+      head.textContent = found.check.summary || '';
+      box.appendChild(head);
+      var notes = asArray(found.check.notes);
+      if (notes.length) {
+        var noteList = document.createElement('ul');
+        noteList.className = 'stage-check-notes';
+        notes.forEach(function (note) {
+          var li = document.createElement('li');
+          li.textContent = note;
+          noteList.appendChild(li);
+        });
+        box.appendChild(noteList);
+      }
+      if (found.check.ok) return box;
+      var list = document.createElement('ul');
+      asArray(found.check.rows).forEach(function (row) {
+        if (row.satisfies) return;
+        var li = document.createElement('li');
+        var strong = document.createElement('strong');
+        strong.textContent = row.id;
+        li.appendChild(strong);
+        li.appendChild(document.createTextNode(' ' + (row.title || '') + ' — ' + asArray(row.gaps).join('; ')));
+        list.appendChild(li);
+      });
+      asArray(found.check.problems).forEach(function (problem) {
+        var li = document.createElement('li');
+        li.textContent = problem;
+        list.appendChild(li);
+      });
+      box.appendChild(list);
+      return box;
+    }
+
+    function stageHasBrdCriteria(artifact) {
+      if (!artifact) return false;
+      var gate = artifact.awaitingGate || 0;
+      var governed = artifact.governedPhase || 0;
+      return gate >= 3 || governed >= 2 || artifact.currentStage === 'approved';
+    }
+
+    function stripBrdExcerpt(md) {
+      return String(md || '').replace(/\n##\s+Source BRD excerpt[\s\S]*$/i, '').trim();
+    }
+
+    function architectureMarkdown(artifact) {
+      var text = stripBrdExcerpt(artifact.architectureText || '');
+      if (!text && artifact.detailedReport && artifact.detailedReport.architecture) {
+        text = stripBrdExcerpt(artifact.detailedReport.architecture);
+      }
+      var lines = [];
       if (text) lines.push(text, '');
       else lines.push('_No architecture artefact yet._', '');
       var profile = artifact.stackProfile;
@@ -1169,9 +1374,10 @@
 
     function businessGate3Markdown(artifact) {
       var brd = artifact.brdText || '';
-      var lines = ['# Business review — Gate 3', '',
+      var lines = [];
+      lines.push('# Business review — Gate 3', '',
         'Confirm the screens cover what the approved BRD asked for. You sign for business fit, not stack choice or pixel polish.',
-        ''];
+        '');
       var purpose = brdSection(brd, 'Purpose') || brdSection(brd, 'Objective') || brdSection(brd, 'Summary');
       var pages = brdSection(brd, 'Page behaviour') || brdSection(brd, 'Page Behavior');
       var success = brdSection(brd, 'Success');
@@ -1202,6 +1408,539 @@
         lines.push('');
       }
       return lines.join('\n');
+    }
+
+    var COV_PANES = {
+      intake: { kicker: 'Intake', label: 'Intake report' },
+      architecture: { kicker: 'Architect', label: 'Architecture' },
+      business: { kicker: 'Business analyst', label: 'Business review' },
+      screens: { kicker: 'UI / UX', label: 'Screens' },
+      plan: { kicker: 'Tech lead', label: 'Plan' },
+      code: { kicker: 'Senior engineer', label: 'Code' },
+      uat: { kicker: 'Business stakeholder', label: 'UAT' },
+      release: { kicker: 'Release manager', label: 'Release' }
+    };
+    var COV_SKIP = {
+      given: 1, when: 1, then: 1, acceptance: 1, criteria: 1, that: 1, this: 1,
+      with: 1, from: 1, they: 1, their: 1, have: 1, been: 1, will: 1, must: 1,
+      into: 1, each: 1, only: 1, than: 1, them: 1, were: 1, your: 1, about: 1,
+      after: 1, before: 1, which: 1, there: 1, these: 1, those: 1, record: 1
+    };
+
+    function paneForArtifact(artifact, explicit) {
+      if (explicit && COV_PANES[explicit]) return explicit;
+      if (artifact && (artifact.currentStage === 'approved' || (artifact.governedPhase || 0) >= 7)) return 'release';
+      var gate = (artifact && artifact.awaitingGate) || 0;
+      if (gate > 0 && gate < 3) return 'intake';
+      if (gate <= 3) {
+        var lens = gate3Lens(me && me.tierId);
+        if (lens === 'business') return 'business';
+        if (lens === 'screens') return 'screens';
+        return 'architecture';
+      }
+      if (gate === 4) return 'plan';
+      if (gate === 5) return 'code';
+      if (gate === 6) return 'uat';
+      return 'release';
+    }
+
+    function screenLabels(source) {
+      var found = [];
+      var re = /label="([^"]+)"|<th>([^<]+)<\/th>/g;
+      var match;
+      var text = String(source || '');
+      while ((match = re.exec(text))) {
+        var label = (match[1] || match[2] || '').trim();
+        if (label && found.indexOf(label) === -1) found.push(label);
+      }
+      return found;
+    }
+
+    function businessArtefactMarkdown(artifact) {
+      var brd = artifact.brdText || '';
+      var lines = [
+        '# Business review',
+        '',
+        'You sign for business fit: who it is for, what they do on each page, and whether every requirement is still the one they approved.',
+        '',
+        'Stack, modules, and the database are the architect\'s document. They are not part of this review.',
+        ''
+      ];
+      var seen = {};
+      ['Objective', 'Purpose', 'Success', 'Users', 'In scope', 'Page behaviour', 'Page Behavior', 'Assumptions'].forEach(function (heading) {
+        var section = brdSection(brd, heading);
+        if (!section || seen[section]) return;
+        seen[section] = true;
+        lines.push(section, '');
+      });
+      var screens = (artifact.ui && artifact.ui.screens) || [];
+      lines.push('## Screens', '');
+      if (!screens.length) {
+        lines.push('Screens are drawn after you sign. This column stays the business document.', '');
+      } else {
+        screens.forEach(function (screen) {
+          lines.push('- **' + (screen.name || 'Screen') + '**' + (screen.route ? ' (`' + screen.route + '`)' : ''));
+        });
+        lines.push('');
+      }
+      return lines.join('\n');
+    }
+
+    function screensArtefactMarkdown(artifact) {
+      var screens = (artifact.ui && artifact.ui.screens) || [];
+      if (!screens.length) {
+        return 'No screens yet.\n\nUI/UX draws them after the business analyst signs. Only UI/UX opens the screen editor.\n';
+      }
+      var lines = [];
+      screens.forEach(function (screen) {
+        var name = screen.name || 'Screen';
+        lines.push('## ' + name, '');
+        if (screen.route) lines.push('Route `' + screen.route + '`', '');
+        var labels = screenLabels(screen.source);
+        if (labels.length) {
+          lines.push('Fields on this screen:', '');
+          labels.forEach(function (label) { lines.push('- ' + label); });
+          lines.push('');
+        }
+      });
+      return lines.join('\n');
+    }
+
+    function recordLines(obj, skip) {
+      var lines = [];
+      if (!obj || typeof obj !== 'object') return lines;
+      Object.keys(obj).forEach(function (key) {
+        if (skip && skip[key]) return;
+        var value = obj[key];
+        if (value == null || value === '') return;
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          lines.push('- **' + key + '**: ' + value);
+        }
+      });
+      return lines;
+    }
+
+    function intakeArtefactMarkdown(artifact) {
+      var scope = String(artifact.scopeText || '').trim();
+      if (scope) return scope;
+      var c = (artifact.content && typeof artifact.content === 'object') ? artifact.content : {};
+      var lines = ['# Intake report', ''];
+      if (c.summary) lines.push(c.summary, '');
+      if (c.users) lines.push('## Users', '', c.users, '');
+      if (c.currentState) lines.push('## What happens today', '', c.currentState, '');
+      function bullets(title, items) {
+        var list = asArray(items);
+        if (!list.length) return;
+        lines.push('## ' + title, '');
+        list.forEach(function (item) {
+          var text = typeof item === 'string' ? item : (item.name || item.page || item.id || '');
+          if (text) lines.push('- ' + text);
+        });
+        lines.push('');
+      }
+      bullets('In scope', c.inScope);
+      bullets('Out of scope', c.outOfScope);
+      bullets('Screens', c.screens);
+      bullets('Assumptions', c.assumptions);
+      bullets('Open questions', c.openQuestions);
+      if (lines.length < 4) lines.push('_No intake report was recorded._', '');
+      return lines.join('\n');
+    }
+
+    function artefactMarkdown(artifact, pane) {
+      if (pane === 'intake') return intakeArtefactMarkdown(artifact);
+      if (pane === 'architecture') return architectureMarkdown(artifact);
+      if (pane === 'business') return businessArtefactMarkdown(artifact);
+      if (pane === 'screens') {
+        return 'These screens are what the visitor will use. A highlight is a requirement from the BRD.\n\n' + screensArtefactMarkdown(artifact);
+      }
+      if (pane === 'plan') {
+        var plan = (artifact.planText || '').trim();
+        return plan || '_No plan yet._';
+      }
+      if (pane === 'code') {
+        var lines = [];
+        asArray(artifact.ui && artifact.ui.screens).forEach(function (screen) {
+          lines.push('## ' + (screen.name || 'Screen'), '');
+          screenLabels(screen.source).forEach(function (label) { lines.push('- ' + label); });
+          lines.push('');
+        });
+        asArray(artifact.tickets).forEach(function (ticket) {
+          if (!ticket) return;
+          lines.push('## ' + ((ticket.id ? ticket.id + ' — ' : '') + (ticket.title || 'Ticket')), '');
+          if (ticket.title) lines.push(String(ticket.title), '');
+        });
+        if (!lines.length) lines.push('_No code plan is attached yet._', '');
+        return lines.join('\n');
+      }
+      if (pane === 'uat') {
+        var uat = artifact.uat || {};
+        var uatLines = ['The running product is what the stakeholder checks against the BRD.', ''];
+        if (uat.preview || uat.url) uatLines.push('Preview: `' + (uat.preview || uat.url) + '`', '');
+        if (uat.status) uatLines.push('Status: ' + uat.status, '');
+        recordLines(uat.qa, { html: 1 }).forEach(function (line) { uatLines.push(line); });
+        return uatLines.join('\n');
+      }
+      var release = artifact.release || {};
+      var rel = ['What is ready to ship.', ''];
+      recordLines(release.canary).forEach(function (line) { rel.push(line); });
+      recordLines(release.admission).forEach(function (line) { rel.push(line); });
+      if (rel.length < 3) rel.push('_Release notes appear when Gate 7 is prepared._');
+      return rel.join('\n');
+    }
+
+    function renderMarkdown(md) {
+      if (window.marked) return marked.parse(md || '');
+      return '<pre style="white-space:pre-wrap;">' + escapeHtml(md || '') + '</pre>';
+    }
+
+    function humanToken(token) {
+      return String(token || '').split('.').pop().replace(/_/g, ' ');
+    }
+
+    function phrasesForRequirement(row, sectionText, artText) {
+      var found = [];
+      var seen = {};
+      var art = String(artText || '').toLowerCase();
+      function add(phrase) {
+        var clean = String(phrase || '').replace(/\s+/g, ' ').trim();
+        if (clean.length < 4 || clean.length > 60) return;
+        var key = clean.toLowerCase();
+        if (seen[key] || COV_SKIP[key]) return;
+        var words = key.split(' ');
+        if (words[0] === 'given' || words[0] === 'when' || words[0] === 'then' || words[0] === 'and') return;
+        var snake = words.length > 1 ? words.join('_') : '';
+        var inArt = !art || art.indexOf(key) !== -1 || (snake && art.indexOf(snake) !== -1);
+        if (!inArt) return;
+        if (words.length === 1 && !/_/.test(clean) && !/[A-Z]/.test(clean.slice(1))) return;
+        if (art.indexOf(key) !== -1) {
+          seen[key] = true;
+          found.push(clean);
+        }
+        if (snake && art.indexOf(snake) !== -1 && !seen[snake]) {
+          seen[snake] = true;
+          found.push(snake);
+        }
+      }
+      asArray(row && row.covered).forEach(function (token) {
+        add(humanToken(token));
+        var raw = String(token).split('.').pop();
+        if (raw && raw.indexOf('_') !== -1) add(raw);
+      });
+      var text = String(sectionText || '');
+      (text.match(/\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b/g) || []).forEach(add);
+      (text.match(/\b[a-z]+(?:_[a-z0-9]+)+\b/g) || []).forEach(add);
+      (text.match(/\b[A-Z][a-z]+(?:\s+[A-Za-z][a-z]+){1,4}\b/g) || []).forEach(add);
+      var tokens = text.split(/[^A-Za-z0-9_]+/).filter(Boolean);
+      for (var size = 2; size <= 4; size++) {
+        for (var i = 0; i + size <= tokens.length; i++) {
+          var slice = tokens.slice(i, i + size);
+          if (COV_SKIP[slice[0].toLowerCase()]) continue;
+          var meaningful = slice.filter(function (word) {
+            return word.length > 3 && !COV_SKIP[word.toLowerCase()];
+          });
+          if (!meaningful.length) continue;
+          add(slice.join(' '));
+        }
+      }
+      return found.slice(0, 16);
+    }
+
+    function highlightPhrases(root, jobs) {
+      var ordered = jobs.slice().sort(function (a, b) { return b.phrase.length - a.phrase.length; });
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      var nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(function (node) {
+        var parent = node.parentElement;
+        if (!parent || parent.closest('pre, code, .cov-mark, .cov-pane-head')) return;
+        var text = node.nodeValue;
+        if (!text || !text.trim()) return;
+        var lower = text.toLowerCase();
+        var hits = [];
+        ordered.forEach(function (job) {
+          var needle = job.phrase.toLowerCase();
+          var from = 0;
+          while (from < lower.length) {
+            var at = lower.indexOf(needle, from);
+            if (at < 0) break;
+            var before = at > 0 ? lower.charAt(at - 1) : '';
+            var after = lower.charAt(at + needle.length) || '';
+            if ((before && /[a-z0-9_]/.test(before)) || (after && /[a-z0-9_]/.test(after))) {
+              from = at + 1;
+              continue;
+            }
+            hits.push({ at: at, end: at + needle.length, job: job });
+            from = at + needle.length;
+          }
+        });
+        if (!hits.length) return;
+        hits.sort(function (a, b) { return a.at - b.at || (b.end - b.at) - (a.end - a.at); });
+        var kept = [];
+        var cursor = 0;
+        hits.forEach(function (hit) {
+          if (hit.at < cursor) return;
+          kept.push(hit);
+          cursor = hit.end;
+        });
+        var frag = document.createDocumentFragment();
+        var pos = 0;
+        kept.forEach(function (hit) {
+          if (hit.at > pos) frag.appendChild(document.createTextNode(text.slice(pos, hit.at)));
+          var mark = document.createElement('mark');
+          mark.className = 'cov-mark tone-' + (hit.job.tone % 6) + (hit.job.gap ? ' is-gap-mark' : '');
+          mark.dataset.req = hit.job.reqId;
+          mark.textContent = text.slice(hit.at, hit.end);
+          frag.appendChild(mark);
+          pos = hit.end;
+        });
+        if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+        node.parentNode.replaceChild(frag, node);
+      });
+    }
+
+    function panesForViewer(artifact) {
+      var gate = artifact && artifact.awaitingGate;
+      if (gate === 3 && me) {
+        if (me.tierId === 'architect') return ['architecture', 'intake'];
+        if (me.tierId === 'ba') return ['business', 'intake'];
+        if (me.tierId === 'ux') return ['screens', 'intake'];
+      }
+      return Object.keys(COV_PANES);
+    }
+
+    function openBrdCompareModal(artifact, options) {
+      options = options || {};
+      var allowed = panesForViewer(artifact);
+      var pane = paneForArtifact(artifact, options.pane);
+      if (allowed.indexOf(pane) === -1) pane = allowed[0];
+      var meta = COV_PANES[pane];
+      var coverage = asArray(artifact.brdCoverage);
+      var checkKey = { architecture: 'architecture', business: (artifact.stageChecks && artifact.stageChecks.analysis) ? 'analysis' : 'business', intake: 'business', screens: 'screens', plan: 'plan', code: 'build', uat: 'uat', release: 'release' }[pane];
+      var paneCheck = checkKey && artifact.stageChecks ? artifact.stageChecks[checkKey] : null;
+      if (paneCheck && asArray(paneCheck.rows).length) {
+        var criteriaById = {};
+        coverage.forEach(function (row) { criteriaById[row.id] = row.criteria; });
+        coverage = asArray(paneCheck.rows).map(function (row) {
+          return Object.assign({}, row, { criteria: row.criteria || criteriaById[row.id] || '' });
+        });
+      }
+      var overlay = document.getElementById('modal-overlay');
+      var panel = overlay.querySelector('.modal-panel');
+      overlay.classList.add('open', 'is-compare');
+      if (panel) panel.classList.add('is-compare');
+      document.getElementById('modal-title').textContent =
+        (artifact.title || 'Requirement') + ' — BRD vs ' + meta.label;
+      var switchOptions = allowed.map(function (key) {
+        return '<option value="' + key + '"' + (key === pane ? ' selected' : '') + '>' +
+          escapeHtml(COV_PANES[key].label) + '</option>';
+      }).join('');
+      document.getElementById('modal-body').innerHTML =
+        '<div class="cov-shell" id="cov-shell">' +
+          '<div class="cov-split">' +
+            '<section class="cov-pane">' +
+              '<header class="cov-pane-head"><span><span class="cov-kicker">Approved BRD</span><br><strong>What was signed</strong></span><span class="cov-hint">Select a requirement</span></header>' +
+              '<div class="cov-scroll md-viewer" id="cov-brd-body"></div>' +
+            '</section>' +
+            '<section class="cov-pane">' +
+              '<header class="cov-pane-head"><span><span class="cov-kicker">' + escapeHtml(meta.kicker) + '</span><br>' +
+                '<select id="cov-pane-switch" class="cov-select" aria-label="Compare the BRD with">' + switchOptions + '</select></span>' +
+                '<span class="cov-hint">Same colour, same requirement</span></header>' +
+              '<div class="cov-scroll md-viewer" id="cov-art-body"></div>' +
+            '</section>' +
+          '</div>' +
+          '<footer class="cov-report" id="cov-report"></footer>' +
+        '</div>';
+
+      var brdBody = document.getElementById('cov-brd-body');
+      var artBody = document.getElementById('cov-art-body');
+      brdBody.innerHTML = renderMarkdown(artifact.brdText || '_No BRD yet._');
+      artBody.innerHTML = renderMarkdown(artefactMarkdown(artifact, pane));
+
+      var byId = {};
+      coverage.forEach(function (row, index) {
+        byId[row.id] = row;
+        row._tone = index % 6;
+      });
+      var heads = brdBody.querySelectorAll('h3');
+      Array.prototype.forEach.call(heads, function (heading) {
+        var match = (heading.textContent || '').match(/^(REQ-\d+-R\d+)/);
+        if (!match) return;
+        var row = byId[match[1]];
+        var section = document.createElement('section');
+        var met = !!(row && row.satisfies);
+        section.className = 'cov-req ' + (row ? (met ? 'is-met' : 'is-gap') : '');
+        section.dataset.req = match[1];
+        if (row) section.dataset.tone = String(row._tone);
+        var nodes = [heading];
+        var next = heading.nextSibling;
+        while (next && !(next.nodeType === 1 && /^H[1-3]$/.test(next.tagName))) {
+          var after = next.nextSibling;
+          nodes.push(next);
+          next = after;
+        }
+        heading.parentNode.insertBefore(section, heading);
+        nodes.forEach(function (node) { section.appendChild(node); });
+        if (row) {
+          var pill = document.createElement('div');
+          pill.className = 'cov-pill';
+          pill.textContent = met ? 'Satisfied' : 'Gap';
+          section.insertBefore(pill, section.firstChild);
+          if (!met && asArray(row.gaps).length) {
+            var gaps = document.createElement('p');
+            gaps.className = 'cov-gaps';
+            gaps.textContent = 'Missing: ' + asArray(row.gaps).map(humanToken).join(', ');
+            section.insertBefore(gaps, pill.nextSibling);
+          }
+        }
+      });
+
+      if (!brdBody.querySelector('.cov-req') && coverage.length) {
+        var stack = document.createElement('div');
+        coverage.forEach(function (row) {
+          var section = document.createElement('section');
+          var met = !!row.satisfies;
+          section.className = 'cov-req ' + (met ? 'is-met' : 'is-gap');
+          section.dataset.req = row.id;
+          var items = String(row.criteria || '').replace(/^\*+\s*/, '').split(/\n/).map(function (line) {
+            return line.replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim();
+          }).filter(Boolean);
+          section.innerHTML =
+            '<div class="cov-pill">' + (met ? 'Satisfied' : 'Gap') + '</div>' +
+            (met ? '' : '<p class="cov-gaps">Missing: ' + escapeHtml(asArray(row.gaps).map(humanToken).join(', ')) + '</p>') +
+            '<h3>' + escapeHtml(row.id + ' — ' + (row.title || '')) + '</h3>' +
+            (items.length ? '<ul>' + items.map(function (line) { return '<li>' + escapeHtml(line) + '</li>'; }).join('') + '</ul>' : '');
+          stack.appendChild(section);
+        });
+        brdBody.insertBefore(stack, brdBody.firstChild);
+      }
+
+      var jobs = [];
+      var artText = artBody.innerText || '';
+      brdBody.querySelectorAll('.cov-req').forEach(function (section) {
+        var row = byId[section.dataset.req] || {};
+        phrasesForRequirement(row, section.textContent, artText).forEach(function (phrase) {
+          jobs.push({
+            phrase: phrase,
+            reqId: section.dataset.req,
+            tone: row._tone || 0,
+            gap: row.satisfies === false
+          });
+        });
+      });
+      try { highlightPhrases(artBody, jobs); } catch (err) { /* the split still reads without marks */ }
+      renderMermaidBlocksIn(artBody);
+
+      var mentioned = {};
+      artBody.querySelectorAll('.cov-mark').forEach(function (mark) {
+        var id = mark.dataset.req;
+        var text = mark.textContent.trim();
+        if (!mentioned[id]) mentioned[id] = [];
+        if (text && mentioned[id].indexOf(text) === -1 && mentioned[id].length < 3) mentioned[id].push(text);
+      });
+
+      var metCount = coverage.filter(function (row) { return row.satisfies; }).length;
+      var total = coverage.length;
+      var pct = total ? Math.round((metCount / total) * 100) : 0;
+      var shell = document.getElementById('cov-shell');
+      var report = document.getElementById('cov-report');
+      var summary = !total
+        ? 'This BRD has no numbered requirements to score yet.'
+        : (metCount === total
+          ? 'Every requirement is covered.'
+          : (total - metCount) + ' requirement' + (total - metCount === 1 ? '' : 's') + ' still missing.');
+      var reqNums = coverage.map(function (row) {
+        var match = String(row.id || '').match(/-R(\d+)$/);
+        return match ? parseInt(match[1], 10) : 0;
+      }).filter(function (n) { return n > 0; });
+      if (reqNums.length) {
+        var firstNum = Math.min.apply(null, reqNums);
+        if (firstNum > 1) {
+          function reqLabel(n) { return 'R' + (n < 10 ? '0' + n : String(n)); }
+          summary += ' ' + reqLabel(1) + '–' + reqLabel(firstNum - 1) +
+            ' are not a second list. This BRD was written again, so these items start at ' +
+            reqLabel(firstNum) + '.';
+        }
+      }
+      var whereFor = {};
+      coverage.forEach(function (row) {
+        whereFor[row.id] = mentioned[row.id] && mentioned[row.id].length
+          ? mentioned[row.id].join(' · ')
+          : (row.satisfies ? 'Covered, not named in this column' : asArray(row.gaps).map(humanToken).join(', '));
+      });
+      var pickOptions = '<option value="">All requirements</option>' + coverage.map(function (row) {
+        var shortId = (row.id || '').replace(/^REQ-\d+-/, '');
+        var verdict = row.satisfies ? 'Satisfied' : 'Gap';
+        return '<option value="' + escapeAttr(row.id) + '">' +
+          escapeHtml(shortId + ' ' + (row.title || '') + ' — ' + verdict + ' — ' + whereFor[row.id]) + '</option>';
+      }).join('');
+      var actions = '';
+      if (pane === 'screens' && me && me.tierId === 'ux') {
+        actions += '<button type="button" class="btn secondary" id="cov-open-editor">Open screen editor</button>';
+      }
+      if (pane === 'uat') actions += '<button type="button" class="btn" id="cov-open-uat">Open UAT preview</button>';
+      actions += '<button type="button" class="btn secondary" id="cov-download">Download BRD</button>';
+      report.innerHTML =
+        '<div class="cov-report-head">' +
+          '<div class="cov-ring" style="--p:' + pct + '"><b>' + metCount + '/' + total + '</b></div>' +
+          '<div><h4>Coverage report</h4><p>' + escapeHtml(summary) + '</p></div>' +
+          '<select id="cov-pick" class="cov-select cov-pick" aria-label="Coverage report">' + pickOptions + '</select>' +
+          '<div class="cov-report-actions">' + actions + '</div>' +
+        '</div>' +
+        '<p class="cov-pick-note" id="cov-pick-note">Every requirement is highlighted. Pick one to focus it.</p>';
+
+      function selectReq(id) {
+        shell.classList.add('is-filtering');
+        shell.querySelectorAll('.is-active').forEach(function (el) { el.classList.remove('is-active'); });
+        shell.querySelectorAll('[data-req="' + id + '"]').forEach(function (el) {
+          el.classList.add('is-active');
+        });
+        var left = brdBody.querySelector('.cov-req[data-req="' + id + '"]');
+        var right = artBody.querySelector('.cov-mark[data-req="' + id + '"]');
+        if (left) left.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (right) right.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+      shell.addEventListener('click', function (event) {
+        var hit = event.target.closest('[data-req]');
+        if (!hit || !shell.contains(hit)) return;
+        selectReq(hit.getAttribute('data-req'));
+        var pick = document.getElementById('cov-pick');
+        if (pick) pick.value = hit.getAttribute('data-req');
+        var note = document.getElementById('cov-pick-note');
+        if (note) note.textContent = whereFor[hit.getAttribute('data-req')] || '';
+      });
+      var pick = document.getElementById('cov-pick');
+      if (pick) pick.addEventListener('change', function () {
+        var note = document.getElementById('cov-pick-note');
+        if (!pick.value) {
+          shell.classList.remove('is-filtering');
+          shell.querySelectorAll('.is-active').forEach(function (el) { el.classList.remove('is-active'); });
+          if (note) note.textContent = 'Every requirement is highlighted. Pick one to focus it.';
+          return;
+        }
+        selectReq(pick.value);
+        if (note) note.textContent = whereFor[pick.value] || '';
+      });
+      var paneSwitch = document.getElementById('cov-pane-switch');
+      if (paneSwitch) paneSwitch.addEventListener('change', function () {
+        openBrdCompareModal(artifact, { pane: paneSwitch.value });
+      });
+      var editorBtn = document.getElementById('cov-open-editor');
+      if (editorBtn) editorBtn.addEventListener('click', function () {
+        closeModal();
+        openUiEditorModal(artifact);
+      });
+      var uatBtn = document.getElementById('cov-open-uat');
+      if (uatBtn) uatBtn.addEventListener('click', function () {
+        var uatPath = (artifact.uat && (artifact.uat.preview || artifact.uat.url))
+          || (artifact.ui && artifact.ui.previewUrl)
+          || ('/preview/' + artifact._id);
+        if (uatPath.indexOf('http') !== 0) uatPath = (window.API_BASE || '') + uatPath;
+        window.open(uatPath, '_blank', 'noopener');
+      });
+      var downloadBtn = document.getElementById('cov-download');
+      if (downloadBtn) downloadBtn.addEventListener('click', function () { downloadFsd(artifact); });
+
     }
 
     if (window.mermaid) {
@@ -1343,14 +2082,18 @@
                 7: { ok: 'Approve release', rev: null, no: 'Hold release' }
               };
               var L = GATE_BTNS[g] || { ok: 'Approve', rev: 'Request revision', no: 'Reject' };
-              buttons.push({ action: 'approve', label: L.ok });
+              var failing = stageCheckFor(artifact);
+              failing = failing && !failing.check.ok ? failing : null;
+              // Gate 6 reject already re-runs UAT; name it as the revise path when UAT misses a requirement.
+              if (failing && g === 6) L = { ok: L.ok, rev: 'Re-run UAT', no: null };
+              buttons.push({ action: 'approve', label: failing ? L.ok + ' anyway' : L.ok, secondary: !!failing });
               if (L.rev) {
                 var revAction = 'requestRevision';
                 if (g === 3 && lens === 'architecture') revAction = 'requestFsdChanges';
                 if (g === 3 && lens === 'screens') revAction = 'requestUiChanges';
-                buttons.push({ action: revAction, label: L.rev, secondary: true });
+                buttons.push({ action: revAction, label: L.rev, secondary: !failing });
               }
-              buttons.push({ action: 'reject', label: L.no, danger: g <= 2, secondary: g > 2 });
+              if (L.no) buttons.push({ action: 'reject', label: L.no, danger: g <= 2, secondary: g > 2 });
             } else {
               var sendsFsdToProduction = me.tierId === 'po' && artifact.currentApprovalIndex > 0 &&
                 ['bo', 'ctl', 'tech'].indexOf(artifact.originator.tierId) !== -1 && artifact.detailedReport;
@@ -1455,15 +2198,12 @@
       var governed = artifact.governedPhase || (artifact.phase2 ? 2 : 1);
       var atGate3 = artifact.awaitingGate === 3 || (artifact.uiGate && artifact.uiGate.blocksSplit);
       var lens = gate3Lens(me.tierId);
-      if (hasScreens && !me.isClient &&
-          (isOriginator || namedOnCurrent || gate.canEdit || gate.canApprove ||
-           ['ux', 'architect', 'ba', 'po', 'tech'].indexOf(me.tierId) !== -1)) {
-        // Only when the primary View button is NOT already remapped to screens.
-        var viewAlreadyScreens = atGate3 && (lens === 'screens' || lens === 'all');
-        if (!viewAlreadyScreens && !(atGate3 && (lens === 'architecture' || lens === 'business'))) {
+      if (hasScreens && me.tierId === 'ux') {
+        var viewAlreadyScreens = atGate3 && lens === 'screens';
+        if (!viewAlreadyScreens) {
           buttons.push({
             modal: 'uiEditor',
-            label: 'Review screens (' + artifact.ui.screens.length + ')',
+            label: 'Edit screens (' + artifact.ui.screens.length + ')',
           });
         }
       }
@@ -1478,11 +2218,11 @@
         && me.tierId === 'se'
       ) {
         if (artifact.brdText) {
-          buttons.push({ modal: 'viewBrd', label: 'View BRD', secondary: true });
+          buttons.push({ modal: 'viewBrd', label: 'BRD vs code', secondary: true });
         }
       }
       if (artifact.phase1) return buttons;
-      if (governed >= 2 && gate.canEdit && lens !== 'architecture' && lens !== 'business') {
+      if (me.tierId === 'ux' && governed >= 2 && gate.canEdit) {
         buttons.push({ modal: 'uiEditor', label: 'Edit UI', secondary: true });
       }
       if (governed >= 2 && gate.canApprove && governed < 3) {
@@ -1646,6 +2386,8 @@
       if (artifact.awaitingGate === 5 && artifact.mergedBuild && artifact.mergedBuild.available) {
         addBadge('Merged build ready — review before approve');
       }
+      var stageFound = me.isClient ? null : stageCheckFor(artifact);
+      if (stageFound) badgesEl.parentNode.insertBefore(renderStageCheck(stageFound), badgesEl.nextSibling);
 
       var why = latestComment(artifact, ['reject', 'requestRevision', 'proposeChanges']);
       if (why) {
@@ -1679,18 +2421,12 @@
         viewBtn.className = 'btn';
       }
       viewBtn.addEventListener('click', function () {
-        if (atGate6) {
-          var uatPath = (artifact.uat && (artifact.uat.preview || artifact.uat.url))
-            || (artifact.ui && artifact.ui.previewUrl)
-            || ('/preview/' + artifact._id);
-          if (uatPath.indexOf('http') !== 0) uatPath = (window.API_BASE || '') + uatPath;
-          return window.open(uatPath, '_blank', 'noopener');
-        }
+        if (atGate6) return openBrdCompareModal(artifact, { pane: 'uat' });
         if (atGate5) return openMergedBuildIde(artifact);
         if (g3arch) return openGate3ArchitectureModal(artifact);
         if (g3biz) return openGate3BusinessModal(artifact);
         if (g3screens || (atGate3 && lens === 'all' && artifact.ui && artifact.ui.screens && artifact.ui.screens.length)) {
-          return openUiEditorModal(artifact);
+          return openBrdCompareModal(artifact, { pane: 'screens' });
         }
         openViewModal(artifact);
       });
@@ -1730,7 +2466,7 @@
           // Reopens the SAME job's IDE (generating or done) instead of
           // starting a new one — see findCodegenModuleStatus above for why.
           if (btnDef.modal === 'codeGenResume') return openCodeGenIdePanel(artifact, btnDef.codeGenId, btnDef.modelLabel, me.department);
-          actOnArtifact(artifact._id, btnDef.action, actionsEl, btn);
+          actOnArtifact(artifact._id, btnDef.action, actionsEl, btn, artifact);
         });
 
         actionsEl.appendChild(btn);
@@ -2434,7 +3170,10 @@
 
     // --- View / edit modal ---
     function closeModal() {
-      document.getElementById('modal-overlay').classList.remove('open');
+      var overlay = document.getElementById('modal-overlay');
+      overlay.classList.remove('open', 'is-compare');
+      var panel = overlay.querySelector('.modal-panel');
+      if (panel) panel.classList.remove('is-compare');
       document.getElementById('modal-body').innerHTML = '';
     }
     document.getElementById('modal-close-btn').addEventListener('click', closeModal);
@@ -2475,6 +3214,7 @@
         html += '<div><div class="modal-section-label">What happens today</div><p style="margin:0;font-size:0.9rem;">' + escapeHtml(c.currentState) + '</p></div>';
       }
       html += listSection('In scope', c.inScope);
+      html += listSection('Screens', c.screens);
       html += listSection('Out of scope', c.outOfScope);
       if (asArray(c.functionalRequirements).length && JSON.stringify(c.functionalRequirements) !== JSON.stringify(c.inScope)) {
         html += listSection('Functional requirements', c.functionalRequirements);
@@ -2511,6 +3251,10 @@
     }
 
     function openViewModal(artifact) {
+      if (artifact.phase1 && artifact.brdText && (stageHasBrdCriteria(artifact) || (artifact.awaitingGate || 0) >= 2)) {
+        openBrdCompareModal(artifact);
+        return;
+      }
       document.getElementById('modal-title').textContent = artifact.title || 'Untitled requirement';
       var body = '<div><span class="stage-pill" data-stage="' + artifact.currentStage + '"><span class="dot"></span>' + escapeHtml(stageLabel(artifact.currentStage, artifact)) + '</span></div>';
       var viewWhy = latestComment(artifact, ['reject', 'requestRevision', 'requestTeamRevision', 'proposeChanges']);
@@ -2560,17 +3304,11 @@
     }
 
     function openGate3ArchitectureModal(artifact) {
-      openMarkdownReviewModal(
-        (artifact.title || 'Requirement') + ' — Architecture (Architect review)',
-        architectureMarkdown(artifact)
-      );
+      openBrdCompareModal(artifact, { pane: 'architecture' });
     }
 
     function openGate3BusinessModal(artifact) {
-      openMarkdownReviewModal(
-        (artifact.title || 'Requirement') + ' — BRD coverage (BA review)',
-        businessGate3Markdown(artifact)
-      );
+      openBrdCompareModal(artifact, { pane: 'business' });
     }
 
     function openBrdEditorModal(artifact) {
@@ -2989,10 +3727,14 @@
       // summary remains after it as supporting context.
       if (d.objective) lines.push('## Objective', '', d.objective, '');
       lines.push('## Summary', '', (typeof artifact.content === 'string' ? artifact.content : c.summary) || '', '');
+      if (c.users) lines.push('## Who uses it', '', c.users, '');
+      if (c.currentState) lines.push('## What happens today', '', c.currentState, '');
       mdListSection(lines, 'In Scope', c.inScope);
+      mdListSection(lines, 'Screens', c.screens);
       mdListSection(lines, 'Out of Scope', c.outOfScope);
       mdListSection(lines, 'Functional Requirements', c.functionalRequirements);
       mdListSection(lines, 'Non-Functional Requirements', c.nonFunctionalRequirements);
+      mdListSection(lines, 'Assumptions', c.assumptions);
       if (asArray(c.recommendedModels).length) {
         lines.push('## Recommended Models', '');
         asArray(c.recommendedModels).forEach(function (m) { lines.push('- **' + m.model + '**: ' + m.purpose + ' — ' + m.rationale); });
@@ -4256,6 +4998,7 @@
     }
 
     function openUiEditorModal(artifact) {
+      if (!me || me.tierId !== 'ux') return;
       var host = document.getElementById('ui-editor');
       if (!host) {
         host = document.createElement('div');
@@ -4972,6 +5715,20 @@
       function renderLive() {
         var s = screens[current];
         if (!s) return;
+        if (previewMode) {
+          var base = (window.API_BASE || '') + '/preview/' + encodeURIComponent(artifact._id);
+          var hash = '#/' + encodeURIComponent(s.name);
+          frame.removeAttribute('srcdoc');
+          if (frame.getAttribute('data-preview-base') === base && frame.contentWindow) {
+            try { frame.contentWindow.location.hash = hash; }
+            catch (_hash) { frame.src = base + hash; }
+          } else {
+            frame.src = base + hash;
+            frame.setAttribute('data-preview-base', base);
+          }
+          return;
+        }
+        frame.removeAttribute('data-preview-base');
         var designing = !previewMode;
         var theme = currentTheme();
         var names = screens.map(function (sc) { return sc.name; });
@@ -5003,6 +5760,12 @@
             'background-image:linear-gradient(to right,rgba(128,128,128,.14) 1px,transparent 1px),' +
             'linear-gradient(to bottom,rgba(128,128,128,.14) 1px,transparent 1px);background-size:8px 8px}' +
             '[data-ue].ue-sel{outline:2px solid var(--color-accent)!important;outline-offset:3px}' +
+            '.ue-handles{position:fixed;z-index:10000;pointer-events:none;display:none;box-sizing:border-box}' +
+            '.ue-handles.on{display:block}' +
+            '.ue-h{position:absolute;width:10px;height:10px;margin:-6px 0 0 -6px;background:#fff;border:2px solid var(--color-accent);border-radius:2px;pointer-events:auto;box-sizing:border-box;box-shadow:0 0 0 1px rgba(0,0,0,.2)}' +
+            '.ue-h.nw{left:0;top:0;cursor:nwse-resize}.ue-h.n{left:50%;top:0;cursor:ns-resize}.ue-h.ne{left:100%;top:0;cursor:nesw-resize}' +
+            '.ue-h.e{left:100%;top:50%;cursor:ew-resize}.ue-h.se{left:100%;top:100%;cursor:nwse-resize}.ue-h.s{left:50%;top:100%;cursor:ns-resize}' +
+            '.ue-h.sw{left:0;top:100%;cursor:nesw-resize}.ue-h.w{left:0;top:50%;cursor:ew-resize}' +
             '#root [data-ue],#root .ue-drag{cursor:grab!important;touch-action:none;user-select:none;-webkit-user-select:none}' +
             '#root [data-ue].ue-dragging,#root .ue-drag.ue-dragging{cursor:grabbing!important;z-index:50!important;' +
             'box-shadow:0 10px 28px rgba(0,0,0,.28)!important;transition:none!important}' +
@@ -5034,6 +5797,7 @@
                 'document.querySelectorAll("[data-ue]").forEach(function(el){' +
                   'if(el!==col&&known(el)&&!inNav(el)){el.classList.add("ue-drag");n++;}});' +
                 'if(window.UE_SELECT){var s=document.querySelector("[data-ue=\\""+window.UE_SELECT+"\\"]");if(s)s.classList.add("ue-sel");}' +
+                'syncHandles();' +
                 'parent.postMessage({type:"ue-ready",count:n},"*");return n;}' +
               'function emitPick(el){' +
                 'document.querySelectorAll(".ue-sel").forEach(function(n){n.classList.remove("ue-sel");});' +
@@ -5044,11 +5808,20 @@
                 'width:Math.round(r.width),height:Math.round(r.height),' +
                 'left:parseInt(el.style.left,10)||null,top:parseInt(el.style.top,10)||null,' +
                 'fontSize:parseInt(cs.fontSize,10)||16,padding:cs.padding,borderRadius:parseInt(cs.borderRadius,10)||0},"*");' +
+                'syncHandles();' +
               '}' +
               'var bar=document.createElement("div"),box=document.createElement("div");' +
               'bar.style.cssText="position:fixed;z-index:9999;pointer-events:none;background:var(--color-accent);border-radius:3px;display:none;box-shadow:0 0 0 2px var(--color-bg)";' +
               'box.style.cssText="position:fixed;z-index:9998;pointer-events:none;border:2px dashed var(--color-accent);border-radius:10px;display:none;background:rgba(127,127,127,.07)";' +
               'document.body.appendChild(box);document.body.appendChild(bar);' +
+              'var handles=document.createElement("div");handles.className="ue-handles";' +
+              '["nw","n","ne","e","se","s","sw","w"].forEach(function(d){var h=document.createElement("div");h.className="ue-h "+d;h.setAttribute("data-dir",d);handles.appendChild(h);});' +
+              'document.body.appendChild(handles);' +
+              'function syncHandles(){var el=document.querySelector(".ue-sel");if(!el){handles.classList.remove("on");return;}' +
+                'var r=el.getBoundingClientRect();handles.style.left=r.left+"px";handles.style.top=r.top+"px";' +
+                'handles.style.width=Math.max(r.width,8)+"px";handles.style.height=Math.max(r.height,8)+"px";handles.classList.add("on");}' +
+              'window.addEventListener("scroll",syncHandles,true);' +
+              'window.addEventListener("resize",syncHandles);' +
               'function hideDrop(){bar.style.display="none";box.style.display="none";}' +
               'function place(el,x,y,w,h){el.style.left=x+"px";el.style.top=y+"px";el.style.width=w+"px";el.style.height=h+"px";el.style.display="block";}' +
               'function dropAt(x,y,d){' +
@@ -5076,10 +5849,22 @@
                 'if(e.type==="mousedown"&&activePtr!=null)return;' +
                 'if(e.button!=null&&e.button!==0)return;' +
                 'var t=e.target;if(t&&t.nodeType===3)t=t.parentElement;' +
+                'var grip=t&&t.closest?t.closest(".ue-h"):null;' +
+                'if(grip){' +
+                  'var sel=document.querySelector(".ue-sel");if(!sel)return;' +
+                  'try{e.preventDefault();}catch(_p){}try{e.stopPropagation();}catch(_s){}' +
+                  'var gxy=clientXY(e),gr=sel.getBoundingClientRect(),gcol=mainCol(),gpr=gcol.getBoundingClientRect();' +
+                  'if(getComputedStyle(gcol).position==="static")gcol.style.position="relative";' +
+                  'drag={resize:grip.getAttribute("data-dir"),el:sel,col:gcol,ox:gxy.x,oy:gxy.y,moved:false,' +
+                    'free:getComputedStyle(sel).position==="absolute",' +
+                    'startLeft:gr.left-gpr.left+(gcol.scrollLeft||0),startTop:gr.top-gpr.top+(gcol.scrollTop||0),' +
+                    'w:gr.width,h:gr.height,left:null,top:null,target:null};' +
+                  'if(e.pointerId!=null){activePtr=e.pointerId;try{grip.setPointerCapture(e.pointerId);}catch(_c){}}' +
+                  'return;}' +
                 'if(inNav(t))return;' +
                 'var el=editable(t);' +
                 'if(!el){document.querySelectorAll(".ue-sel").forEach(function(n){n.classList.remove("ue-sel");});' +
-                  'parent.postMessage({type:"ue-pick-none"},"*");return;}' +
+                  'syncHandles();parent.postMessage({type:"ue-pick-none"},"*");return;}' +
                 'try{el.setAttribute("draggable","false");}catch(_d){}' +
                 'try{e.preventDefault();}catch(_p){}' +
                 'try{e.stopPropagation();}catch(_s){}' +
@@ -5096,6 +5881,20 @@
                 'if(!drag)return;' +
                 'if(e.pointerId!=null&&activePtr!=null&&e.pointerId!==activePtr)return;' +
                 'var xy=clientXY(e),dx=xy.x-drag.ox,dy=xy.y-drag.oy;' +
+                'if(drag.resize){' +
+                  'if(!drag.moved&&(dx*dx+dy*dy)<4)return;' +
+                  'try{e.preventDefault();}catch(_m){}' +
+                  'drag.moved=true;var dir=drag.resize,w=drag.w,h=drag.h;' +
+                  'if(dir.indexOf("e")>=0)w=drag.w+dx;if(dir.indexOf("s")>=0)h=drag.h+dy;' +
+                  'if(dir.indexOf("w")>=0)w=drag.w-dx;if(dir.indexOf("n")>=0)h=drag.h-dy;' +
+                  'w=Math.max(32,snap(w));h=Math.max(32,snap(h));' +
+                  'var left=drag.startLeft,top=drag.startTop;' +
+                  'if(dir.indexOf("w")>=0)left=snap(drag.startLeft+drag.w-w);' +
+                  'if(dir.indexOf("n")>=0)top=snap(drag.startTop+drag.h-h);' +
+                  'drag.el.style.boxSizing="border-box";drag.el.style.aspectRatio="auto";' +
+                  'drag.el.style.width=w+"px";drag.el.style.height=h+"px";' +
+                  'if(drag.free){if(left<0)left=0;if(top<0)top=0;drag.el.style.left=left+"px";drag.el.style.top=top+"px";}' +
+                  'drag.rw=w;drag.rh=h;drag.rl=left;drag.rt=top;syncHandles();return;}' +
                 'if(!drag.moved&&(dx*dx+dy*dy)<9)return;' +
                 'try{e.preventDefault();}catch(_m){}' +
                 'if(!drag.moved){drag.moved=true;drag.el.classList.add("ue-dragging");' +
@@ -5116,7 +5915,10 @@
                 'var d=drag;drag=null;activePtr=null;hideDrop();' +
                 'd.el.classList.remove("ue-dragging");' +
                 'd.el.style.transform="";d.el.style.pointerEvents="";d.el.style.opacity="";' +
+                'syncHandles();' +
                 'if(!d.moved)return;' +
+                'if(d.resize){parent.postMessage({type:"ue-resize",id:idOf(d.el),width:Math.round(d.rw),height:Math.round(d.rh),' +
+                  'left:d.free?Math.round(d.rl):null,top:d.free?Math.round(d.rt):null,free:!!d.free},"*");return;}' +
                 'if(d.free){parent.postMessage({type:"ue-place",id:idOf(d.el),' +
                   'left:d.left,top:d.top,width:Math.round(d.w),height:Math.round(d.h)},"*");return;}' +
                 'if(!d.target){parent.postMessage({type:"ue-move-none"},"*");return;}' +
@@ -5145,6 +5947,7 @@
               '(' + (designing ? 'true' : 'false') + '&&!typing&&["Delete","Backspace","Escape","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(k)>=0);' +
             'if(!fwd)return;e.preventDefault();' +
             'parent.postMessage({type:"ue-key",key:k,ctrl:mod,shift:e.shiftKey,alt:e.altKey},"*");},true);';
+        frame.removeAttribute('src');
         frame.srcdoc =
           '<!doctype html><html data-theme="' + theme + '"><meta charset="utf-8">' +
           '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>' +
@@ -5209,7 +6012,7 @@
             'window.UE_SELECT=' + JSON.stringify(designing && picked ? String(picked.id).replace(/[^\w-]/g, '') : '') + ';' +
             (designing ? 'window.navigate=function(){};' : NAV_JS) + keyJs + '<\/script>' +
           '<pre id="err" style="display:none;position:fixed;left:0;right:0;bottom:0;margin:0;background:#2a0a06;color:#ff9c8c;font:12px/1.45 ui-monospace,monospace;white-space:pre-wrap;padding:0.8rem 1rem;max-height:40%;overflow:auto"></pre>' +
-          '<script>(function(){var React=window.React,ReactDOM=window.ReactDOM,useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef,useCallback=React.useCallback,useContext=React.useContext;function showErr(m){var el=document.getElementById("err");el.style.display="block";el.textContent=m;}try{' +
+          '<script>(function(){var React=window.React,ReactDOM=window.ReactDOM,useState=React.useState,useEffect=React.useEffect,useMemo=React.useMemo,useRef=React.useRef,useCallback=React.useCallback,useContext=React.useContext;window.motion=(window.Motion&&window.Motion.motion)||window.motion;function showErr(m){var el=document.getElementById("err");el.style.display="block";el.textContent=m;}try{' +
             'var code=Babel.transform(' + JSON.stringify(liveSrc).replace(/</g, '\\u003c') +
               ',{presets:[["react",{runtime:"classic"}]]}).code;' +
             'eval(code+"\\n;try{if(typeof ' + s.name + '===\'function\'){window.' + s.name + '=' + s.name + ';window.__C=' + s.name + ';}}catch(_e){}" );' +
@@ -5688,7 +6491,7 @@
             styles: readUeStyles(sourceEl.value || '', e.data.id)
           };
           renderPickInspector();
-          status('Selected ' + (e.data.tag || 'element') + ' — drag it into a card or column, or size it on the right');
+          status('Selected ' + (e.data.tag || 'element') + ' — drag a handle to resize, or drag the element to move it');
           return;
         }
         if (e.data.type === 'ue-pick-none') {
@@ -5719,6 +6522,28 @@
           }, /^(Card|Hero|section|form)$/.test(intoName)
             ? 'Moved into the ' + intoName.toLowerCase() + ' — Save when ready'
             : 'Moved — Save when ready');
+          return;
+        }
+        if (e.data.type === 'ue-resize') {
+          var rid = String(e.data.id || '');
+          if (!knownInSource(rid)) return;
+          picked = {
+            id: rid,
+            tag: (picked && picked.id === rid && picked.tag) || 'element',
+            text: (picked && picked.id === rid && picked.text) || rid,
+            width: e.data.width,
+            height: e.data.height,
+            styles: readUeStyles(sourceEl.value || '', rid)
+          };
+          lastCheckpoint = { key: '', at: 0 };
+          var sizePatch = { width: e.data.width, height: e.data.height, aspectRatio: 'auto', boxSizing: 'border-box' };
+          if (e.data.free) {
+            sizePatch.left = e.data.left;
+            sizePatch.top = e.data.top;
+          }
+          commitPickedStyles(sizePatch);
+          renderPickInspector();
+          status('Resized to ' + e.data.width + ' × ' + e.data.height + ' — Save when ready');
           return;
         }
         if (e.data.type === 'ue-place') {
@@ -6511,10 +7336,10 @@
       requestTeamRevision: { title: 'Request team-package revision', label: 'Describe exactly what your team needs changed' },
     };
 
-    function openCommentModal(title, label, onSubmit) {
+    function openCommentModal(title, label, onSubmit, prefill) {
       document.getElementById('modal-title').textContent = title;
       document.getElementById('modal-body').innerHTML =
-        '<div class="field"><label>' + escapeHtml(label) + '</label><textarea id="comment-input" rows="4" placeholder="Type your notes here..."></textarea></div>' +
+        '<div class="field"><label>' + escapeHtml(label) + '</label><textarea id="comment-input" rows="' + (prefill ? 8 : 4) + '" placeholder="Type your notes here...">' + escapeHtml(prefill || '') + '</textarea></div>' +
         '<div style="display:flex; gap:0.55rem;">' +
           '<button class="btn" id="comment-submit-btn" type="button">Submit</button>' +
           '<button class="btn secondary" id="comment-cancel-btn" type="button">Cancel</button>' +
@@ -6543,20 +7368,64 @@
       regenerateFsd: { ms: 82500, label: 'Regenerating the detailed report…' },
       regenerateTeamSplit: { ms: 60000, label: 'Generating work packages for Team Leads…' },
       approveUi: { ms: 60000, label: 'UI approved — generating work packages…' },
-      requestRevision: { ms: 420000, label: 'Regenerating accurate screens from the approved BRD…', trackDesign: true },
-      requestUiChanges: { ms: 420000, label: 'Regenerating accurate screens from the approved BRD…', trackDesign: true },
     };
+
+    // The bar must name the work this signature actually starts. A leftover
+    // architecture job must not speak for the business analyst.
+    function approvalProgress(artifact, action) {
+      if (!artifact || !artifact.phase1) return null;
+      var gate = artifact.awaitingGate || 0;
+      var tier = me && me.tierId;
+      var outstanding = asArray(artifact && artifact.outstandingLabels).length;
+      var completes = outstanding <= 1;
+      if (action === 'requestFsdChanges') {
+        return { ms: 300000, label: 'Rewriting the architecture from the approved BRD…', trackDesign: true, kind: 'architecture' };
+      }
+      if (action === 'requestUiChanges') {
+        return { ms: 420000, label: 'Rewriting the screens from the approved BRD…', trackDesign: true, kind: 'screens' };
+      }
+      if (action === 'reject') {
+        return { ms: 8000, label: gate <= 2 ? 'Recording the discard…' : 'Recording the rejection…', trackDesign: false, kind: 'signature' };
+      }
+      if (action === 'requestRevision') {
+        if (gate === 1) return { ms: 20000, label: 'Sending the scope back for another pass…', trackDesign: false, kind: 'scope' };
+        if (gate === 2) return { ms: 300000, label: 'Rewriting the BRD from the approved scope…', trackDesign: true, kind: 'brd' };
+        if (gate === 3) return { ms: 300000, label: 'Updating the design from your review…', trackDesign: true, kind: 'design' };
+        if (gate === 4) return { ms: 180000, label: 'Rewriting the plan…', trackDesign: true, kind: 'plan' };
+        if (gate === 5) return { ms: 300000, label: 'Rebuilding from the review…', trackDesign: true, kind: 'build' };
+        return { ms: 20000, label: 'Recording the revision request…', trackDesign: false, kind: 'signature' };
+      }
+      if (action !== 'approve' && action !== 'approvePlan') return null;
+      if (gate === 1) return { ms: 300000, label: 'Writing the BRD from the approved scope…', trackDesign: true, kind: 'brd' };
+      if (gate === 2) {
+        return completes
+          ? { ms: 300000, label: 'Writing the architecture from the approved BRD…', trackDesign: true, kind: 'architecture' }
+          : { ms: 8000, label: 'Recording your BRD signature…', trackDesign: false, kind: 'signature' };
+      }
+      if (gate === 3 && tier === 'architect') return { ms: 8000, label: 'Recording the architect signature…', trackDesign: false, kind: 'signature' };
+      if (gate === 3 && tier === 'ba') return { ms: 420000, label: 'Preparing the screens from the approved BRD…', trackDesign: true, kind: 'screens' };
+      if (gate === 3) return { ms: 300000, label: 'Writing the plan from the approved design…', trackDesign: true, kind: 'plan' };
+      if (gate === 4) {
+        return completes
+          ? { ms: 300000, label: 'Building from the approved plan…', trackDesign: true, kind: 'build' }
+          : { ms: 8000, label: 'Recording your plan signature…', trackDesign: false, kind: 'signature' };
+      }
+      if (gate === 5) return { ms: 300000, label: 'Preparing UAT from the merged build…', trackDesign: true, kind: 'uat' };
+      if (gate === 6) return { ms: 180000, label: 'Preparing the release…', trackDesign: true, kind: 'release' };
+      if (gate === 7) return { ms: 8000, label: 'Recording the release approval…', trackDesign: false, kind: 'signature' };
+      return { ms: 20000, label: 'Recording the approval…', trackDesign: false, kind: 'signature' };
+    }
 
     // Blocks the periodic/focus auto-refresh (see setInterval below) while
     // any slow action is in flight, so a mid-flight refresh can't wipe out
     // the progress bar before the real response arrives.
     var activeSlowActionCount = 0;
 
-    function submitArtifactAction(id, action, comment, btn, actionsEl) {
+    function submitArtifactAction(id, action, comment, btn, actionsEl, artifact) {
       var siblingButtons = actionsEl ? Array.prototype.slice.call(actionsEl.querySelectorAll('button')) : [];
       siblingButtons.forEach(function (b) { b.disabled = true; });
       var originalText = btn ? btn.textContent : null;
-      var slowSpec = SLOW_ACTIONS[action];
+      var slowSpec = approvalProgress(artifact, action) || SLOW_ACTIONS[action];
       if (btn) btn.textContent = slowSpec ? 'Working…' : 'Working...';
 
       var progressWrap = actionsEl && actionsEl.parentElement ? actionsEl.parentElement.querySelector('[data-item-progress]') : null;
@@ -6571,20 +7440,43 @@
       var progressPoll = null;
       var barShown = false;
       var blockingRefresh = false;
+      // The guess timer and the server both write this bar. The server starts
+      // at 0, which used to yank a bar that had already reached 16% back to 1%.
+      var shownPct = 0;
+      var serverPctSeen = false;
 
       function setLiveLabel(label) {
         liveLabel = label;
         if (progressText) progressText.textContent = label;
       }
 
+      function paintPct(pct) {
+        if (!progressFill) return;
+        var next = Math.max(shownPct, Math.min(99, Math.round(Number(pct) || 0)));
+        if (next < 1) return;
+        shownPct = next;
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = next + '%';
+        if (progressPct) progressPct.textContent = next + '%';
+      }
+
       function applyDesignProgress(progress) {
         if (!progress || !progress.label) return;
+        if (progress.status === 'error') {
+          setLiveLabel(progress.label);
+          return;
+        }
+        if (slowSpec && slowSpec.kind) {
+          if (progress.kind && progress.kind !== slowSpec.kind) return;
+          if (!progress.kind && slowSpec.kind !== 'architecture' && /architecture/i.test(progress.label)) return;
+        }
         setLiveLabel(progress.label);
         if (!progressFill || progress.pct == null) return;
-        progressFill.classList.remove('indeterminate');
-        var pct = Math.max(1, Math.min(99, Number(progress.pct) || 0));
-        progressFill.style.width = pct + '%';
-        if (progressPct) progressPct.textContent = pct + '%';
+        var reported = Number(progress.pct);
+        // 0 means "not started yet", not "go back to the beginning".
+        if (!isFinite(reported) || reported <= 0) return;
+        serverPctSeen = true;
+        paintPct(reported);
       }
 
       function followDesignProgress() {
@@ -6623,11 +7515,10 @@
             progressFill.classList.add('indeterminate');
             progressText.textContent = liveLabel + ' Still working — accuracy takes priority…';
             progressPct.textContent = '';
-          } else if (!progressFill.classList.contains('indeterminate')) {
-            // Only animate the guess while the server has not reported a real pct.
-            var pct = Math.round((elapsed / estimate) * 90);
-            progressFill.style.width = pct + '%';
-            progressPct.textContent = pct + '%';
+          } else if (!serverPctSeen && !progressFill.classList.contains('indeterminate')) {
+            // Only guess until the server reports a real percentage, and never
+            // paint a lower number than the one already on screen.
+            paintPct(Math.round((elapsed / estimate) * 90));
           }
         }, 300);
       }
@@ -6721,15 +7612,27 @@
       }, 3000);
     }
 
-    function actOnArtifact(id, action, actionsEl, btn) {
+    function actOnArtifact(id, action, actionsEl, btn, artifact) {
+      var found = stageCheckFor(artifact);
+      var failing = found && !found.check.ok ? found : null;
+      if (failing && (action === 'approve' || action === 'approvePlan')) {
+        var missing = asArray(failing.check.missing);
+        var ask = 'The ' + failing.label + ' does not satisfy the approved BRD' +
+          (missing.length ? ' (' + missing.join(', ') + ')' : '') +
+          '. Approve it anyway? Choose Cancel to revise it instead.';
+        if (!window.confirm(ask)) return;
+      }
       var commentSpec = COMMENT_ACTIONS[action];
       if (commentSpec) {
+        // Gate 3 picks the side to rewrite from words in the comment, so gaps are not prefilled there.
+        var prefill = failing && action === 'requestRevision' && artifact.awaitingGate !== 3
+          ? stageCheckGapText(failing) : '';
         openCommentModal(commentSpec.title, commentSpec.label, function (comment) {
-          submitArtifactAction(id, action, comment, btn, actionsEl);
-        });
+          submitArtifactAction(id, action, comment, btn, actionsEl, artifact);
+        }, prefill);
         return;
       }
-      submitArtifactAction(id, action, '', btn, actionsEl);
+      submitArtifactAction(id, action, '', btn, actionsEl, artifact);
     }
 
     function loadArtifacts() {
@@ -7687,6 +8590,7 @@
       area.innerHTML =
         '<div class="ide-compare-panel">' +
           '<h3>Code vs split / BRD plan</h3>' +
+          '<p class="ide-compare-meta"><button type="button" class="btn secondary" id="ide-brd-inline">BRD side by side</button></p>' +
           '<p class="ide-compare-meta">' +
             escapeHtml(String(result.made.length)) + ' delivered · ' +
             escapeHtml(String(result.missing.length)) + ' missing · ' +
@@ -7700,6 +8604,10 @@
             itemsHtml(result.missing, 'Nothing missing — every report item has code.') +
           '</div>' +
         '</div>';
+      var brdInline = document.getElementById('ide-brd-inline');
+      if (brdInline) brdInline.addEventListener('click', function () {
+        openBrdCompareModal(artifact, { pane: 'code' });
+      });
       area.querySelectorAll('[data-open-path]').forEach(function (btn) {
         btn.addEventListener('click', function () {
           ideCompareMode = false;
@@ -7799,9 +8707,21 @@
         compareBtn.style.display = showCompare ? '' : 'none';
         compareBtn.textContent = '⇄ Compare to report';
       }
+      var brdBtn = document.getElementById('ide-brd-btn');
+      if (brdBtn) {
+        var showBrd = !!(artifact && asArray(artifact.brdCoverage).length && stageHasBrdCriteria(artifact));
+        brdBtn.style.display = showBrd ? '' : 'none';
+        brdBtn.onclick = function () { openBrdCompareModal(artifact, { pane: 'code' }); };
+      }
 
       var overlay = document.getElementById('ide-overlay');
-      document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module';
+      var criteriaScore = '';
+      var criteriaRows = asArray(artifact && artifact.brdCoverage);
+      if (criteriaRows.length && stageHasBrdCriteria(artifact)) {
+        var criteriaMet = criteriaRows.filter(function (row) { return row.satisfies; }).length;
+        criteriaScore = ' · BRD ' + criteriaMet + '/' + criteriaRows.length;
+      }
+      document.getElementById('ide-title').textContent = (artifact.title || 'Code Generation') + ' — ' + (department || me.department || 'Code') + ' module' + criteriaScore;
       document.getElementById('ide-model-badge').textContent = modelLabel || 'AI Model';
       document.getElementById('ide-timer').textContent = '0:00';
       document.getElementById('ide-progress-fill').style.width = '0%';

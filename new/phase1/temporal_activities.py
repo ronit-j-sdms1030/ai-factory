@@ -77,6 +77,10 @@ class RequirementActivities:
             write=bool(command.get("write")),
         )
 
+    @activity.defn(name="reload_requirement")
+    def reload_requirement(self, command: dict[str, Any]) -> dict[str, Any]:
+        return self._platform().get(str(command["requirement_id"]))
+
     @activity.defn(name="escalate_sla")
     def escalate(self, command: dict[str, Any]) -> dict[str, Any]:
         platform = self._platform()

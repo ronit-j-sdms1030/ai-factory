@@ -882,6 +882,21 @@ def serve(host: str = "127.0.0.1", port: int = 8787, root: Path | None = None) -
     from phase1 import agent_settings
 
     agent_settings.ensure_cheap_defaults(platform.root)
+    from phase1.platform import Phase1
+
+    homes = Phase1(platform.root)
+    try:
+        homes.sync_requirement_homes()
+    except Exception as exc:
+        print(f"[github] requirement homes were not synced: {exc}")
+    try:
+        homes.sync_specifications()
+    except Exception as exc:
+        print(f"[spec] specifications were not filled: {exc}")
+    try:
+        homes.sync_design_accuracy()
+    except Exception as exc:
+        print(f"[design] architectures were not aligned: {exc}")
     dev_mode = os.getenv("PHASE1_DEV_MODE", "").lower() in {"1", "true", "yes"}
     httpd = ThreadingHTTPServer(
         (host, port),

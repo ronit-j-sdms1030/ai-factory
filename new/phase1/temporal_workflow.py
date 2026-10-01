@@ -102,3 +102,15 @@ class RequirementWorkflow:
         command["requirement_id"] = self.state.requirement_id
         self.state.apply(await self._activity("edit_scope", command))
         return dict(self.state.snapshot)
+
+    @workflow.update
+    async def reload_requirement(self) -> dict[str, Any]:
+        """Read the store again after the scope gate is reopened out of band."""
+        assert self.state is not None
+        self.state.apply(
+            await self._activity(
+                "reload_requirement",
+                {"requirement_id": self.state.requirement_id},
+            )
+        )
+        return dict(self.state.snapshot)

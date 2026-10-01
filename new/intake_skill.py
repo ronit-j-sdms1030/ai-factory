@@ -125,10 +125,12 @@ invent screens for it. An AI feature inside a browser app stays in scope.
 
 ## Question policy and budget
 
-Between **four and ten** calls for the whole conversation, enforced in code
-rather than by instruction. At most nine questions; the last call writes the
-scope report so the whole scope is recorded in ten calls. Cost grows
-quadratically with transcript length, because every turn resends what came before.
+At most **ten** calls for the whole conversation, enforced in code rather than
+by instruction. At most nine questions; the last call writes the scope report.
+There is no minimum. A question asked only to fill a quota is a defect: do not
+ask what else must be true for production when who, what they do, success, and
+out of scope are already answered. Cost grows quadratically with transcript
+length, because every turn resends what came before.
 
 - One question at a time. Never a wall of them.
 - Reflect back what you understood in a sentence, then ask.
@@ -165,7 +167,10 @@ reviewer's decision at Gate 1, not yours.
 
 The scope report carries:
 
-- **In scope** — concrete capabilities, each traceable to something said
+- **In scope** — concrete capabilities, each traceable to something said.
+  Each one names the screen, the fields they mentioned, and what the screen
+  shows afterwards, so the BRD does not have to guess. A thin verb with no
+  fields is not enough when they already named the fields.
 - **Out of scope** — and this section is never empty on a real requirement.
   Anything the boundary excludes, anything explicitly not wanted, anything
   discussed and deferred. An empty out-of-scope section means the boundary was
@@ -282,14 +287,15 @@ class BudgetTooEarly(Exception):
 
 @dataclass
 class QuestionBudget:
-    """The 4-to-10 bound, enforced here rather than by the prompt.
+    """A ceiling of ten calls, and no floor.
 
     Ten is the last *call*, and that call writes the scope report. A model
     asked to stop at ten will, under pressure, ask an eleventh. The counter
-    lives outside it.
+    lives outside it. A minimum made the model invent a question once the
+    scope was already clear.
     """
 
-    minimum: int = 4
+    minimum: int = 0
     maximum: int = 10
     asked: int = 0
     calls: int = 0

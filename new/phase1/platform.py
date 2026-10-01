@@ -6,8 +6,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import fcntl
 import json
 import re
+import sys
 
 import connectors
 import intake_skill
@@ -123,7 +125,7 @@ class Phase1:
         body = {
             "requirement": req.dump(),
             "messages": [],
-            "budget": {"asked": 0, "minimum": 4, "maximum": 10, "calls": 0},
+            "budget": {"asked": 0, "minimum": 0, "maximum": 10, "calls": 0},
             "named_approvers": self.adapters.identity.freeze_chain(
                 template, originator_id=originator.get("id")
             ),
@@ -246,8 +248,9 @@ class Phase1:
             result["scope_sha"] = sha
             return result
 
+        body["budget"]["minimum"] = 0
         budget = intake_skill.QuestionBudget(
-            minimum=int(body["budget"]["minimum"]),
+            minimum=0,
             maximum=int(body["budget"]["maximum"]),
             asked=int(body["budget"]["asked"]),
             calls=int(body["budget"].get("calls") or 0),
@@ -264,15 +267,22 @@ class Phase1:
                     'Either {"type":"question","text":"..."} or a scope_report. '
                     "scope_report fields: title (short product name), "
                     "users, current_state (what happens today, in their words), "
-                    "in_scope (6-10 testable capabilities drawn from the answers — "
-                    "never the phrase about starting a guided intake conversation, "
-                    "never paste the whole transcript as one bullet), "
+                    "in_scope (each capability written so a screen can be drawn from it: "
+                    "the screen, the fields they named, and what the screen shows afterwards. "
+                    "Do not shorten a named field list. Never the phrase about starting a "
+                    "guided intake conversation, never paste the whole transcript as one bullet), "
                     "out_of_scope (exclusions only; do not list the browser itself as out of scope; "
                     "if they asked for a product this stack cannot ship — a bot, a native or desktop app, "
                     "firmware, a game, another runtime, an ML training platform, or safety-critical software — "
                     "put that here and do not turn it into screens), "
                     "success (the afterwards picture, not a feature list), "
-                    "non_functional (channel and constraints), assumptions, open_questions.\n\n"
+                    "non_functional (channel and constraints), assumptions, open_questions.\n"
+                    "There is no minimum number of questions. When who uses it, what they do, "
+                    "what success looks like, and what is out of scope are already answered, "
+                    "reply with a scope_report. Do not ask what else must be true for production. "
+                    "Users, what happens today, success, and out of scope must be filled from "
+                    "what they said. Open questions are only things they did not answer. "
+                    "Do not invent a month-end file or a missed check-in.\n\n"
                     + intake_skill.prompt_section(skill)
                 ),
             }
@@ -369,13 +379,7 @@ class Phase1:
         if parsed.get("type") == "question" and rails.looks_like_aborted_scope(
             str(parsed.get("text") or "")
         ):
-            if budget.may_close():
-                parsed = _scope_from_chat()
-            else:
-                parsed = {
-                    "type": "question",
-                    "text": "What else must be true for this to succeed in production?",
-                }
+            parsed = _scope_from_chat()
         if parsed.get("type") == "question" and budget.must_close():
             parsed = _scope_from_chat()
             extras = list(parsed.get("open_questions") or [])
@@ -395,21 +399,20 @@ class Phase1:
             if thin:
                 parsed = overlay
             else:
-                parsed.setdefault("users", overlay.get("users"))
-                parsed.setdefault("current_state", overlay.get("current_state"))
+                if not str(parsed.get("users") or "").strip():
+                    parsed["users"] = overlay.get("users") or ""
+                if not str(parsed.get("current_state") or "").strip():
+                    parsed["current_state"] = overlay.get("current_state") or ""
+                if not str(parsed.get("success") or "").strip():
+                    parsed["success"] = overlay.get("success") or ""
                 if not parsed.get("non_functional"):
                     parsed["non_functional"] = overlay.get("non_functional") or []
+            parsed = brd.enrich_scope(parsed)
 
         if fit["outside"] and parsed.get("type") == "scope_report":
             parsed["out_of_scope"] = stack_profiles.merge_exclusions(
                 list(parsed.get("out_of_scope") or []), transcript
             )
-        if parsed["type"] != "question" and not budget.may_close() and not budget.at_call_cap():
-            parsed = {
-                "type": "question",
-                "text": "What else must be true for this to succeed in production?",
-            }
-
         if parsed["type"] == "question":
             budget.record_question()
             body["budget"]["asked"] = budget.asked
@@ -650,6 +653,9 @@ class Phase1:
         if req.awaiting == 7 and "release" not in req.artefacts:
             self._write_release(req, body)
             req = R.Requirement.load(body["requirement"])
+        if gate == 3 and "design" not in req.artefacts:
+            self._ensure_design_artefact(req, body)
+            req = R.Requirement.load(body["requirement"])
         ctx = ContextInputs(
             skill_file_versions={
                 "intake": body.get("skill_version") or "shipped",
@@ -720,7 +726,10 @@ class Phase1:
         else:
             branch = f"release/{requirement_id}"
         body["requirement"] = req.dump()
-        self._readme_source = body
+        # The record in memory has already moved to the next gate. Writing that
+        # README onto the branch makes the merge conflict with main, and git
+        # then refuses every later read with "resolve your current index first".
+        self._readme_source = self.store.get(requirement_id) or body
         self.git.commit_files(
             branch,
             {path: json_dumps(envelope)},
@@ -731,6 +740,14 @@ class Phase1:
 
         if outcome == "approve" and decision.satisfied:
             self.git.merge_to_main(branch, f"approve gate {gate} for {requirement_id}")
+            self._readme_source = body
+            try:
+                self._sync_one_home(requirement_id, body)
+            except Exception as exc:
+                print(
+                    f"[github] {requirement_id} README was not refreshed: {exc}",
+                    file=sys.stderr,
+                )
             try:
                 if gate == 1:
                     self._write_brd_from_main(req, body)
@@ -1063,14 +1080,388 @@ class Phase1:
         note = getattr(self.git, "note_title", None)
         if not callable(note):
             return
+        stored = dict(body or {})
+        if not stored.get("display_title") or not stored.get("requirement"):
+            saved = self.store.get(requirement_id) or {}
+            for key in ("display_title", "requirement", "request_text", "intake_brief"):
+                if not stored.get(key) and saved.get(key) is not None:
+                    stored[key] = saved[key]
         if body is not None:
-            self._readme_source = body
-        title = str((body or {}).get("display_title") or "").strip()
-        if not title:
-            stored = self.store.get(requirement_id) or {}
-            title = str(stored.get("display_title") or "").strip()
+            self._readme_source = stored
+        title = product_readme.website_title(requirement_id, stored)
         if title:
             note(requirement_id, title)
+
+    def sync_requirement_homes(self) -> list[str]:
+        """Name every requirement repo and refresh its README.
+
+        Runs for the whole store, not one id at a time. A missing website name
+        becomes ``Requirement REQ-0001``. A later commit keeps the README on
+        the current gate.
+        """
+        if not getattr(self.git, "per_requirement", False):
+            return []
+        lock_path = self.git.root / ".sync-homes.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        updated: list[str] = []
+        with lock_path.open("a", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                for row in self.store.all():
+                    req = row.get("requirement") or {}
+                    rid = str(req.get("id") or "")
+                    if not rid:
+                        continue
+                    try:
+                        self._sync_one_home(rid, row)
+                        updated.append(rid)
+                    except Exception as exc:
+                        print(f"[github] {rid} home was not updated: {exc}", file=sys.stderr)
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        return updated
+
+    def _sync_one_home(self, requirement_id: str, row: dict[str, Any]) -> None:
+        body = dict(row)
+        if not isinstance(body.get("intake_brief"), dict):
+            for ref in (f"scope/{requirement_id}", "main"):
+                try:
+                    scope = self.git.read(
+                        f"requirements/{requirement_id}/scope/scope-report.md", ref
+                    )
+                except Exception:
+                    continue
+                body["intake_brief"] = product_readme.brief_from_scope(scope)
+                break
+        title = product_readme.website_title(requirement_id, body)
+        if str(body.get("display_title") or "").strip() != title:
+            body["display_title"] = title
+            self.store.put(requirement_id, body, at=self.clock())
+        elif isinstance(body.get("intake_brief"), dict) and not isinstance(
+            (row.get("intake_brief")), dict
+        ):
+            self.store.put(requirement_id, body, at=self.clock())
+        self._readme_source = body
+        self._note_repo_title(requirement_id, body)
+        text = product_readme.render(requirement_id, body)
+        path = self.git.root / f"requirements/{requirement_id}/README.md"
+        if path.is_file() and path.read_text(encoding="utf-8").strip() == text.strip():
+            publish = getattr(self.git, "_publish_root_readme", None)
+            if callable(publish):
+                publish("main", {f"requirements/{requirement_id}/README.md": text})
+            return
+        self.git.commit_files(
+            "main",
+            {f"requirements/{requirement_id}/README.md": text},
+            f"Record {title} and the current gate",
+            author="platform",
+            email="platform@local",
+        )
+
+    def sync_specifications(self) -> list[str]:
+        """Fill screens and fields on every thin scope report and BRD.
+
+        One pass covers the whole store. A requirement whose scope already
+        lists screens, and whose BRD already names those screens and fields,
+        is skipped. The pass does not move a gate and does not call the model.
+        """
+        lock_path = self.root / ".sync-specs.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        updated: list[str] = []
+        with lock_path.open("a", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                for row in self.store.all():
+                    requirement = row.get("requirement") or {}
+                    requirement_id = str(
+                        requirement.get("id") or row.get("requirement_id") or ""
+                    )
+                    if not requirement_id:
+                        continue
+                    try:
+                        if self._sync_one_specification(requirement_id, row):
+                            updated.append(requirement_id)
+                    except Exception as exc:
+                        print(
+                            f"[spec] {requirement_id} was not filled: {exc}",
+                            file=sys.stderr,
+                        )
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        if updated:
+            print(f"[spec] filled screens on {', '.join(updated)}", file=sys.stderr)
+        return updated
+
+    def sync_design_accuracy(self) -> list[str]:
+        """Rewrite an architecture that cannot drive the UI.
+
+        Runs for every stored requirement. The data model in the BRD is the
+        record list; screen names are not records. A requirement whose Gate 3
+        has already cleared is left alone, because that design was signed.
+        Already-accurate architectures are left alone. No model call, no gate move.
+        """
+        lock_path = self.root / ".sync-design.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        updated: list[str] = []
+        with lock_path.open("a", encoding="utf-8") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            try:
+                for row in self.store.all():
+                    requirement = row.get("requirement") or {}
+                    requirement_id = str(
+                        requirement.get("id") or row.get("requirement_id") or ""
+                    )
+                    if not requirement_id:
+                        continue
+                    try:
+                        if self._sync_one_design(requirement_id):
+                            updated.append(requirement_id)
+                    except Exception as exc:
+                        print(
+                            f"[design] {requirement_id} was not aligned: {exc}",
+                            file=sys.stderr,
+                        )
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+        if updated:
+            print(f"[design] aligned architecture on {', '.join(updated)}", file=sys.stderr)
+        return updated
+
+    def _sync_one_design(self, requirement_id: str) -> bool:
+        from phase2 import architect, contract as product_contract
+
+        body = self.store.get(requirement_id)
+        if not body:
+            return False
+        req = R.Requirement.load(body["requirement"])
+        if not req.is_open or 3 in req.cleared:
+            return False
+        brd_text = (body.get("brd_text") or self._artefact_text(req, "brd") or "").strip()
+        if not brd_text:
+            return False
+        if not body.get("architecture_text") and "design" not in req.artefacts:
+            return False
+        entities = list((body.get("architecture_decision") or {}).get("entities") or [])
+        if entities and not product_contract.problems(brd_text, entities):
+            if "design" in req.artefacts:
+                return False
+            # The architecture is already right, but Gate 3 cannot be revised
+            # or signed until a design artefact exists.
+            self._ensure_design_artefact(req, body)
+            return "design" in req.artefacts
+        decision = architect.decide(requirement_id, brd_text)
+        decision["brd_excerpt"] = brd_text.split("## Open questions", 1)[0].strip()
+        architecture = architect.render(decision)
+        stored = {key: value for key, value in decision.items() if key != "architecture"}
+        files = {
+            f"requirements/{requirement_id}/design/architecture.md": architecture,
+            f"requirements/{requirement_id}/design/architecture.json": json.dumps(stored, indent=2) + "\n",
+        }
+        sha = self.git.commit_files(
+            f"design/{requirement_id}",
+            files,
+            f"Align {requirement_id} architecture with the BRD data model",
+            author="design-agent",
+            email="design@local",
+        )
+        body["architecture_text"] = architecture
+        body["architecture_decision"] = stored
+        body["stack_profile"] = decision.get("profile")
+        if sha:
+            req.record_artefact("design", sha, **PROVENANCE_DESIGN)
+            body["requirement"] = req.dump()
+        self._save(body, event="design_aligned", at=self.clock())
+        return True
+
+    def _ensure_design_artefact(self, req: R.Requirement, body: dict[str, Any]) -> None:
+        """Point Gate 3 at the architecture already written.
+
+        A regenerated architecture can sit in the record and in git while the
+        design artefact was never recorded. Revise and approve then fail with
+        "gate 3 has no artefact".
+        """
+        if not req.is_open or 3 in req.cleared or "design" in req.artefacts:
+            return
+        text = (body.get("architecture_text") or "").strip()
+        if not text:
+            return
+        ref = f"design/{req.id}"
+        try:
+            sha = self.git.rev_parse(ref)
+        except Exception:
+            sha = self.git.commit_files(
+                ref,
+                {f"requirements/{req.id}/design/architecture.md": text},
+                f"Record the architecture for {req.id}",
+                author="design-agent",
+                email="design@local",
+            )
+        req.record_artefact("design", sha, **PROVENANCE_DESIGN)
+        body["requirement"] = req.dump()
+        self._save(body, event="design_recorded", at=self.clock())
+
+    def return_to_scope_gate(self, requirement_id: str) -> dict[str, Any]:
+        """Regenerate the scope report and reopen Gate 1.
+
+        The product owner reviews that report again. The BRD is written only
+        after Gate 1 is approved. Earlier approvals stay in the attestation
+        trail; they do not count against the new report.
+        """
+        body = self._load(requirement_id)
+        req = R.Requirement.load(body["requirement"])
+        req._require_open()
+        _, copies = self._spec_copies(requirement_id, "scope", "scope-report.md")
+        source = next((text for _, text in copies if text.strip()), "")
+        if source.strip():
+            parsed = brd.enrich_scope(brd.parse_scope(source))
+        else:
+            parsed = brd.enrich_scope(
+                rails.scope_from_conversation(
+                    list(body.get("messages") or []),
+                    request_text=str(body.get("request_text") or ""),
+                )
+            )
+        rendered = brd.render_scope(requirement_id, parsed)
+        req.cleared.discard(1)
+        req.artefacts.pop("brd", None)
+        req.signatures = [item for item in req.signatures if item.gate != 1]
+        skill = self.git.skill()
+        sha = self._commit_scope(req, body, rendered, skill)
+        req.record_artefact("scope", sha, **PROVENANCE_INTAKE)
+        body["requirement"] = req.dump()
+        body["scope_sha"] = sha
+        body["brd_text"] = ""
+        self._arm_sla(body, req, 1)
+        self._save(body, event="scope_reopened", at=self.clock(), extra={"gate": 1})
+        drop = getattr(self.git, "delete_branch", None)
+        if callable(drop):
+            drop(f"brd/{requirement_id}")
+        try:
+            self._sync_one_home(requirement_id, self.store.get(requirement_id) or body)
+        except Exception as exc:
+            print(f"[github] {requirement_id} README was not refreshed: {exc}", file=sys.stderr)
+        result = self.get(requirement_id)
+        result["scope_sha"] = sha
+        return result
+
+    def _spec_copies(
+        self, requirement_id: str, stage: str, filename: str
+    ) -> tuple[str, list[tuple[str, str]]]:
+        path = f"requirements/{requirement_id}/{stage}/{filename}"
+        found: list[tuple[str, str]] = []
+        for ref in (f"{stage}/{requirement_id}", "main"):
+            try:
+                found.append((ref, self.git.read(path, ref)))
+            except Exception:
+                continue
+        return path, found
+
+    def _commit_filled_scope(self, requirement_id: str) -> str:
+        """Return the scope markdown, writing the screen list when it is missing."""
+        path, copies = self._spec_copies(requirement_id, "scope", "scope-report.md")
+        if not copies:
+            return ""
+        source = next((text for _, text in copies if text.strip()), "")
+        if not source.strip() or not brd.scope_needs_fill(source):
+            return source
+        rendered = brd.render_scope(
+            requirement_id, brd.enrich_scope(brd.parse_scope(source))
+        )
+        for ref, text in copies:
+            if text.strip() == rendered.strip():
+                continue
+            self.git.commit_files(
+                ref,
+                {path: rendered},
+                f"Name the screens and fields on {requirement_id}.",
+                author="platform",
+                email="platform@local",
+            )
+        return rendered
+
+    def _ids_for_existing_brd(
+        self,
+        requirement_id: str,
+        body: dict[str, Any],
+        current: str,
+        count: int,
+        *,
+        allocate: bool,
+    ) -> list[str]:
+        """Reuse REQ-0001-R01 style ids. Mint more only when the BRD is rewritten."""
+        found: list[str] = []
+        for item in re.findall(rf"{re.escape(requirement_id)}-R\d{{2}}", current or ""):
+            if item not in found:
+                found.append(item)
+        requirement = body.get("requirement")
+        if not isinstance(requirement, dict):
+            if len(found) >= count or not allocate:
+                return found[:count] if found else [
+                    f"{requirement_id}-R{n:02d}" for n in range(1, count + 1)
+                ]
+            start = len(found) + 1
+            return found + [f"{requirement_id}-R{n:02d}" for n in range(start, count + 1)]
+        latest = dict(self.store.get(requirement_id) or body)
+        record = R.Requirement.load(latest.get("requirement") or requirement)
+        highest = max((int(item.rsplit("R", 1)[-1]) for item in found), default=0)
+        dirty = False
+        if record._allocated < highest:
+            record._allocated = highest
+            dirty = True
+        if allocate and len(found) < count:
+            found = found + record.allocate_traceability_ids(count - len(found))
+            dirty = True
+        if dirty:
+            latest["requirement"] = record.dump()
+            self.store.put(requirement_id, latest, at=self.clock())
+            body["requirement"] = latest["requirement"]
+        if len(found) >= count:
+            return found[:count]
+        if not allocate:
+            return found
+        return found + [f"{requirement_id}-R{n:02d}" for n in range(len(found) + 1, count + 1)]
+
+    def _sync_one_specification(self, requirement_id: str, body: dict[str, Any]) -> bool:
+        _, copies = self._spec_copies(requirement_id, "scope", "scope-report.md")
+        before = next((text for _, text in copies if text.strip()), "")
+        rendered = self._commit_filled_scope(requirement_id)
+        changed = bool(before.strip()) and before.strip() != (rendered or "").strip()
+        if not (rendered or "").strip():
+            return False
+        brd_path, brd_copies = self._spec_copies(requirement_id, "brd", "brd.md")
+        if not brd_copies:
+            return changed
+        current = next((text for _, text in brd_copies if text.strip()), "")
+        enriched = brd.enrich_scope(brd.parse_scope(rendered))
+        screens = list(enriched.get("screens") or [])
+        count = max(len(enriched.get("in_scope") or []), 1)
+        if brd.brd_already_drawn(current, screens):
+            self._ids_for_existing_brd(
+                requirement_id, body, current, count, allocate=False
+            )
+            return changed
+        ids = self._ids_for_existing_brd(
+            requirement_id, body, current, count, allocate=True
+        )
+        drafted = brd.normalize_screen_inventory(
+            brd.draft_brd(
+                requirement_id, rendered, self.git.brd_template(), ids, skill=""
+            )
+        )
+        if drafted.strip() == current.strip():
+            return changed
+        for ref, text in brd_copies:
+            if text.strip() == drafted.strip():
+                continue
+            self.git.commit_files(
+                ref,
+                {brd_path: drafted},
+                f"Name the screens and fields on {requirement_id}.",
+                author="platform",
+                email="platform@local",
+            )
+            changed = True
+        return changed
 
     def _arm_sla(self, body: dict[str, Any], req: R.Requirement, gate: int | None) -> None:
         if gate is None:
@@ -1219,12 +1610,15 @@ class Phase1:
                 {
                     "role": "system",
                     "content": (
-                        "Return the full BRD markdown only. Keep '## Page behaviour' as a "
-                        "flat unique list of '- **ScreenName**: description' bullets — that "
-                        "section is the only screen inventory. Keep '###' requirement "
-                        "headings in Functional requirements for acceptance criteria only. "
-                        "Never paste '- **Screen**: …' bullets under a ### requirement "
-                        "(that duplicates Gate 3 screens)."
+                        "Return the full BRD markdown only. Keep every REQ- id and every "
+                        "## Page behaviour screen. You may clarify fields already named in "
+                        "the draft. Do not drop a screen, do not add a screen the scope "
+                        "did not ask for, and do not shorten the document. Keep "
+                        "'## Page behaviour' as a flat unique list of "
+                        "'- **ScreenName**: description' bullets — that section is the "
+                        "only screen inventory. Keep '###' requirement headings in "
+                        "Functional requirements for acceptance criteria only. Never paste "
+                        "'- **Screen**: …' bullets under a ### requirement."
                     ),
                 },
                 {"role": "user", "content": drafted[:14000]},
@@ -1236,27 +1630,14 @@ class Phase1:
         )
         import re
 
-        if raw and re.search(r"Page behaviour", raw, re.I) and "### " in raw:
+        if brd.refine_keeps_structure(drafted, raw):
             return brd.normalize_screen_inventory(raw)
         return brd.normalize_screen_inventory(drafted)
 
     def _critique_brd(self, requirement_id: str, drafted: str, skill: str) -> list[str]:
-        raw = self._invoke_llm(
-            [
-                {
-                    "role": "system",
-                    "content": 'Reply with one JSON object: {"findings":["..."]}.',
-                },
-                {"role": "user", "content": drafted[:12000]},
-            ],
-            skill=skill,
-            agent="brd",
-            requirement_id=requirement_id,
-            max_tokens=800,
-        )
-        data = self._llm_json(raw)
-        findings = [str(item) for item in (data.get("findings") or []) if str(item).strip()]
-        return findings or brd.critique(drafted, skill=skill)
+        """Structural check only. A model note is not written into the specification."""
+        del requirement_id
+        return brd.critique(drafted, skill=skill)
 
     def _architect_note(self, requirement_id: str, brd_text: str, skill: str) -> str:
         raw = self._invoke_llm(
@@ -1295,6 +1676,15 @@ class Phase1:
             "execute_tool": None,
         }
 
+    def _entities_for_ui(self, requirement_id: str, brd_text: str, decision: dict[str, Any] | None) -> list[dict[str, Any]]:
+        """Records the screens may use. A bad architecture is replaced from the BRD."""
+        from phase2 import architect, contract as product_contract
+
+        entities = list((decision or {}).get("entities") or [])
+        if product_contract.problems(brd_text, entities):
+            entities = list(architect.decide(requirement_id, brd_text).get("entities") or [])
+        return entities
+
     def _ui_model(
         self,
         requirement_id: str,
@@ -1302,6 +1692,7 @@ class Phase1:
         skill: str,
         *,
         on_progress: Any | None = None,
+        entities: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from phase2 import coverage
 
@@ -1337,12 +1728,28 @@ class Phase1:
                 }
             )
 
+        from phase2 import contract as product_contract
+
         planned: set[str] = set()
         roster = [coverage.component_name(page, planned) for page in pages]
         product_theme = ui_agent.pick_theme(brd_text)
         for index, page in enumerate(pages, start=1):
             name = coverage.component_name(page, used)
             role = ui_agent.screen_role(name, page)
+            binding = product_contract.screen_contract(page, entities)
+            locked = ""
+            if binding:
+                locked = (
+                    " Locked labels that must appear verbatim: "
+                    + ", ".join(binding.get("labels") or [])
+                    + ". "
+                    + (
+                        "Do not render a typed field for: " + ", ".join(binding.get("readonly") or []) + ". "
+                        if binding.get("readonly")
+                        else ""
+                    )
+                    + (f"Row action: {binding.get('action')}. " if binding.get("action") else "")
+                )
             report(index, name)
             raw = self._invoke_llm(
                 [
@@ -1376,6 +1783,7 @@ class Phase1:
                             "Do NOT stamp the same form+table layout on every screen — "
                             "follow the role contract above. Concrete product microcopy "
                             "from the BRD. No lorem or emoji icons. "
+                            + locked
                             + jsx_gate.PLACEHOLDER_RULE
                         ),
                     },
@@ -1435,8 +1843,12 @@ class Phase1:
                     "content": (
                         'JSON only: {"tickets":[{"id","title","depends_on":[],"trace":[],"paths":[]}]} '
                         "At least 5 tickets from THIS BRD and these screens. "
-                        "Do not invent booking or availability work the BRD does not name. "
-                        "Paths like src/api/** or src/ui/**."
+                        "Every BRD requirement id (REQ-nnnn-Rnn) must appear in some ticket's trace. "
+                        "First a schema + migration ticket (prisma/**) for every data-model record. "
+                        "One API ticket per data-model record, traced only to the requirements it serves. "
+                        "One ticket per screen, depending on the API ticket of the record it uses. "
+                        "Each ticket owns its own folder, e.g. src/api/<table>/** or src/ui/<Screen>/**. "
+                        "Do not invent booking, availability or AI work the BRD does not name."
                     ),
                 },
                 {
@@ -1471,8 +1883,12 @@ class Phase1:
                     "role": "system",
                     "content": (
                         'JSON only: {"tests":[{"id","name","criterion","critical":false}]} '
-                        "Exactly 8 tests from THIS BRD and these screens. One must be critical. "
-                        "Do not invent booking cases the BRD does not name."
+                        "At least one test per BRD requirement, with criterion set to that requirement id "
+                        "(REQ-nnnn-Rnn), named after its Then outcome with the concrete fields. "
+                        "Every name must be unique. Include negative tests: a wrong sign-in is refused, "
+                        "a form with a required field empty is refused, and the audit entry is written "
+                        "when the BRD has one. One must be critical. "
+                        "Do not invent booking or per-user ownership cases the BRD does not name."
                     ),
                 },
                 {"role": "user", "content": brd_text[:10000]},
@@ -1484,6 +1900,22 @@ class Phase1:
         )
         fallback_tests = qa.cases(brd_text, screens, locked)
         tests = agent_runs.tests_from_model(self._llm_json(qa_raw), fallback_tests, locked.tests)
+        from phase3 import stage_check
+
+        def passes(candidate_tickets: list[dict[str, Any]], candidate_tests: list[dict[str, Any]]) -> bool:
+            return stage_check.plan(
+                brd_text,
+                screens,
+                candidate_tickets,
+                candidate_tests,
+                architecture_text=architecture_text,
+            )["ok"]
+
+        # Model output is kept only when it covers every BRD requirement.
+        if tickets is not fallback_tickets and not passes(tickets, fallback_tests):
+            tickets = fallback_tickets
+        if tests is not fallback_tests and not passes(fallback_tickets, tests):
+            tests = fallback_tests
         overview_raw = self._invoke_llm(
             [
                 {
@@ -1588,17 +2020,20 @@ class Phase1:
         revision: bool = False,
     ) -> None:
         rid = req.id
-        scope_md = self.git.read(f"requirements/{rid}/scope/scope-report.md", "main")
+        scope_md = self._commit_filled_scope(rid)
+        if not scope_md.strip():
+            scope_md = self.git.read(f"requirements/{rid}/scope/scope-report.md", "main")
         parsed = brd.parse_scope(scope_md)
         count = max(len(parsed["in_scope"]), 1)
+        previous = body.get("brd_text") or self._artefact_text(req, "brd")
         if revision:
-            import re
-
-            previous = body.get("brd_text") or self._artefact_text(req, "brd")
             req.retire_traceability_ids(
                 sorted(set(re.findall(rf"{re.escape(rid)}-R\d{{2}}", previous)))
             )
-        ids = req.allocate_traceability_ids(count)
+            ids = req.allocate_traceability_ids(count)
+        else:
+            # A second write of the same BRD must keep R01, not mint R07.
+            ids = self._ids_for_existing_brd(rid, body, previous, count, allocate=True)
         bundle = self.git.bundle("brd")
         skill_registry.require(bundle.content, "brd")
         drafted = brd.draft_brd(rid, scope_md, self.git.brd_template(), ids, skill=bundle.content)
@@ -1623,15 +2058,23 @@ class Phase1:
         ui_skill = self._bundle_skill("ui", skill_text)
 
         def on_progress(progress: dict[str, Any]) -> None:
+            progress = dict(progress)
+            progress["kind"] = progress_kind
             body["design_progress"] = progress
             self._save(body, event="design_progress", at=self.clock(), extra=dict(progress))
 
+        if refresh == "architecture":
+            progress_kind, progress_label = "architecture", "Writing the architecture from the approved BRD…"
+        elif refresh == "ui":
+            progress_kind, progress_label = "screens", "Preparing the screens from the approved BRD…"
+        else:
+            progress_kind, progress_label = "design", "Updating the architecture and the screens from the approved BRD…"
         body["design_progress"] = {
             "status": "running",
-            "label": "Preparing accurate screens from the approved BRD…",
+            "kind": progress_kind,
+            "label": progress_label,
             "current": 0,
             "total": 0,
-            "pct": 0,
         }
         self._save(body, event="design_progress", at=self.clock(), extra=dict(body["design_progress"]))
         prior_screens = list(body.get("screens") or [])
@@ -1646,7 +2089,13 @@ class Phase1:
             }
             note = ""
         else:
-            ui_model = self._ui_model(rid, brd_text, ui_skill, on_progress=on_progress)
+            ui_model = self._ui_model(
+                rid,
+                brd_text,
+                ui_skill,
+                on_progress=on_progress,
+                entities=self._entities_for_ui(rid, brd_text, body.get("architecture_decision")),
+            )
             note = "" if refresh == "ui" else self._architect_note(
                 rid, brd_text, self._bundle_skill("architect", skill_text)
             )
@@ -1703,7 +2152,28 @@ class Phase1:
         brd_text = body.get("brd_text") or self._artefact_text(req, "brd")
         skill_text = self.git.design_system()
         ui_skill = self._bundle_skill("ui", skill_text)
-        ui_model = self._ui_model(rid, brd_text, ui_skill)
+
+        def on_progress(progress: dict[str, Any]) -> None:
+            progress = dict(progress)
+            progress["kind"] = "screens"
+            body["design_progress"] = progress
+            self._save(body, event="design_progress", at=self.clock(), extra=dict(progress))
+
+        body["design_progress"] = {
+            "status": "running",
+            "kind": "screens",
+            "label": "Preparing the screens from the approved BRD…",
+            "current": 0,
+            "total": 0,
+        }
+        self._save(body, event="design_progress", at=self.clock(), extra=dict(body["design_progress"]))
+        ui_model = self._ui_model(
+            rid,
+            brd_text,
+            ui_skill,
+            on_progress=on_progress,
+            entities=self._entities_for_ui(rid, brd_text, body.get("architecture_decision")),
+        )
         built = design_agent.build(
             rid,
             brd_text,
@@ -1932,8 +2402,8 @@ class Phase1:
         if req.awaiting != 3:
             raise R.TransitionRefused(f"{requirement_id} is not at Gate 3")
         roles = set(editor.get("roles") or [])
-        if not roles & {"architect", "ui_ux"}:
-            raise PermissionError("screen edits require the architect or UI/UX role")
+        if "ui_ux" not in roles:
+            raise PermissionError("screen edits require the UI/UX role")
         source = ui_agent.gated_source(name, source, self.git.design_system())
         screens = list(body.get("screens") or [])
         found = False
@@ -1970,8 +2440,8 @@ class Phase1:
         body = self._load(requirement_id)
         req = R.Requirement.load(body["requirement"])
         roles = set(editor.get("roles") or [])
-        if not roles & {"architect", "ui_ux"}:
-            raise PermissionError("screen edits require the architect or UI/UX role")
+        if "ui_ux" not in roles:
+            raise PermissionError("screen edits require the UI/UX role")
         screens = list(body.get("screens") or [])
         roster = [str(s.get("name")) for s in screens if s.get("name")]
         current = next((s for s in screens if s.get("name") == name), None)

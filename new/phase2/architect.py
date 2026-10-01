@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-import department_routing as routing
 import stack_profiles
 from phase1 import brd as brd_mod
 from phase4.product import parse_entities, table_name
@@ -31,18 +30,25 @@ def decide(requirement_id: str, brd_text: str, *, skill: str = "") -> dict[str, 
     profile = lock_profile(brd_text, skill=skill)
     from phase2 import coverage
 
+    from phase3 import trace
+
     pages = coverage.pages_from_brd(brd_text)
-    entities = _entities(brd_text)
+    sign_in = _sign_in_page(pages)
+    entities = _with_password(_entities(brd_text), sign_in)
     nfrs = _nfrs(brd_text, profile)
     blob = (brd_text or "").lower()
+    if _REALTIME.search(blob):
+        nfrs.append(
+            "Real-time: every list refetches after each write and polls every 5 seconds; "
+            "no websocket server on the locked profile."
+        )
     needs_overlap = any(token in blob for token in ("overlap", "double-book", "double book", "exclusion"))
-    # Same-app inference slot: Dev + AI compile into one tree even when the BRD
-    # does not name a model. A second deploy is off-profile.
-    needs_ai = True
+    # An AI module the BRD never asked for is unplanned scope for every later gate.
+    needs_ai = trace.wants_ai(brd_text)
     refused = stack_profiles.off_profile_hits(brd_text, profile)
     reason = _lock_reason(brd_text, profile)
     modules = _modules(profile, pages, entities, needs_ai)
-    contracts = _contracts(entities, needs_ai)
+    contracts = _contracts(entities, needs_ai, sign_in=sign_in is not None)
     extra_pages = _extra_pages(brd_text, pages)
     adrs = [
         _adr_stack(requirement_id, profile, reason, refused),
@@ -59,7 +65,13 @@ def decide(requirement_id: str, brd_text: str, *, skill: str = "") -> dict[str, 
         "contracts": contracts,
         "nfrs": nfrs,
         "identity": (
-            "Cookie session + demo directory (PHASE1_DEV_MODE). "
+            (
+                f"The {sign_in['id']} screen posts to `POST /api/session`, which checks the login "
+                "against a hashed password and sets a cookie session; `DELETE /api/session` ends it. "
+                if sign_in is not None
+                else ""
+            )
+            + "Factory reviewers use the cookie session + demo directory (PHASE1_DEV_MODE). "
             "Entra is client-SoW commercial and out of this demo path."
         ),
         "refused": refused,
@@ -113,7 +125,11 @@ def render(decision: dict[str, Any], *, note: str = "") -> str:
             "",
             modules,
             "",
-            "Development and AI are folders in one app, not two deploys.",
+            (
+                "Development and AI are folders in one app, not two deploys."
+                if decision["needs_ai"]
+                else "One app: screens, API and data are folders in one deploy."
+            ),
             "",
             "## Data model",
             "",
@@ -211,7 +227,8 @@ def _section(brd_text: str, *names: str) -> str:
     matches = list(_HEADING.finditer(text))
     for index, match in enumerate(matches):
         title = re.sub(r"^\d+\.\s*", "", match.group(1).strip()).lower()
-        if title in wanted:
+        # "Data model outline" is the same section as "Data model".
+        if title in wanted or any(title.startswith(name + " ") for name in wanted):
             start = match.end()
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             return text[start:end].strip()
@@ -219,13 +236,13 @@ def _section(brd_text: str, *names: str) -> str:
 
 
 def _entities(brd_text: str) -> list[tuple[str, list[str]]]:
+    """Records from the data-model section. Screen names are not tables."""
     section = _section(brd_text, "data model")
     found = parse_entities(section) if section else []
+    if not found:
+        found = parse_entities(brd_text or "")
     if found:
         return found
-    extras = routing.entities_from_text(brd_text)
-    if extras:
-        return [(name, ["id", "name"]) for name in extras]
     return brd_mod._entities(brd_text or "")
 
 
@@ -300,8 +317,46 @@ def _modules(
     return modules
 
 
-def _contracts(entities: list[tuple[str, list[str]]], needs_ai: bool) -> list[dict[str, str]]:
+_REALTIME = re.compile(r"real[- ]?time|\blive\b|instantly|immediately", re.I)
+_PASSWORD_FIELD = re.compile(r"password|hash|secret|credential", re.I)
+
+
+def _sign_in_page(pages: list[dict[str, str]]) -> dict[str, str] | None:
+    from phase2 import contract
+
+    for page in pages:
+        if contract._kind(str(page.get("id") or ""), str(page.get("description") or "")) == "auth":
+            return page
+    return None
+
+
+def _with_password(
+    entities: list[tuple[str, list[str]]], sign_in: dict[str, str] | None
+) -> list[tuple[str, list[str]]]:
+    """A sign-in screen that asks for a password needs a record that stores its hash."""
+    if sign_in is None or "password" not in str(sign_in.get("description") or "").lower():
+        return entities
+    if any(_PASSWORD_FIELD.search(field) for _name, fields in entities for field in fields):
+        return entities
+    from phase3 import trace
+
+    owner = trace.record_for_page(sign_in, entities)
+    if not owner:
+        return entities
+    return [(name, [*fields, "password_hash"] if name == owner else fields) for name, fields in entities]
+
+
+def _contracts(
+    entities: list[tuple[str, list[str]]], needs_ai: bool, *, sign_in: bool = False
+) -> list[dict[str, str]]:
     rows = [{"method": "GET", "path": "/api/health", "purpose": "assembled app liveness"}]
+    if sign_in:
+        rows.extend(
+            [
+                {"method": "POST", "path": "/api/session", "purpose": "sign in; a wrong login or password is refused"},
+                {"method": "DELETE", "path": "/api/session", "purpose": "sign out of the app"},
+            ]
+        )
     for name, _fields in entities:
         resource = table_name(name)
         rows.extend(
@@ -309,6 +364,7 @@ def _contracts(entities: list[tuple[str, list[str]]], needs_ai: bool) -> list[di
                 {"method": "GET", "path": f"/api/{resource}", "purpose": f"list {name}"},
                 {"method": "GET", "path": f"/api/{resource}/:id", "purpose": f"read {name}"},
                 {"method": "POST", "path": f"/api/{resource}", "purpose": f"create {name}"},
+                {"method": "PATCH", "path": f"/api/{resource}/:id", "purpose": f"update {name}"},
                 {"method": "DELETE", "path": f"/api/{resource}/:id", "purpose": f"remove {name}"},
             ]
         )

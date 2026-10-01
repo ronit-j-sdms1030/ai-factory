@@ -73,8 +73,18 @@ def build(
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", decomp))
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", qa_bundle))
     files.update(skill_registry.snapshot_paths(requirement_id, "plan", overview_bundle))
+    from phase3 import stage_check
+
+    check = stage_check.plan(
+        brd_text,
+        screens,
+        tickets,
+        tests,
+        sprint0=sprint,
+        architecture_text=architecture_text,
+    )
     plan_md = _plan_markdown(
-        requirement_id, profile, sprint, tickets, tests, owners, collisions
+        requirement_id, profile, sprint, tickets, tests, owners, collisions, check=check
     )
     files.update(
         {
@@ -101,6 +111,7 @@ def build(
         "profile": as_public(profile),
         "files": files,
         "team_reports": _team_reports(requirement_id, tickets, screens),
+        "check": check,
     }
 
 
@@ -149,12 +160,27 @@ def _plan_markdown(
     tests: list[dict[str, Any]],
     owners: dict[str, str],
     collisions: list[dict[str, str]],
+    *,
+    check: dict[str, Any] | None = None,
 ) -> str:
     ticket_lines = "\n".join(
         f"- `{t['id']}` [{t['department']}] {t['title']} "
-        f"(paths: {', '.join(t['paths'])}; depends: {', '.join(t['depends_on']) or 'none'})"
+        f"(paths: {', '.join(t['paths'])}; depends: {', '.join(t['depends_on']) or 'none'}; "
+        f"traces: {', '.join(t.get('trace') or []) or 'none'})"
         for t in tickets
     )
+    coverage: list[str] = []
+    if check is not None:
+        coverage = ["## Requirement coverage", "", check["summary"], ""]
+        for row in check["rows"]:
+            mark = "covered" if row["satisfies"] else "MISSING: " + "; ".join(row["gaps"])
+            coverage.append(
+                f"- `{row['id']}` {row['title']} — {mark}"
+                + (f" ({', '.join(row['covered'])})" if row["covered"] else "")
+            )
+        for problem in check["problems"]:
+            coverage.append(f"- problem: {problem}")
+        coverage.append("")
     entity_lines = "\n".join(f"- `{name}` owned by {dept}" for name, dept in owners.items())
     collision_note = (
         "\n".join(
@@ -170,6 +196,7 @@ def _plan_markdown(
             "",
             f"Sprint 0: **{sprint.get('status')}**.",
             "",
+            *coverage,
             "## Tickets",
             "",
             ticket_lines,

@@ -1,24 +1,43 @@
-"""QA Agent — test design from this BRD and these screens, before code."""
+"""QA Agent — test design from this BRD and these screens, before code.
+
+One test per BRD requirement, named after what that requirement says must
+happen, and then the cross-cutting checks the BRD actually asks for. A test
+that contradicts the BRD (per-user ownership on a shared login) is not written.
+"""
 
 from __future__ import annotations
 
 import re
 from typing import Any
 
+from phase3 import trace
 from stack_profiles import StackProfile
-
-_CAP = re.compile(r"^###\s+(\S+)(?:\s+[—–-]\s+(.+))?\s*$", re.M)
 
 
 def _capabilities(brd_text: str) -> list[tuple[str, str]]:
-    return [
-        (match.group(1), (match.group(2) or match.group(1)).strip())
-        for match in _CAP.finditer(brd_text or "")
-    ]
+    return [(row["id"], row["title"]) for row in trace.requirements(brd_text)]
 
 
 def _needs_overlap(blob: str) -> bool:
     return any(token in blob for token in ("overlap", "double-book", "double book", "exclusion"))
+
+
+def _lower_first(text: str) -> str:
+    return text[:1].lower() + text[1:] if text else text
+
+
+def _outcome(requirement: dict[str, str]) -> str:
+    criteria = str(requirement.get("criteria") or requirement.get("body") or "")
+    found = re.search(r"\bThen\b[:\s]+(.+?)(?:\n|$)", criteria, re.I)
+    if not found:
+        return ""
+    text = re.sub(r"[*_`]+", "", found.group(1)).strip().rstrip(".")
+    return text[:160]
+
+
+def _prefix(ids: list[str]) -> str:
+    first = ids[0] if ids else "R01"
+    return re.sub(r"-R\d+$", "", first) or first
 
 
 def cases(
@@ -32,17 +51,32 @@ def cases(
         import skill_registry
 
         skill_registry.require(skill, "qa")
-    caps = _capabilities(brd_text)
-    ids = [cap[0] for cap in caps] or ["R01"]
-    titles = [cap[1] for cap in caps]
+    reqs = trace.requirements(brd_text) or [
+        {"id": "R01", "title": "the primary capability", "body": "", "criteria": ""}
+    ]
+    ids = [row["id"] for row in reqs]
     framework = profile.tests
     blob = (brd_text or "").lower()
     screen_names = [str(screen.get("name") or "Screen") for screen in screens if screen.get("name")]
     designed: list[dict[str, Any]] = []
 
-    def add(suffix: str, name: str, criterion: str, *, critical: bool = False) -> None:
+    from phase2 import contract
+    from phase3.stage_check import _VAGUE
+
+    for row in reqs:
+        outcome = _outcome(row)
+        name = _lower_first(row["title"])
+        if outcome and not _VAGUE.search(outcome):
+            name = f"{name}: {_lower_first(outcome)}"
+        designed.append(
+            {"id": f"{row['id']}-T01", "name": name, "framework": framework, "criterion": row["id"]}
+        )
+
+    prefix = _prefix(ids)
+
+    def add(name: str, criterion: str, *, critical: bool = False) -> None:
         row = {
-            "id": f"{ids[0]}-{suffix}",
+            "id": f"{prefix}-X{sum(1 for c in designed if '-X' in c['id']) + 1:02d}",
             "name": name,
             "framework": framework,
             "criterion": criterion,
@@ -51,48 +85,35 @@ def cases(
             row["critical"] = True
         designed.append(row)
 
-    first = titles[0] if titles else "the primary capability"
-    second = titles[1] if len(titles) > 1 else first
-    add("T01", first[0].lower() + first[1:] if first else "happy path", ids[0])
-    add("T02", second[0].lower() + second[1:] if second else "write path", ids[min(1, len(ids) - 1)])
     if _needs_overlap(blob):
-        add(
-            "T03",
-            "concurrency: two overlapping writes, exactly one succeeds",
-            "overlap",
-            critical=True,
-        )
-    elif any(token in blob for token in ("cancel", "own")):
-        add("T03", "a user cannot change another user's record", "auth", critical=True)
+        add("concurrency: two overlapping writes, exactly one succeeds", "overlap", critical=True)
+    elif trace.shared_login(brd_text):
+        add("a wrong shared password is refused and nothing is saved", "auth", critical=True)
+    elif any(token in blob for token in ("cancel", "own record", "their own", "another user")):
+        add("a user cannot change another user's record", "auth", critical=True)
     else:
-        add("T03", "conflicting writes: exactly one succeeds", ids[0], critical=True)
-    if "cancel" in blob:
-        add("T04", "user cancels or withdraws their own record", "cancel")
-    else:
-        add("T04", f"a clear failure of {first}", ids[0])
-    if "admin" in blob:
-        add("T05", "admin override is recorded", "admin")
-    elif len(titles) > 2:
-        add("T05", titles[2][0].lower() + titles[2][1:], ids[min(2, len(ids) - 1)])
-    else:
-        add("T05", "out-of-policy action is refused", "scope")
+        add("conflicting writes: exactly one succeeds and nothing is half-saved", "integrity", critical=True)
+    brd_pages = trace.pages(brd_text)
+    kinds = {
+        str(page.get("id")): contract._kind(str(page.get("id") or ""), str(page.get("description") or ""))
+        for page in brd_pages
+    }
+    if "auth" in kinds.values() and not trace.shared_login(brd_text):
+        add("a wrong password is refused and the user stays on the sign-in screen", "auth")
+    for page_id, kind in kinds.items():
+        if kind == "form":
+            add(f"saving {page_id} with a required field empty is refused and nothing is saved", "validation")
     if "audit" in blob:
-        add("T06", "audit records who acted and when", "audit")
-    else:
-        add("T06", "the change is visible the same day without a side channel", ids[0])
+        add("audit records who acted and when", "audit")
     if screen_names:
-        add(
-            "T07",
-            "screen coverage: " + ", ".join(screen_names) + " are reachable",
-            "ui",
-        )
+        add("screen coverage: " + ", ".join(screen_names) + " are reachable", "ui")
     else:
-        add("T07", "screen coverage: every approved screen is reachable", "ui")
+        add("screen coverage: every approved screen is reachable", "ui")
     if any(token in blob for token in ("native", "app store", "iphone", "android")):
-        add("T08", "out-of-scope native clients are refused", "scope")
+        add("out-of-scope native clients are refused", "scope")
     else:
-        add("T08", "an out-of-scope capability is refused", "scope")
-    return designed[:8]
+        add("an out-of-scope capability is refused", "scope")
+    return designed
 
 
 def render(cases_: list[dict[str, Any]]) -> str:

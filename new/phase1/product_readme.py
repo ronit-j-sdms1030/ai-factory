@@ -41,10 +41,34 @@ def brief_from_scope(markdown: str) -> dict[str, str]:
     }
 
 
+def website_title(requirement_id: str, body: dict[str, Any] | None) -> str:
+    """The intake website name, or a generic title when none was decided.
+
+    A paragraph, the raw requirement id, or a blank field is not a website
+    name. Those get ``Requirement REQ-0001`` so the repo is never left as the
+    governance project name.
+    """
+    raw = str((body or {}).get("display_title") or "").strip()
+    if _is_website_name(raw, requirement_id):
+        return raw
+    return f"Requirement {requirement_id}"
+
+
+def _is_website_name(title: str, requirement_id: str) -> bool:
+    if not title or title.upper() == str(requirement_id or "").upper():
+        return False
+    if title.lower().startswith("requirement "):
+        return False
+    words = title.split()
+    if not words or len(words) > 8 or len(title) > 60:
+        return False
+    return True
+
+
 def render(requirement_id: str, body: dict[str, Any] | None) -> str:
     """Markdown for README.md: what this is, and which gate it is on."""
     row = body or {}
-    title = str(row.get("display_title") or "").strip() or requirement_id
+    title = website_title(requirement_id, row)
     brief = row.get("intake_brief") if isinstance(row.get("intake_brief"), dict) else {}
     lines = [
         f"# {title}",

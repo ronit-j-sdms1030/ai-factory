@@ -213,10 +213,22 @@ def _screen_source(
     theme: str = "midnight",
     brand: str = "App",
     roster: list[str] | None = None,
+    contract: dict[str, Any] | None = None,
 ) -> str:
     """Deterministic screen — role-specific layout, not one universal table."""
     title = _display_title(name, page)
     description = _safe_jsx_text(page.get("description") or title)
+    if contract:
+        return _contract_source(
+            name,
+            page,
+            contract,
+            theme=theme,
+            brand=brand,
+            roster=roster or ([name] + [item for item in siblings[:6] if item != name]),
+            title=title,
+            description=description,
+        )
     role = screen_role(name, page)
     fields, action, rows = _fields_and_action(title, description, role)
     nav_roster = roster or ([name] + [item for item in siblings[:6] if item != name])
@@ -343,6 +355,63 @@ def _screen_source(
 {table}'''
 
     return _shell(name, theme=theme, brand=brand, roster=nav_roster, main=main)
+
+
+def _contract_source(
+    name: str,
+    page: dict[str, str],
+    contract: dict[str, Any],
+    *,
+    theme: str,
+    brand: str,
+    roster: list[str],
+    title: str,
+    description: str,
+) -> str:
+    """Draw only the fields the architect locked and the page line names."""
+    del page
+    kind = str(contract.get("kind") or "form")
+
+    def slug(label: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "field"
+
+    def field(label: str) -> str:
+        safe = _safe_jsx_text(label)
+        return f'<Field name="{slug(safe)}" label="{safe}" />'
+
+    typed = [_safe_jsx_text(label) for label in contract.get("typed") or []]
+    readonly = [_safe_jsx_text(label) for label in contract.get("readonly") or []]
+    labels = [_safe_jsx_text(label) for label in contract.get("labels") or []]
+    action = _safe_jsx_text(str(contract.get("action") or ""))
+    if kind == "auth":
+        buttons = "Sign in"
+        main = f'''        <div style={{{{maxWidth:420, margin:"10vh auto"}}}}>
+          {_card(f"""          <h1>{title}</h1>
+          <p style={{{{color:"var(--color-muted)"}}}}>{description}</p>
+          {chr(10).join("          " + field(label) for label in typed)}
+          <Button type="submit">{buttons}</Button>""")}
+        </div>'''
+    elif kind == "list":
+        heads = "".join(f"<th>{label}</th>" for label in labels)
+        cells = "".join("<td>—</td>" for _ in labels)
+        sign_out = f'<td><Button type="button">{action}</Button></td>' if action else ""
+        main = f'''        <h1>{title}</h1>
+        <p style={{{{color:"var(--color-muted)"}}}}>{description}</p>
+        <Table heading="{title}">
+          <tr>{heads}{"<th></th>" if action else ""}</tr>
+          <tr>{cells}{sign_out}</tr>
+        </Table>'''
+    else:
+        notes = "".join(
+            f'<p style={{{{color:"var(--color-muted)"}}}}>{label} is set when the record is saved.</p>'
+            for label in readonly
+        )
+        main = f'''        <h1>{title}</h1>
+        <p style={{{{color:"var(--color-muted)"}}}}>{description}</p>
+        {_card(f"""          {chr(10).join("          " + field(label) for label in typed)}
+          {notes}
+          <Button type="submit">Save</Button>""")}'''
+    return _shell(name, theme=theme, brand=brand, roster=roster, main=main)
 
 
 def layout_contract(role: str) -> str:
@@ -774,6 +843,7 @@ def build_screens(
     *,
     extra_pages: list[dict[str, str]] | None = None,
     sources: dict[str, str] | None = None,
+    entities: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     pages = coverage.pages_from_brd(brd_text)
     # One page id fold → one screen. Stops LoginScreen2 / LoanManagement3 stubs.
@@ -803,9 +873,14 @@ def build_screens(
             return
         siblings = [s["name"] for s in screens]
         nav = roster if name in roster else roster + [name]
+        from phase2 import contract as product_contract
+
+        binding = product_contract.screen_contract(page, entities)
         proposed = (sources or {}).get(name) or (sources or {}).get(page.get("id") or "")
         source = ""
         failures: list[str] = []
+        if proposed and not product_contract.covers(proposed, binding):
+            proposed = ""
         if proposed:
             prepared = _adopt_model_source(name, proposed)
             try:
@@ -821,17 +896,21 @@ def build_screens(
             try:
                 source, failures = jsx_gate.generate_with_gate(
                     name,
-                    lambda error, _n=name, _p=page, _s=siblings, _r=nav: (
-                        _screen_source(_n, _p, _s, theme=theme, brand=brand, roster=_r)
+                    lambda error, _n=name, _p=page, _s=siblings, _r=nav, _c=binding: (
+                        _screen_source(
+                            _n, _p, _s, theme=theme, brand=brand, roster=_r, contract=_c
+                        )
                         if not error
-                        else _screen_source(_n, _p, _s, theme=theme, brand=brand, roster=_r)
+                        else _screen_source(
+                            _n, _p, _s, theme=theme, brand=brand, roster=_r, contract=_c
+                        )
                         + f"\n// retry after: {error}\n"
                     ),
                     skill_text,
                 )
             except jsx_gate.CompileFailed:
                 source = _screen_source(
-                    name, page, siblings, theme=theme, brand=brand, roster=nav
+                    name, page, siblings, theme=theme, brand=brand, roster=nav, contract=binding
                 )
                 jsx_gate.compile_jsx(name, source)
                 failures = jsx_gate.conform(source, skill_text)

@@ -48,7 +48,7 @@ has a traceability id reused by tickets, tests, commits and attestations.
 Screens the UI/UX agent must cover. A page with no screen is a gap at Gate 3.
 
 **Inventory rules (do not break):**
-- This section is the *only* screen list. Flat bullets only: `- **ScreenName**: what it does`.
+- This section is the only screen list. Each screen is one flat bullet whose name is in bold, then what the screen shows.
 - Do not repeat those bullets under `###` requirement headings in §8 — that duplicates Gate 3 screens.
 - One bullet per screen. Same screen used by several requirements stays listed once here; requirements describe behaviour, not a second inventory.
 

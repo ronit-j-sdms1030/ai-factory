@@ -45,6 +45,9 @@ def render_scope(requirement_id: str, report: dict[str, Any]) -> str:
             "## Open questions",
             bullets(list(report.get("open_questions") or [])),
             "",
+            "## Screens",
+            bullets(list(report.get("screens") or [])),
+            "",
         ]
     )
 
@@ -59,6 +62,7 @@ def parse_scope(markdown: str) -> dict[str, Any]:
         "users": "",
         "current_state": "",
         "non_functional": [],
+        "screens": [],
     }
     current = None
     prose: dict[str, list[str]] = {"success": [], "users": [], "current_state": []}
@@ -78,9 +82,18 @@ def parse_scope(markdown: str) -> dict[str, Any]:
             current = "users"
         elif heading == "## what happens today":
             current = "current_state"
+        elif heading == "## screens":
+            current = "screens"
         elif heading in {"## non-functional", "## non-functional requirements"}:
             current = "non_functional"
-        elif line.startswith("- ") and current in {"in_scope", "out_of_scope", "assumptions", "open_questions", "non_functional"}:
+        elif line.startswith("- ") and current in {
+            "in_scope",
+            "out_of_scope",
+            "assumptions",
+            "open_questions",
+            "non_functional",
+            "screens",
+        }:
             sections[current].append(line[2:].strip())
         elif current in prose and line.strip() and not line.startswith("#"):
             prose[current].append(line.strip().lstrip("- ").strip())
@@ -232,27 +245,158 @@ def _clip(text: str, limit: int = 180) -> str:
     return text[: limit - 1].rsplit(" ", 1)[0] + "…"
 
 
-def _page_entries(items: list[str]) -> list[tuple[str, str]]:
-    used: set[str] = set()
-    entries: list[tuple[str, str]] = []
+_AUTH = re.compile(r"\b(sign[\s-]?in|log[\s-]?in|authentication|shared login)\b", re.I)
+_ROW_ACTION = re.compile(r"\b(sign[\s-]?out|signed out|departure)\b", re.I)
+_FILTER = re.compile(r"\b(filter|search|hide|exclude)\b", re.I)
+_TIME = re.compile(r"\b(time in|current (?:system )?time|timestamp)\b", re.I)
+_FORM = re.compile(r"\b(form|capture|enter|add a|register)\b", re.I)
+_LIST = re.compile(r"\b(dashboard|displaying a list|\blist\b|\btable\b)\b", re.I)
+_SUBJECTS = (
+    "visitor",
+    "book",
+    "loan",
+    "room",
+    "member",
+    "order",
+    "ticket",
+    "patient",
+    "appointment",
+    "employee",
+)
+
+
+def _subject_noun(items: list[str]) -> str:
+    blob = " ".join(items).lower()
+    for word in _SUBJECTS:
+        if re.search(rf"\b{word}s?\b", blob):
+            return word[:1].upper() + word[1:]
+    return "Record"
+
+
+def _kind(item: str) -> str:
+    if _AUTH.search(item):
+        return "auth"
+    if _TIME.search(item) and not _FORM.search(item):
+        return "time"
+    if _ROW_ACTION.search(item):
+        return "signout"
+    if _FILTER.search(item) and _LIST.search(item):
+        return "filter"
+    if _FORM.search(item):
+        return "form"
+    if _LIST.search(item):
+        return "list"
+    return "screen"
+
+
+def _capture_fields(item: str) -> list[str]:
+    match = re.search(r"\b(?:capture|enter|record)\b\s+(.+)", item, re.I)
+    tail = match.group(1) if match else ""
+    tail = re.split(r"\b(?:when|so that|with a|fields:)\b|\.", tail, maxsplit=1, flags=re.I)[0]
+    parts = re.split(r"\s+\band\b\s+", tail, flags=re.I)
+    fields: list[str] = []
+    for part in parts:
+        part = re.sub(r"^(a|an|the)\s+", "", part.strip(" ."), flags=re.I)
+        part = re.sub(r"^name of the\s+", "", part, flags=re.I)
+        if part and len(part) < 80:
+            fields.append(part[0].upper() + part[1:])
+    return fields
+
+
+def _pascal_name(item: str) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", item)
+    stop = {"a", "an", "the", "to", "for", "of", "and", "staff", "user", "users"}
+    kept = [word for word in words if word.lower() not in stop][:3]
+    name = "".join(word[:1].upper() + word[1:].lower() for word in kept) or "Screen"
+    return name[:28]
+
+
+def _ui_screens(items: list[str], out_of_scope: list[str]) -> list[tuple[str, str]]:
+    """Screens a UI pass can draw: fields and actions, not one stub per bullet.
+
+    Sign-in, the entry form, and the list are separate screens. A timestamp,
+    a sign-out button, or a filter is behaviour on those screens.
+    """
+    groups: dict[str, list[str]] = {
+        "auth": [],
+        "form": [],
+        "time": [],
+        "list": [],
+        "signout": [],
+        "filter": [],
+        "screen": [],
+    }
     for item in items:
-        words = re.findall(r"[A-Za-z][A-Za-z0-9]+", item)
-        name = "".join(w[:1].upper() + w[1:].lower() for w in words[:3]) or "Screen"
-        name = name[:28]
+        groups[_kind(item)].append(item)
+    noun = _subject_noun(items)
+    blocked = " ".join(out_of_scope).lower()
+    screens: list[tuple[str, str]] = []
+    if groups["auth"]:
+        account = ""
+        if "individual" in blocked or "separate account" in blocked or "role-based" in blocked:
+            account = " Individual accounts are out of scope."
+        screens.append(
+            (
+                "SignIn",
+                "Shared sign-in. Fields: login and password. Success opens the main list."
+                + account,
+            )
+        )
+    fields = []
+    for item in groups["form"]:
+        fields.extend(_capture_fields(item))
+    if groups["time"]:
+        quoted = []
+        for item in groups["time"]:
+            quoted.extend(re.findall(r"['\"]([^'\"]+)['\"]", item))
+        label = quoted[0] if quoted else "Time in"
+        fields.append(f"{label} (set to the current time when the record is saved, not typed)")
+    if groups["form"] or groups["time"]:
+        shown = ", ".join(fields) if fields else "the values named in scope"
+        screens.append(
+            (
+                f"{noun}Form",
+                f"Fields: {shown}. Saving adds the {noun.lower()} to the current list.",
+            )
+        )
+    if groups["list"] or groups["signout"] or groups["filter"]:
+        lead = groups["list"][0] if groups["list"] else f"List of current {noun.lower()} records."
+        if lead and lead[-1] not in ".!?":
+            lead += "."
+        bits = [lead]
+        if fields:
+            bits.append("Columns match the form: " + ", ".join(fields) + ".")
+        if groups["signout"]:
+            bits.append("Each row has Sign out. That row then leaves this list.")
+        if groups["filter"]:
+            bits.append(groups["filter"][0].rstrip(".") + ".")
+        if "histor" in blocked or "previous day" in blocked or "past date" in blocked:
+            bits.append("No history and no previous days.")
+        list_name = "Dashboard" if noun == "Record" else f"{noun}List"
+        screens.append((list_name, " ".join(bits)))
+    used = {name for name, _ in screens}
+    for item in groups["screen"]:
+        name = _pascal_name(item)
         n = name
         i = 2
         while n in used:
             n = f"{name}{i}"
             i += 1
         used.add(n)
-        entries.append((n, _clip(item, 140)))
-    if not entries:
-        entries.append(("Primary", "Deliver the approved in-scope capabilities in a browser."))
-    return entries
+        screens.append((n, _clip(item, 180)))
+    if not screens:
+        screens.append(("Primary", "Deliver the approved in-scope capabilities in a browser."))
+    return screens
 
 
-def _page_lines(items: list[str]) -> str:
-    return "\n".join(f"- **{name}**: {desc}" for name, desc in _page_entries(items))
+def _page_entries(items: list[str]) -> list[tuple[str, str]]:
+    return _ui_screens(items, [])
+
+
+def _page_lines(items: list[str], out_of_scope: list[str] | None = None) -> str:
+    return "\n".join(
+        f"- **{name}**: {desc}" for name, desc in _ui_screens(items, out_of_scope or [])
+    )
 
 
 def _users(in_scope: list[str], assumptions: list[str]) -> str:
@@ -272,12 +416,55 @@ def _current_state(assumptions: list[str]) -> str:
     return "Today the work is done by hand (paper, chat, or a spreadsheet) and reconstructed at period end."
 
 
+def _object_phrase(item: str, *leads: str) -> str:
+    """The thing the item talks about, e.g. "list of all visitors inside" → "all visitors inside"."""
+    for lead in leads:
+        match = re.search(lead + r"\s+(.+?)(?:\.|$)", item or "", re.I)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
 def _gherkin(item: str) -> str:
-    action = item[0].lower() + item[1:] if item else "use this capability"
+    kind = _kind(item)
+    # "filter the list to exclude people who signed out" is a filter, not the sign-out action.
+    if kind == "signout" and _FILTER.search(item) and _LIST.search(item):
+        kind = "filter"
+    given = "- **Given** a named user is signed in on a browser"
+    if kind == "auth":
+        given = "- **Given** the desk opens the site in a browser"
+        when = "they sign in with the shared login"
+        then = "the main list opens and they are not asked to create a personal account"
+    elif kind == "time":
+        when = "they save a new record"
+        then = "the time field is the current time and cannot be typed over"
+    elif kind == "form":
+        fields = _capture_fields(item)
+        when = "they submit " + (", ".join(fields) if fields else "the form")
+        then = "the new record appears on the current list"
+    elif kind == "signout":
+        when = "they choose Sign out on one row"
+        then = "that row leaves the current list"
+    elif kind == "filter":
+        hidden = _object_phrase(item, r"\bexclude", r"\bhide", r"\bfilter out")
+        when = "a row changes while the list is on screen"
+        then = (
+            f"{hidden} drop off the list without a page reload"
+            if hidden
+            else "rows that no longer match drop off the list without a page reload"
+        )
+    elif kind == "list":
+        shown = _object_phrase(item, r"\blist of", r"\btable of", r"\bshowing", r"\bdisplaying")
+        when = "they open the list"
+        then = f"the list shows {shown} and no other rows" if shown else "the list shows only the rows this requirement names"
+    else:
+        action = item[0].lower() + item[1:] if item else "use this capability"
+        when = f"they {action}"
+        then = "the screen shows the result of that action"
     return (
-        "- **Given** a named user is signed in on a browser\n"
-        f"- **When** they {action}\n"
-        "- **Then** the result is visible in the product the same day, without a call, chat or paper register\n"
+        f"{given}\n"
+        f"- **When** {when}\n"
+        f"- **Then** {then}\n"
         "- **And** an automated test can fail this item without failing the others"
     )
 
@@ -299,6 +486,46 @@ def _journeys(pages: list[tuple[str, str]]) -> str:
         lines.append("")
         lines.append(f"Primary path: Sign in → {nodes}.")
     return "\n".join(lines)
+
+
+def _product_title(success: str, in_scope: list[str]) -> str:
+    from phase1.rails import title_from_request
+
+    first = (success or "").split(".")[0].strip()
+    words = first.split()
+    if 2 <= len(words) <= 8 and len(first) <= 60:
+        return first[0].upper() + first[1:]
+    return title_from_request(" ".join(in_scope[:1]) or success)
+
+
+def _entities_for_ui(blob: str, items: list[str]) -> list[tuple[str, list[str]]]:
+    """Use a real record when the scope names one. Keep the keyword models."""
+    stock = _entities(blob)
+    if len(stock) < 2 or stock[1][0] != "Record":
+        return stock
+    noun = _subject_noun(items)
+    if noun == "Record":
+        return stock
+    fields = ["id"]
+    for item in items:
+        if _kind(item) != "form":
+            continue
+        for label in _capture_fields(item):
+            slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")[:32]
+            if slug and slug not in fields:
+                fields.append(slug)
+    if any(_kind(item) == "time" for item in items) and "time_in" not in fields:
+        fields.append("time_in")
+    if any(_kind(item) == "signout" for item in items) and "signed_out_at" not in fields:
+        fields.append("signed_out_at")
+    if "status" not in fields:
+        fields.append("status")
+    login = "shared_login" if any(_kind(item) == "auth" for item in items) else "work_login"
+    return [
+        ("User", ["id", "name", login]),
+        (noun, fields),
+        ("AuditEntry", ["id", "actor_id", "action", "at"]),
+    ]
 
 
 def _entities(blob: str) -> list[tuple[str, list[str]]]:
@@ -373,6 +600,108 @@ def _nfr() -> str:
     )
 
 
+def enrich_scope(report: dict[str, Any]) -> dict[str, Any]:
+    """Make the intake report enough for a BRD to draw screens.
+
+    Fields the requester already named are written onto the form bullet.
+    Screens are listed once. Empty users, today, or success stay as open
+    questions instead of a blank section. Nothing is invented.
+    """
+    shaped = dict(report)
+    in_scope = [str(item).strip() for item in (shaped.get("in_scope") or []) if str(item).strip()]
+    out_scope = [str(item).strip() for item in (shaped.get("out_of_scope") or []) if str(item).strip()]
+    thickened: list[str] = []
+    for item in in_scope:
+        if _kind(item) == "form" and "fields:" not in item.lower():
+            fields = _capture_fields(item)
+            if fields:
+                item = item.rstrip(".") + ". Fields: " + ", ".join(fields) + "."
+        thickened.append(item)
+    shaped["in_scope"] = thickened
+    shaped["screens"] = [
+        f"**{name}**: {desc}" for name, desc in _ui_screens(thickened, out_scope)
+    ]
+    questions = [
+        str(item).strip()
+        for item in (shaped.get("open_questions") or [])
+        if str(item).strip() and not re.search(r"missed check-in|week or month end", str(item), re.I)
+    ]
+    if not str(shaped.get("users") or "").strip():
+        questions.append("Who uses this was not stated.")
+    if not str(shaped.get("current_state") or "").strip():
+        questions.append("What happens today was not stated.")
+    if not str(shaped.get("success") or "").strip():
+        questions.append("What success looks like was not stated.")
+    if not thickened:
+        questions.append("What is in scope was not stated.")
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in questions:
+        key = item.lower()
+        if key in seen or key in {"none", "none.", "_(none)_"}:
+            continue
+        seen.add(key)
+        unique.append(item)
+    shaped["open_questions"] = unique
+    return shaped
+
+
+def scope_needs_fill(markdown: str) -> bool:
+    """True when this scope report still cannot drive a screen list.
+
+    A report that already names its screens and writes ``Fields:`` on form
+    bullets is left alone, so the same check can run for every requirement
+    on startup without rewriting finished work.
+    """
+    text = markdown or ""
+    lowered = text.lower()
+    if "## in scope" not in lowered and "## users" not in lowered:
+        return False
+    parsed = parse_scope(text)
+    enriched = enrich_scope(parsed)
+    if not enriched.get("in_scope") and not enriched.get("screens"):
+        return False
+    if [str(item).strip() for item in (parsed.get("in_scope") or [])] != list(
+        enriched.get("in_scope") or []
+    ):
+        return True
+    if "## screens" not in lowered:
+        return bool(enriched.get("screens"))
+    if list(parsed.get("screens") or []) != list(enriched.get("screens") or []):
+        return True
+    return any(
+        re.search(r"missed check-in|week or month end", str(item), re.I)
+        for item in (parsed.get("open_questions") or [])
+    )
+
+
+def brd_already_drawn(brd_text: str, screens: list[str]) -> bool:
+    """True when the specification already names every screen and its fields.
+
+    No screen list means there is nothing new to draw. A startup pass then
+    skips that requirement instead of replacing a specification that is
+    already usable.
+    """
+    if not screens:
+        return True
+    current = brd_text or ""
+    for line in screens:
+        match = re.match(r"^\*\*([^*]+)\*\*:\s*(.*)$", str(line).strip())
+        if not match:
+            return False
+        name, desc = match.group(1).strip(), match.group(2)
+        if f"**{name}**" not in current:
+            return False
+        parts = re.split(r"fields:\s*", desc, maxsplit=1, flags=re.I)
+        if len(parts) != 2:
+            continue
+        for label in re.split(r",| and ", parts[1]):
+            label = label.strip(" .")
+            if len(label) >= 2 and label.lower() not in current.lower():
+                return False
+    return True
+
+
 def draft_brd(
     requirement_id: str,
     scope_md: str,
@@ -385,9 +714,9 @@ def draft_brd(
         import skill_registry
 
         skill_registry.require(skill, "brd")
-    from phase1.rails import as_string_list, shape_scope_report, title_from_request
+    from phase1.rails import as_string_list, shape_scope_report
 
-    parsed = parse_scope(scope_md)
+    parsed = enrich_scope(parse_scope(scope_md))
     shaped = shape_scope_report(
         {
             "type": "scope_report",
@@ -407,20 +736,43 @@ def draft_brd(
     out_lines = as_string_list(shaped.get("out_of_scope"))
     questions = as_string_list(shaped.get("open_questions"))
     success = _clip(shaped["success"] or "Deliver the approved in-scope capabilities.", 400)
-    title = title_from_request(" ".join(in_scope[:1]))
-    pages = _page_entries(in_scope)
+    title = _product_title(success, in_scope)
+    pages = _ui_screens(in_scope, out_lines)
+    stated_screens = [str(item).strip() for item in (parsed.get("screens") or []) if str(item).strip()]
+    if stated_screens:
+        page_behaviour = "\n".join(
+            item if item.startswith("- ") else f"- {item}" for item in stated_screens
+        )
+    else:
+        page_behaviour = _page_lines(in_scope, out_lines)
     blob = " ".join(in_scope + out_lines + [success])
-    entities = _entities(blob)
+    entities = _entities_for_ui(blob, in_scope)
 
     req_blocks = []
+    seen_criteria: set[str] = set()
     for i, item in enumerate(in_scope):
         tid = ids[i] if i < len(ids) else ids[-1]
+        criteria = _gherkin(item)
+        key = re.sub(r"\s+", " ", criteria.split("**When**", 1)[-1]).lower()
+        if key in seen_criteria:
+            # Two items with one When/Then cannot be tested apart.
+            criteria = re.sub(
+                r"(- \*\*Then\*\* [^\n]+)",
+                lambda m: m.group(1) + f" (specifically: {_clip(item, 120).rstrip('.')})",
+                criteria,
+                count=1,
+            )
+        seen_criteria.add(key)
         req_blocks.append(
             f"### {tid} — {_clip(item, 80)}\n\n"
             f"**Source:** approved scope, in-scope item {i + 1}.\n\n"
-            f"{_clip(item, 220)}\n\n"
-            f"**Acceptance criteria:**\n{_gherkin(item)}\n"
+            f"{_clip(item, 600)}\n\n"
+            f"**Acceptance criteria:**\n{criteria}\n"
         )
+    shared_desk = any(
+        token in " ".join(in_scope + assumptions).lower()
+        for token in ("shared login", "shared account", "shared credential", "one login")
+    )
 
     values = {
         "requirement_id": f"{requirement_id} — {title}",
@@ -438,12 +790,16 @@ def draft_brd(
         "requirements": "\n".join(req_blocks),
         "nfr": _nfr(),
         "journeys": _journeys(pages),
-        "page_behaviour": _page_lines(in_scope),
+        "page_behaviour": page_behaviour,
         "data_model": _data_model_text(entities),
         "er_diagram": _er_diagram(entities),
         "security": (
-            "Work login in the browser. Role-appropriate views (staff vs manager). "
-            "No secrets in images. Personal data stays in the tenant and is masked before model egress."
+            (
+                "One shared desk login in the browser, stored as a password hash. Everyone signed in sees the same views. "
+                if shared_desk
+                else "Work login in the browser. Role-appropriate views (staff vs manager). "
+            )
+            + "No secrets in images. Personal data stays in the tenant and is masked before model egress."
         ),
         "integrations": (
             "- Browser only for this release.\n"
@@ -455,6 +811,29 @@ def draft_brd(
         "open_questions": "\n".join(f"- {q}" for q in questions) or "- None.",
     }
     return normalize_screen_inventory(_fill(template, values))
+
+
+def refine_keeps_structure(drafted: str, refined: str) -> bool:
+    """A model rewrite that drops a requirement or a screen is not usable."""
+    if not refined or not re.search(r"Page behaviour", refined, re.I) or "### " not in refined:
+        return False
+    draft_ids = set(re.findall(r"REQ-\d+-R\d+", drafted))
+    if draft_ids - set(re.findall(r"REQ-\d+-R\d+", refined)):
+        return False
+    draft_screens = set(re.findall(r"^- \*\*([^*]+)\*\*:", drafted, re.M))
+    refined_screens = set(re.findall(r"^- \*\*([^*]+)\*\*:", refined, re.M))
+    if draft_screens - refined_screens:
+        return False
+    # A rewrite that keeps the screen names but drops the data model is not usable.
+    # The architect and the screens both read those fields.
+    for match in re.finditer(r"^- \*\*([^*]+):\*\*\s*(.+)$", drafted, re.M):
+        name = match.group(1).strip()
+        if name not in refined:
+            return False
+        for field in (part.strip() for part in match.group(2).split(",")):
+            if field and field not in refined:
+                return False
+    return True
 
 
 def critique(brd: str, *, skill: str = "") -> list[str]:

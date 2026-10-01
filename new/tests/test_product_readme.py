@@ -1,6 +1,6 @@
 """The requirement README names the website and the current gate."""
 
-from phase1.product_readme import brief_from_scope, render
+from phase1.product_readme import brief_from_scope, render, website_title
 
 
 def test_readme_uses_the_intake_website_and_the_current_gate():
@@ -74,3 +74,13 @@ def test_readme_says_complete_after_the_last_gate():
     )
     assert "# Travel Company" in text
     assert "Complete" in text
+
+
+def test_a_missing_or_long_title_becomes_generic():
+    assert website_title("REQ-0004", {"display_title": "Front Desk Visitor Book"}) == (
+        "Front Desk Visitor Book"
+    )
+    assert website_title("REQ-0004", {}) == "Requirement REQ-0004"
+    assert website_title("REQ-0004", {"display_title": "REQ-0004"}) == "Requirement REQ-0004"
+    long_title = "We need a system that phones every patient and also does twelve other things today"
+    assert website_title("REQ-0004", {"display_title": long_title}) == "Requirement REQ-0004"

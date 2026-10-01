@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from phase1 import brd, directory, rails
+from phase2 import contract as product_contract
 import gate_engine
 
 
@@ -88,6 +89,37 @@ _DEV_ACCOUNTS = {
     actor["email"].lower(): (actor_id, _account_tier(actor_id, actor))
     for actor_id, actor in directory.DIRECTORY.items()
 }
+
+
+def _stated_items(items: list) -> list[str]:
+    """Drop placeholder lines such as ``_(none)_`` so the report does not invent a gap."""
+    skip = {"", "none", "none.", "(none)", "_(none)_"}
+    stated = []
+    for item in items:
+        text = str(item or "").strip()
+        if text.lower() in skip:
+            continue
+        stated.append(text)
+    return stated
+
+
+def _stage_checks(row: dict[str, Any]) -> dict[str, Any]:
+    try:
+        from phase3 import stage_check
+
+        return stage_check.all_stages(row)
+    except Exception as exc:  # a check bug must not hide the card
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
+
+
+def _report_screens(items: list) -> list[str]:
+    """Screen lines from the scope report, ready for the requirement view."""
+    screens = []
+    for item in items:
+        text = str(item or "").strip().lstrip("- ").strip()
+        if text:
+            screens.append(text)
+    return screens
 
 
 class CompatibilityAPI:
@@ -284,10 +316,11 @@ class CompatibilityAPI:
             "currentState": today,
             "inScope": scope.get("in_scope") or [],
             "outOfScope": scope.get("out_of_scope") or [],
+            "screens": _report_screens(scope.get("screens") or []),
             "functionalRequirements": [],
             "nonFunctionalRequirements": scope.get("non_functional") or [],
-            "openQuestions": scope.get("open_questions") or [],
-            "assumptions": scope.get("assumptions") or [],
+            "openQuestions": _stated_items(scope.get("open_questions") or []),
+            "assumptions": _stated_items(scope.get("assumptions") or []),
         }
         history = []
         for item in requirement.get("history") or []:
@@ -375,7 +408,11 @@ class CompatibilityAPI:
             "chatHistory": list(row.get("messages") or []),
             "detailedReport": report,
             "brdText": brd_text,
+            "scopeText": row.get("scope_text") or "",
             "architectureText": architecture,
+            "brdCoverage": product_contract.coverage_rows(brd_text, architecture) if brd_text else [],
+            "stageChecks": _stage_checks(row),
+            "tests": list(row.get("tests") or []),
             "phase1": True,
             "phase2": governed >= 2,
             "governedPhase": governed,
@@ -394,8 +431,8 @@ class CompatibilityAPI:
             else None,
             "uiGate": {
                 "blocksSplit": awaiting == 3,
-                # Mirrors Phase1.edit_screen: only Gate 3 architect / UI-UX may save screens.
-                "canEdit": can_gate_3 and bool(viewer_roles & {"architect", "ui_ux"}),
+                # Mirrors Phase1.edit_screen: only Gate 3 UI/UX may save screens.
+                "canEdit": can_gate_3 and bool(viewer_roles & {"ui_ux"}),
                 "canApprove": can_gate_3 or can_gate_4 or can_gate_5 or can_gate_6 or can_gate_7,
             },
             "viewerHasSigned": signed,

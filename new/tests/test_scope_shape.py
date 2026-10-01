@@ -70,6 +70,8 @@ def test_conversation_skips_bootstrap_and_keeps_today():
     assert "paper book" in report["current_state"]
     assert "phone" in report["success"].lower()
     assert any("iphone" in item.lower() or "android" in item.lower() for item in report["out_of_scope"])
+    assert all("missed check-in" not in item.lower() for item in report["open_questions"])
+    assert all("month end" not in item.lower() for item in report["open_questions"])
 
 
 def test_card_title_rejects_the_afterwards_paragraph():

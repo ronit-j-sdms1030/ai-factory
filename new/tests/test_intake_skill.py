@@ -84,7 +84,8 @@ class TestScopeBounding:
 
 class TestTheQuestionBudget:
     def test_the_bounds_are_stated(self):
-        assert "between **four and ten** calls" in flat(DEFAULT)
+        assert "at most **ten** calls" in flat(DEFAULT)
+        assert "there is no minimum" in flat(DEFAULT)
         assert "scope report" in flat(DEFAULT)
 
     def test_it_says_the_budget_is_enforced_in_code(self):
@@ -173,11 +174,10 @@ class TestTheQuestionBudgetEnforcer:
         with pytest.raises(intake_skill.BudgetExhausted):
             b.record_question()
 
-    def test_a_report_before_four_questions_is_refused(self):
+    def test_a_report_may_close_before_four_questions(self):
         b = intake_skill.QuestionBudget()
-        b.record_question()
-        with pytest.raises(intake_skill.BudgetTooEarly):
-            b.require_closeable()
+        b.require_closeable()
+        assert b.may_close() is True
 
     def test_four_questions_may_close(self):
         b = intake_skill.QuestionBudget()

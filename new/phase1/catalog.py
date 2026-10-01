@@ -37,6 +37,8 @@ def github_repo_name(
     words = re.sub(r"-{2,}", "-", words)
     if slug and words:
         suffix = f"-{slug}"
+        if words.endswith(suffix):
+            return words[:100].strip("-")
         words = words[: max(1, 100 - len(suffix))].strip("-")
         if words:
             return f"{words}{suffix}"

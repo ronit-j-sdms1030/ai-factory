@@ -298,12 +298,12 @@ def scope_from_conversation(
     today = " ".join((today or "").split())
     success = " ".join((success or "").split())
     questions = []
-    if not re.search(r"paper|whatsapp|spreadsheet|cabin|chat|register", today, re.I):
-        questions.append("Which existing system holds the source records today?")
-    else:
-        questions.append("Who can correct a missed check-in, and how soon must that show on the live list?")
-    if not re.search(r"export|payroll|csv|spreadsheet|month", f"{request} {success} {out}", re.I):
-        questions.append("Does anyone need a file at week or month end, and who receives it?")
+    if not users:
+        questions.append("Who uses this was not stated.")
+    if not today:
+        questions.append("What happens today was not stated.")
+    if not success:
+        questions.append("What success looks like was not stated.")
     return {
         "type": "scope_report",
         "title": title_from_request(request),

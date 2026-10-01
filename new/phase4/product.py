@@ -107,7 +107,9 @@ def parse_entities(brd_text: str) -> list[tuple[str, list[str]]]:
 
 def table_name(entity: str) -> str:
     slug = re.sub(r"(?<!^)([A-Z])", r"_\1", entity).lower()
-    if not slug.endswith("s"):
+    if slug.endswith("y") and len(slug) > 1 and slug[-2] not in "aeiou":
+        slug = slug[:-1] + "ies"
+    elif not slug.endswith("s"):
         slug += "s"
     return slug
 
@@ -871,6 +873,7 @@ def frontend_html(
     window.FIRST = {first};
     window.API = {api};
     window.TABLES = {tables_js};
+    window.motion = (window.Motion && window.Motion.motion) || window.motion;
     {_NAV_JS}
     window.navigate = function (target) {{
       var name = resolveScreen(target, window.NAMES);
@@ -893,6 +896,16 @@ def frontend_html(
     function label(item) {{
       return item.replace(/([a-z])([A-Z])/g, "$1 $2");
     }}
+    class PreviewBoundary extends React.Component {{
+      constructor(props) {{ super(props); this.state = {{ error: "" }}; }}
+      static getDerivedStateFromError(err) {{ return {{ error: String((err && err.message) || err) }}; }}
+      render() {{
+        if (this.state.error) {{
+          return <main className="page"><h1>This screen could not be drawn</h1><p>{{this.state.error}}</p></main>;
+        }}
+        return this.props.children;
+      }}
+    }}
     function Shell() {{
       const [name, setName] = React.useState(fromHash());
       React.useEffect(() => {{
@@ -909,7 +922,9 @@ def frontend_html(
       }};
       const stage = (
         <div className="preview-stage">
-          <Screen key={{name}} api={{API}} />
+          <PreviewBoundary key={{name}}>
+            <Screen api={{API}} />
+          </PreviewBoundary>
         </div>
       );
       return (

@@ -15,6 +15,16 @@ _REQ_ID = re.compile(r"REQ-\d+", re.I)
 
 
 class LocalGitRepository(GovernanceRepo):
+    def delete_branch(self, branch: str) -> None:
+        """Drop a local branch. Main is never deleted."""
+        if not branch or branch in {"main", "master"}:
+            return
+        current = self._run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+        if current == branch:
+            self._run(["git", "checkout", "main"])
+        if self._run(["git", "branch", "--list", branch]).strip():
+            self._run(["git", "branch", "-D", branch])
+
     def create_branch(self, branch: str, *, base: str = "main") -> str:
         if self._run(["git", "branch", "--list", branch]).strip():
             return self.rev_parse(branch)
@@ -53,8 +63,10 @@ class GitHubAppRepository(LocalGitRepository):
 
     With ``per_requirement`` every ``REQ-nnnn`` branch lives in its own private
     repo named after the product: ``travel-company-req-0001``. Until a title
-    exists the fallback is ``<repo>-req-nnnn``. Branches without a requirement
-    id (skills, settings) stay in the governance repo.
+    exists the fallback is ``<repo>-req-nnnn``. ``repo`` is then only a name
+    prefix: branches without a requirement id (skills, settings, main) and
+    requirements whose repo cannot be created stay in the local tree, so the
+    shared governance repo never needs to exist on GitHub.
     """
 
     def __init__(
@@ -97,6 +109,9 @@ class GitHubAppRepository(LocalGitRepository):
         )
         return self.repo if name in self._refused else name
 
+    def _local_only(self, repo: str) -> bool:
+        return self.per_requirement and repo == self.repo
+
     def _legacy_repo(self, requirement_id: str) -> str:
         found = _REQ_ID.search(requirement_id or "")
         if not found:
@@ -117,7 +132,10 @@ class GitHubAppRepository(LocalGitRepository):
         )
         try:
             with request.urlopen(req, timeout=15) as response:
-                return json.load(response)
+                raw = response.read()
+            if not raw.strip():
+                return {}
+            return json.loads(raw)
         except error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")
             path = url[len(self.api_url):]
@@ -137,29 +155,41 @@ class GitHubAppRepository(LocalGitRepository):
         description = (
             f"{title} ({requirement})" if title else f"Requirement {requirement}"
         )
+        description_text = f"{description} — governed product artefacts"
         try:
             self._api("GET", "", repo=repo)
+            if title:
+                try:
+                    self._api(
+                        "PATCH", "", {"name": repo, "description": description_text}, repo=repo
+                    )
+                except RuntimeError:
+                    pass
         except RuntimeError as exc:
             if ": 404 " not in str(exc):
                 raise
-            legacy = self._legacy_repo(requirement)
             renamed = False
-            if legacy and legacy != repo:
+            for candidate in self._same_requirement_repos(requirement, repo):
                 try:
-                    self._api("GET", "", repo=legacy)
-                    self._api(
-                        "PATCH",
-                        "",
-                        {
-                            "name": repo,
-                            "description": f"{description} — governed product artefacts",
-                        },
-                        repo=legacy,
-                    )
-                    renamed = True
-                except RuntimeError as rename_exc:
-                    if ": 404 " not in str(rename_exc) and not self._already_there(rename_exc):
+                    info = self._api("GET", "", repo=candidate)
+                except RuntimeError as found_exc:
+                    if ": 404 " not in str(found_exc):
                         raise
+                    continue
+                if not isinstance(info, dict) or not info.get("name"):
+                    continue
+                current = str(info.get("name") or candidate)
+                if current == repo:
+                    renamed = True
+                    break
+                self._api(
+                    "PATCH",
+                    "",
+                    {"name": repo, "description": description_text},
+                    repo=current,
+                )
+                renamed = True
+                break
             if not renamed:
                 me = self._call("GET", f"{self.api_url}/user")
                 create = (
@@ -175,7 +205,7 @@ class GitHubAppRepository(LocalGitRepository):
                             "name": repo,
                             "private": True,
                             "auto_init": True,
-                            "description": f"{description} — governed product artefacts",
+                            "description": description_text,
                             "homepage": f"http://127.0.0.1:5173/preview/{requirement}",
                         },
                     )
@@ -183,6 +213,25 @@ class GitHubAppRepository(LocalGitRepository):
                     if not self._already_there(create_exc):
                         raise
         self._known_repos.add(repo)
+
+    def _same_requirement_repos(self, requirement: str, desired: str) -> list[str]:
+        """Repos already opened for this id, under an older name."""
+        suffix = "-" + requirement.lower()
+        names: list[str] = []
+        for candidate in (
+            self._legacy_repo(requirement),
+            f"requirement-{requirement.lower()}",
+        ):
+            if candidate and candidate != desired and candidate not in names:
+                names.append(candidate)
+        try:
+            listed = self._requirement_repos()
+        except Exception:
+            listed = []
+        for name in listed:
+            if name != desired and name.lower().endswith(suffix) and name not in names:
+                names.append(name)
+        return names
 
     def _base_branch(self, repo: str | None = None) -> str:
         repo = repo or self.repo
@@ -257,13 +306,18 @@ class GitHubAppRepository(LocalGitRepository):
             branch, files, message, author=author, email=email, delete=delete
         )
         repo = self.repo_for(branch)
+        if self._local_only(repo):
+            self._publish_root_readme(branch, files)
+            return sha
         try:
             self._ensure_repo(repo)
         except RuntimeError as exc:
-            # Token cannot create repos: keep the demo loop on the governance repo.
-            print(f"[github] cannot create {repo}, using {self.repo}: {exc}", file=sys.stderr)
+            if not self.per_requirement:
+                raise
+            # Token cannot create repos: keep the demo loop on the local tree.
+            print(f"[github] cannot create {repo}, {branch} stays local: {exc}", file=sys.stderr)
             self._refused.add(repo)
-            repo = self.repo
+            return sha
         self._ensure_base(repo)
         if branch != "main":
             try:
@@ -281,6 +335,8 @@ class GitHubAppRepository(LocalGitRepository):
         if branch == "main":
             return sha
         repo = self.repo_for(branch)
+        if self._local_only(repo):
+            return sha
         number = None
         try:
             number = self.open_pull_request(branch, message)
@@ -341,9 +397,40 @@ class GitHubAppRepository(LocalGitRepository):
             try:
                 self._ensure_repo(repo)
                 self._ensure_base(repo)
+                if self._readme_is_current(repo, content):
+                    continue
                 self._put_file(repo, "main", "README.md", content, "Update requirement status")
             except RuntimeError as exc:
                 print(f"[github] README for {repo} was not updated: {exc}", file=sys.stderr)
+
+    def _readme_is_current(self, repo: str, content: str) -> bool:
+        try:
+            existing = self._api("GET", "/contents/README.md?ref=main", repo=repo)
+        except RuntimeError:
+            return False
+        raw = ""
+        if isinstance(existing, dict):
+            raw = str(existing.get("content") or "")
+        if not raw:
+            return False
+        try:
+            current = base64.b64decode(raw).decode()
+        except (ValueError, UnicodeError):
+            return False
+        return current.strip() == content.strip()
+
+    def delete_branch(self, branch: str) -> None:
+        super().delete_branch(branch)
+        if not branch or branch in {"main", "master"}:
+            return
+        repo = self.repo_for(branch)
+        if self._local_only(repo):
+            return
+        try:
+            self._api("DELETE", f"/git/refs/heads/{branch}", repo=repo)
+        except RuntimeError as exc:
+            if ": 404 " not in str(exc) and "422" not in str(exc):
+                print(f"[github] {branch} was not deleted on {repo}: {exc}", file=sys.stderr)
 
     def create_branch(self, branch: str, *, base: str | None = None) -> str:
         repo = self.repo_for(branch)
@@ -405,7 +492,12 @@ class GitHubAppRepository(LocalGitRepository):
                 if str(me.get("login") or "").lower() == self.owner.lower()
                 else f"{self.api_url}/orgs/{self.owner}/repos?per_page=100"
             )
-            for row in self._call("GET", listing) or []:
+            rows = self._call("GET", listing) or []
+            if not isinstance(rows, list):
+                rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
                 name = str(row.get("name") or "")
                 desc = str(row.get("description") or "").lower()
                 if name.startswith(prefix) or (named.search(name) and "governed" in desc):
@@ -415,7 +507,10 @@ class GitHubAppRepository(LocalGitRepository):
         return sorted(found)
 
     def list_open_pull_requests(self) -> list:
-        pulls = list(self._api("GET", "/pulls?state=open&per_page=50") or [])
+        pulls = (
+            [] if self.per_requirement
+            else list(self._api("GET", "/pulls?state=open&per_page=50") or [])
+        )
         for repo in self._requirement_repos():
             try:
                 pulls += self._api("GET", "/pulls?state=open&per_page=50", repo=repo) or []

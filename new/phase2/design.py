@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from phase2 import architect, coverage, preview, ui
+from phase2 import architect, contract as product_contract, coverage, preview, ui
 import stack_profiles
 from stack_profiles import StackProfile
 import skill_registry
@@ -71,6 +71,15 @@ def build(
                     "description": str(page.get("description") or ident)[:220],
                 }
             )
+    screen_entities = list(decision.get("entities") or [])
+    if refresh == "ui":
+        screen_entities = list((prior_decision or {}).get("entities") or screen_entities)
+    # A model screen that is missing the locked fields is discarded. The
+    # fallback then draws those fields, so the UI cannot drift off the BRD.
+    if product_contract.problems(brd_text, screen_entities):
+        screen_entities = list(
+            architect.decide(requirement_id, brd_text).get("entities") or []
+        )
     if refresh == "architecture":
         # Screens wait until BA has signed Gate 3 — Architect reviews stack/ADRs only.
         generated = {
@@ -87,6 +96,7 @@ def build(
             skill_text + "\n" + ui_bundle.content,
             extra_pages=extra,
             sources=screen_sources,
+            entities=screen_entities,
         )
     files = {
         f"requirements/{requirement_id}/design/architecture.md": architecture,
@@ -116,6 +126,12 @@ def build(
     files.update(skill_registry.snapshot_paths(requirement_id, "design", ui_bundle))
     for screen in generated["screens"]:
         files[f"requirements/{requirement_id}/design/ui/{screen['name']}.jsx"] = screen["source"]
+    if refresh != "ui":
+        issues = product_contract.problems(brd_text, decision.get("entities"))
+        if issues:
+            raise RuntimeError(
+                "architecture does not match the BRD data model: " + "; ".join(issues)
+            )
     return {
         "profile": profile.dump(),
         "architecture": architecture,

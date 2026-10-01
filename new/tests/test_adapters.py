@@ -486,7 +486,7 @@ def test_github_gives_each_requirement_its_own_private_repo(tmp_path, monkeypatc
     assert repo.repo_for("skills/main") == "gov"
 
 
-def test_github_falls_back_to_governance_repo_when_create_is_refused(tmp_path, monkeypatch):
+def test_github_keeps_the_commit_local_when_create_is_refused(tmp_path, monkeypatch):
     from phase1.adapters.repository import GitHubAppRepository
 
     calls = []
@@ -499,9 +499,30 @@ def test_github_falls_back_to_governance_repo_when_create_is_refused(tmp_path, m
         per_requirement=True,
     )
     repo.init()
-    repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
-    puts = [url for method, url in calls if method == "PUT"]
-    assert puts and all("/repos/acme/gov/" in url for url in puts)
+    sha = repo.commit_files("brd/REQ-0007", {"brd.md": "# BRD\n"}, "brd", author="a", email="a@x")
+    assert sha == repo.rev_parse("brd/REQ-0007")
+    assert not [url for method, url in calls if method == "PUT"]
+    assert not [url for _method, url in calls if "/repos/acme/gov/" in url or url.endswith("/repos/acme/gov")]
+
+
+def test_per_requirement_mode_never_calls_the_shared_repo(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    calls = []
+    monkeypatch.setattr(
+        "phase1.adapters.repository.request.urlopen", _per_requirement_urlopen(calls)
+    )
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.init()
+    repo.commit_files("skills/main", {"skill.md": "x\n"}, "skill", author="a", email="a@x")
+    repo.merge_to_main("skills/main", "merge skill")
+    repo.delete_branch("skills/main")
+    repo.commit_files("main", {"notes.md": "x\n"}, "note", author="a", email="a@x")
+    repo.list_open_pull_requests()
+    assert not [url for _method, url in calls if "/repos/acme/gov/" in url or url.endswith("/repos/acme/gov")]
 
 
 def test_repo_name_includes_the_product_title(monkeypatch):
@@ -514,6 +535,7 @@ def test_repo_name_includes_the_product_title(monkeypatch):
         "community-library-loan-manager-req-0001"
     )
     assert github_repo_name("REQ-0001", "") == "ai-factory-governance-req-0001"
+    assert github_repo_name("REQ-0005", "Requirement REQ-0005") == "requirement-req-0005"
 
 
 def test_github_names_the_repo_after_the_product(tmp_path, monkeypatch):
@@ -581,6 +603,38 @@ def test_github_renames_an_id_only_repo_once_the_title_is_known(tmp_path, monkey
     assert patched and b"book-meeting-rooms-req-0007" in patched["body"]
 
 
+def test_github_renames_a_generic_repo_once_the_website_name_is_known(tmp_path, monkeypatch):
+    from phase1.adapters.repository import GitHubAppRepository
+
+    patched = {}
+
+    def urlopen(req, timeout=15):
+        method, url = req.get_method(), req.full_url
+        if method == "GET" and url.endswith("/repos/acme/book-meeting-rooms-req-0007"):
+            raise RuntimeError("GitHub API GET : 404 missing")
+        if method == "GET" and url.endswith("/repos/acme/gov-req-0007"):
+            raise RuntimeError("GitHub API GET : 404 missing")
+        if method == "GET" and url.endswith("/repos/acme/requirement-req-0007"):
+            return Response({"name": "requirement-req-0007"})
+        if method == "GET" and url.endswith("/user"):
+            return Response({"login": "acme"})
+        if method == "GET" and "/user/repos" in url:
+            return Response([])
+        if method == "PATCH" and url.endswith("/repos/acme/requirement-req-0007"):
+            patched["body"] = req.data
+            return Response({"name": "book-meeting-rooms-req-0007"})
+        return Response({})
+
+    monkeypatch.setattr("phase1.adapters.repository.request.urlopen", urlopen)
+    repo = GitHubAppRepository(
+        tmp_path, owner="acme", repo="gov", token="t", api_url="https://api.github.com",
+        per_requirement=True,
+    )
+    repo.note_title("REQ-0007", "Book meeting rooms")
+    repo._ensure_repo(repo.repo_for("scope/REQ-0007"))
+    assert patched and b"book-meeting-rooms-req-0007" in patched["body"]
+
+
 def test_github_readme_lands_on_the_named_repo_from_a_main_commit(tmp_path, monkeypatch):
     from phase1.adapters.repository import GitHubAppRepository
 
@@ -618,6 +672,7 @@ def test_github_readme_lands_on_the_named_repo_from_a_main_commit(tmp_path, monk
     )
     home = [item for item in puts if item[0].endswith("/repos/acme/library-req-0001/contents/README.md")]
     assert home
+    assert not [url for url, _data in puts if "/repos/acme/gov/" in url]
     body = json.loads(home[-1][1].decode())
     assert "Gate 3" in base64.b64decode(body["content"]).decode()
 

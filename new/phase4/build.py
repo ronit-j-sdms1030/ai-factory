@@ -69,8 +69,14 @@ def _ticket_files(
     title = str(ticket.get("title") or "").lower()
     tid = str(ticket.get("id") or "ticket")
     files: dict[str, str] = {}
-    schema_job = "schema" in title or "migration" in title
-    screen_job = title.endswith(" screen") or "form" in title or title.endswith(" ui")
+    joined = " ".join(allow)
+    schema_job = ("schema" in title or "migration" in title) and any(
+        token in joined for token in ("prisma", "alembic", "migration")
+    )
+    ui_allowed = "src/ui" in joined or "app/ui" in joined
+    screen_job = bool(ticket.get("screen")) or (
+        ui_allowed and (title.endswith(" screen") or "form" in title or title.endswith(" ui"))
+    )
     if schema_job:
         if profile_id == "python":
             files[f"alembic/versions/{tid}.py"] = product.alembic_revision(entities, tid)
@@ -84,20 +90,24 @@ def _ticket_files(
         files[f"{ai_root}/infer.ts"] = product.ai_adapter(str(ticket.get("id") or tid), screens)
         return files
     if screen_job:
-        name = str(ticket.get("title") or "")
+        name = str(ticket.get("screen") or ticket.get("title") or "")
         if name.lower().endswith(" screen"):
             name = name[: -len(" screen")]
         match = next((screen for screen in screens if screen.get("name") == name), None)
         source = str((match or {}).get("source") or "").strip()
         ui_root = "src/ui" if profile_id != "python" else "app/ui"
-        files[f"{ui_root}/{tid}.ts"] = product.screen_ticket_ts(name or "Screen", tid)
+        folder = next(
+            (p[:-3].rstrip("/") for p in allow if p.endswith("/**") and p.startswith(ui_root)),
+            ui_root,
+        )
+        files[f"{folder}/{tid}.ts"] = product.screen_ticket_ts(name or "Screen", tid)
         if source:
-            files[f"{ui_root}/{name or 'Screen'}.jsx"] = product.screen_jsx(name or "Screen", source)
+            files[f"{folder}/{name or 'Screen'}.jsx"] = product.screen_jsx(name or "Screen", source)
         return files
     path = _concrete(allow[0] if allow else "src/api/**", tid)
     if path.endswith(".ts") or "/api/" in path or path.endswith(".py"):
         if profile_id == "python" and not path.endswith(".py"):
-            path = f"app/api/{tid}.py"
+            path = path[: -len(".ts")] + ".py" if path.endswith(".ts") else f"app/api/{tid}.py"
         if path.endswith(".py"):
             files[path] = product.api_py(ticket, entities)
         else:

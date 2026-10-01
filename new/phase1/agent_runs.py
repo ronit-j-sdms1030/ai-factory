@@ -34,7 +34,7 @@ def tickets_from_model(
                 "id": str(item.get("id") or f"{requirement_id}-W{index}"),
                 "title": title,
                 "depends_on": [str(x) for x in (item.get("depends_on") or [])][:8],
-                "trace": [str(x) for x in (item.get("trace") or [])][:4],
+                "trace": [str(x) for x in (item.get("trace") or [])][:12],
                 "department": department,
                 "paths": paths,
             }
@@ -55,7 +55,7 @@ def tests_from_model(
     framework: str,
 ) -> list[dict[str, Any]]:
     items = data.get("tests") or data.get("cases")
-    if not isinstance(items, list) or len(items) != 8:
+    if not isinstance(items, list) or len(items) < 4:
         return fallback
     out: list[dict[str, Any]] = []
     for index, item in enumerate(items, start=1):
